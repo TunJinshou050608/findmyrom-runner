@@ -540,6 +540,7 @@ class D1Client:
             try:
                 response_data = self._request_cf_with_retry(payload, is_safe_to_retry=is_safe_to_retry)
             except Exception as e:
+                if getattr(e,'fmr_batch_deadline',False):raise
                 raise D1BatchError(
                     f"Cloudflare D1 batch HTTP request failed at chunk {chunk_idx} (offset {offset}): {e}",
                     offset=offset,

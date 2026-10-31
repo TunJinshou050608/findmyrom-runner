@@ -14,12 +14,13 @@ from fmr_core.d1_client import D1Client
 from .device_sync import ensure_base_brands_and_anchor
 from .catalogue_store import Store,digest
 from .catalogue_cache import CachedClient,CatalogueDeadline
+from .d1_budget import BudgetDB,D1BudgetReached,NOT_BEFORE
 from .catalogue_job import collect_model
 from .catalogue_sync import publish_device,publish_release
 from .oem_sources import (MetadataHTTP,ATLAS_BRANDS,RESTRICTED,atlas_devices,
     google_catalogue,xiaomi_devices,product_devices,resolve_atlas,download_origin)
 
-LABELS={'xiaomi':'小米 / Redmi / POCO','google':'Google Pixel / Nexus','oneplus':'一加',
+LABELS={'sony':'Sony Xperia','xiaomi':'小米 / Redmi / POCO','google':'Google Pixel / Nexus','oneplus':'一加',
     'samsung':'三星','motorola':'摩托罗拉','oppo':'OPPO','realme':'realme','vivo':'vivo',
     'asus':'ASUS','nothing':'Nothing','huawei':'华为','honor':'荣耀'}
 VENDORS=tuple(LABELS)
@@ -97,6 +98,10 @@ def input_hash(row):
 
 def durable_download(vendor,row):
     url=row.get('download_url')
+    if vendor=='sony' and row.get('kind')=='sony_bundle':
+        from .sony_source import validate_manifest,manifest_digest
+        validate_manifest(row['bundle'])
+        return url=='https://findmyrom.com/sony/bundles/'+manifest_digest(row['bundle'])
     if not url or not download_origin(vendor,url):return False
     keys={k.lower() for k in parse_qs(urlsplit(url).query)}
     return not keys & {'x-amz-signature','x-goog-signature','expires','token','signature'}
@@ -192,7 +197,10 @@ def discover(store,control,http,status):
         status.log('沿用旧任务已经发现的机型列表，本次优先完成剩余任务。');return
     status.update('检查机型列表是否有更新');vendor=store.vendor
     embedded={};errors=[]
-    if vendor=='google':devices,embedded,errors=google_catalogue(http)
+    if vendor=='sony':
+        from .sony_source import devices as sony_devices
+        devices=sony_devices(http)
+    elif vendor=='google':devices,embedded,errors=google_catalogue(http)
     elif vendor=='xiaomi':devices,errors=xiaomi_devices(http)
     elif vendor in RESTRICTED:devices=product_devices(vendor,http)
     else:devices=atlas_devices(vendor,http)
@@ -222,6 +230,21 @@ def mark_problem(value,code,cycle,blocked=False):
 
 def batch(store,control,http,status):
     cycle=control['cycle'];now=int(time.time());changed=0
+    if control['mode']=='publish':
+        ready=store.ready()
+        if ready:
+            status.update(f'优先发布已经解析的 {len(ready)} 条记录')
+            for number,(key,value) in enumerate(ready,1):
+                result=publish_release(store.db,value['device'],value['release'])
+                if result['status'] in ('published_new','preserved_existing'):
+                    value.update(published=True,publication=result)
+                else:mark_problem(value,'PublicationRejected',cycle,blocked=True)
+                store.put(key,value);store.advance('publish',key);changed+=1
+                status.update(checkpoint=True)
+                if number%10==0:status.log(f'已发布并同步网页 {number}/{len(ready)} 条记录。')
+            counts=store.counts();status.update(counts=counts,stats=http.client.stats)
+            more=bool(store.ready_count or store.due('model',cycle,1,operation=control['operation']) or store.due('release',cycle,1,operation=control['operation'],publish=True))
+            return more,counts,changed
     options={'operation':control['operation'],'publish':control['mode']=='publish'}
     models=store.due('model',cycle,4,now,**options)
     for number,(key,value) in enumerate(models,1):
@@ -242,12 +265,13 @@ def batch(store,control,http,status):
             else:value.update(status='ok',next_check=now+MODEL_TTL,last_cycle=cycle,attempts=0,error=None)
             if control['mode']=='publish':publish_device(store.db,device)
             status.log(f'机型目录已保存：{len(rows)} 条记录，新增或变化 {new} 条，其余沿用。')
+        except D1BudgetReached:raise
         except CatalogueDeadline:
             status.log('本批时间预算已到；页面缓存和已保存记录保留，下批从检查点接着做。');break
         except Exception as exc:
             mark_problem(value,problem(exc),cycle)
             status.log(f"机型任务遇到 {value['error']}；状态：{value['status']}，本轮第 {value['attempts']}/3 次尝试。")
-        store.put(key,value);changed+=1;status.update(checkpoint=True)
+        store.put(key,value);store.advance('model',key);changed+=1;status.update(checkpoint=True)
     releases=store.due('release',cycle,100,now,**options)
     for number,(key,value) in enumerate(releases,1):
         if time.monotonic()>=http.client.deadline:break
@@ -268,11 +292,12 @@ def batch(store,control,http,status):
                 value['published']=True
             value.update(release=row,status='resolved',checked_at=now,next_check=now+RELEASE_TTL,
                          last_cycle=cycle,attempts=0,error=None)
-            store.put(key,value);changed+=1;status.update(checkpoint=True)
+            store.put(key,value);store.advance('release',key);changed+=1;status.update(checkpoint=True)
+        except D1BudgetReached:raise
         except CatalogueDeadline:
             status.log('本批时间预算已到；下载记录留在队列，下批继续。');break
         except Exception as exc:
-            mark_problem(value,problem(exc),cycle);store.put(key,value);changed+=1;status.update(checkpoint=True)
+            mark_problem(value,problem(exc),cycle);store.put(key,value);store.advance('release',key);changed+=1;status.update(checkpoint=True)
             status.log(f"下载记录遇到 {value['error']}；状态：{value['status']}，本轮第 {value['attempts']}/3 次尝试。")
         if number%10==0 or number==len(releases):
             status.log(f'本批已处理 {number}/{len(releases)} 条下载记录，检查点已保存。')
@@ -315,6 +340,8 @@ def run(db,vendor,mode='audit',operation='incremental',cycle='',sequence=1,clien
             # cycle over the same persistent records; old continuations go stale.
             status.log('发现未结束的任务，直接从保存位置续接。')
         if control.get('schema_version')!=2:raise ValueError('Unsupported checkpoint version')
+        initial_batch=control['batch']
+        store.cursors=dict(control.get('cursors',{}))
         status.batch=control['batch'];status.update(counts=store.counts())
         status.log(f"第 {control['batch']} 批；运行方式 {control['mode']} / {control['operation']}。")
         cache=CachedClient(store,client,force=control['operation'] in ('refresh_sources','retry_failed'))
@@ -327,6 +354,7 @@ def run(db,vendor,mode='audit',operation='incremental',cycle='',sequence=1,clien
                 discover(store,control,http,status)
                 store.put(key,control)
                 more,counts,changed=batch(store,control,http,status)
+            control['cursors']=store.cursors
             control['last_code_sha']=os.environ.get('GITHUB_SHA');control['last_checkpoint']=int(time.time())
             control['batch']+=1
             gaps=bool(control.get('discovery_errors')) or vendor in RESTRICTED or any(
@@ -344,8 +372,15 @@ def run(db,vendor,mode='audit',operation='incremental',cycle='',sequence=1,clien
                 status.log('下一批已交给本厂商工作流，结束本批。')
             else:status.log('本轮结束。下次运行仍使用已有检查点，只检查到期和新增内容。')
             return 0 if more or not gaps else 1
+        except D1BudgetReached:
+            control.update(state='working',batch=max(control['batch'],initial_batch+1),cursors=store.cursors)
+            with db.checkpoint():store.put(key,control)
+            status.update('本批 D1 预算已到，检查点已保留')
+            status.log(f'本批 D1 读取 {db.rows_read} 行、写入 {db.rows_written} 行；下一批仍受每日总预算控制。')
+            dispatch(control,vendor)
+            return 0
         except Exception as exc:
-            control.update(state='paused',error=problem(exc));store.put(key,control)
+            control.update(state='paused',error=problem(exc),cursors=store.cursors);store.put(key,control)
             status.update('暂时中断；检查点已保留，重跑即可续接',stats=cache.stats)
             status.log(f"任务中断：{problem(exc)}。不会清空已经完成的数据。")
             return 1
@@ -355,17 +390,21 @@ def run(db,vendor,mode='audit',operation='incremental',cycle='',sequence=1,clien
 def main(argv=None):
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--vendor',required=True,choices=VENDORS)
-    parser.add_argument('--mode',choices=['audit','publish'],default='audit')
+    parser.add_argument('--mode',choices=['audit','publish'],default='publish')
     parser.add_argument('--operation',choices=['incremental','retry_failed','refresh_sources'],default='incremental')
     parser.add_argument('--cycle',default='');parser.add_argument('--batch',type=int,default=1)
     args=parser.parse_args(argv)
     if os.environ.get('GITHUB_ACTIONS')!='true':raise ValueError('Requires a GitHub cloud runner')
     if args.cycle and not re.fullmatch(r'c[0-9]{1,22}(?:a[0-9]{1,6})?',args.cycle):raise ValueError('Invalid cycle')
     if not 1<=args.batch<=50000:raise ValueError('Invalid batch')
+    if time.time()<NOT_BEFORE:
+        print('D1 暂停至 2026-11-01 00:00 UTC；本次不连接数据库。',flush=True);return 0
     db=None
     print(f'[{utc8()}] [{LABELS[args.vendor]}] 正在连接私有数据库，读取已保存的进度。',flush=True)
     try:
-        db=D1Client(cf_account_id=os.environ['CF_ACCOUNT_ID'],cf_api_token=os.environ['CF_API_TOKEN'],cf_database_id=os.environ['CF_D1_DATABASE_ID'])
+        db=BudgetDB(cf_account_id=os.environ['CF_ACCOUNT_ID'],cf_api_token=os.environ['CF_API_TOKEN'],cf_database_id=os.environ['CF_D1_DATABASE_ID'])
+        if not db.acquire():
+            print('本项目今日 D1 预留预算已满，等待下个 UTC 日；已有网页数据与检查点保留。',flush=True);return 0
         ensure_base_brands_and_anchor(db)
         return run(db,args.vendor,args.mode,args.operation,args.cycle,args.batch)
     except Exception as exc:

@@ -1,0 +1,49 @@
+"""Conservative project allocations; leave room for visitors and image jobs."""
+from contextlib import contextmanager
+from datetime import datetime,timezone
+import os
+from fmr_core.d1_client import D1Client
+from .catalogue_cache import CatalogueDeadline
+
+NOT_BEFORE=1793491200 # 2026-11-01T00:00:00Z, current user-requested quota pause
+DAILY_READ_RESERVATION=2_000_000
+DAILY_WRITE_RESERVATION=40_000
+JOB_READ_RESERVATION=100_000
+JOB_WRITE_RESERVATION=2_000
+
+
+class D1BudgetReached(CatalogueDeadline):pass
+
+
+class BudgetDB(D1Client):
+    def __init__(self,*args,**kwargs):
+        super().__init__(*args,**kwargs)
+        self.rows_read=0;self.rows_written=0;self.metering=False;self.checkpointing=False
+
+    def _request_cf_with_retry(self,payload,is_safe_to_retry):
+        if self.metering and not self.checkpointing and (self.rows_read>=90_000 or self.rows_written>=1_800):
+            raise D1BudgetReached('Per-job D1 allocation reached')
+        result=super()._request_cf_with_retry(payload,is_safe_to_retry)
+        if self.metering:
+            for item in result.get('result',[]):
+                self.rows_read+=int(item.get('meta',{}).get('rows_read',0))
+                self.rows_written+=int(item.get('meta',{}).get('rows_written',0))
+        return result
+
+    def acquire(self):
+        self.execute('''CREATE TABLE IF NOT EXISTS fmr_catalogue_budget(
+            utc_day TEXT PRIMARY KEY,reads_reserved INTEGER NOT NULL,writes_reserved INTEGER NOT NULL)''')
+        day=datetime.now(timezone.utc).strftime('%Y-%m-%d')
+        row=self.execute('''INSERT INTO fmr_catalogue_budget(utc_day,reads_reserved,writes_reserved) VALUES (?,?,?)
+            ON CONFLICT(utc_day) DO UPDATE SET reads_reserved=reads_reserved+excluded.reads_reserved,
+            writes_reserved=writes_reserved+excluded.writes_reserved
+            WHERE reads_reserved+excluded.reads_reserved<=? AND writes_reserved+excluded.writes_reserved<=?''',
+            (day,JOB_READ_RESERVATION,JOB_WRITE_RESERVATION,DAILY_READ_RESERVATION,DAILY_WRITE_RESERVATION),is_idempotent=False)
+        self.metering=bool(row.get('changes'))
+        return self.metering
+
+    @contextmanager
+    def checkpoint(self):
+        self.checkpointing=True
+        try:yield
+        finally:self.checkpointing=False

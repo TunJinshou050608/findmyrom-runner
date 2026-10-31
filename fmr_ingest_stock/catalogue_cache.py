@@ -90,11 +90,11 @@ class CachedClient:
                 response=httpx.Response(200,headers=cached['headers'],content=data,request=original.request)
             elif original.status_code==200:
                 media=original.headers.get('Content-Type','').lower().split(';')[0]
-                if media not in MEDIA:raise ValueError('Metadata cache refused binary content')
+                if media not in MEDIA and str(url)!='https://igoreisberg.com/xperifirm/resources':raise ValueError('Metadata cache refused binary content')
                 data=bytearray()
                 for chunk in original.iter_bytes(65536):
                     data.extend(chunk)
-                    if len(data)>MAX_BODY:raise ValueError('Metadata response exceeds bound')
+                    if len(data)>(2*1024*1024 if str(url)=='https://igoreisberg.com/xperifirm/resources' else MAX_BODY):raise ValueError('Metadata response exceeds bound')
                 data=bytes(data)
                 response=httpx.Response(200,headers={'Content-Type':media},content=data,request=original.request)
                 packed=base64.b64encode(zlib.compress(data)).decode()

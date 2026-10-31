@@ -303,3 +303,66 @@ Changes to a manufacturer's own workflow file on `main` also trigger only that
 manufacturer's incremental audit. This provides a direct initial handoff from
 the retired mixed workflow; normal manual and staggered scheduled runs remain
 available. Runtime source collection is still text-only and cloud-only.
+
+## 2026-10-31: live publication, D1 quota protection and Sony complete bundles
+
+The lack of new website entries was caused by the production workflows running
+in `audit` mode: resolved records stayed in private checkpoints. The normal
+workflow default is now **publish**. Already-resolved records are published
+first, incrementally, without refetching their source or waiting for every
+manufacturer to finish. Existing tokens, signatures and extraction inputs stay
+unchanged. Successful image uploads already commit individually to D1.
+
+A user-requested pause blocks cloud database startup before **2026-11-01 00:00
+UTC**. Existing workflows were disabled and active D1 jobs cancelled with their
+checkpoints retained. `quota_resume.yml` schedules a handoff at **00:07 UTC** on
+2026-11-01 (GitHub scheduling can be delayed). It enables manufacturer workflows
+and dispatches incremental publication. One indexed read then resumes the saved
+frozen image experiment on its original tag/generation, if it is unfinished.
+The retired mixed workflow stays disabled. Nothing is re-discovered from zero.
+
+The collector now maintains atomic persistent counters and ordered scan cursors,
+using the existing source-key index instead of grouping/sorting every historical
+row in every batch. It reserves a conservative per-project metadata allowance
+of 2 million reads and 40,000 writes per UTC day; every job reserves 100,000
+reads / 2,000 writes. D1 response usage is metered, with room for a final
+checkpoint. Unused reservations are deliberately not reclaimed. This is not a
+measurement of other databases or all account traffic: room remains for website
+visitors and the finite image test. A fresh UTC day allows pending jobs to carry
+on. No subscription or paid D1 upgrade has been enabled.
+
+`catalogue_sony.yml` reads the user's XperiFirm-compatible resource catalogue
+and Sony's ESS XML services. A real metadata-only probe discovered 216 hardware
+models and resolved a current customization service with three components.
+No real firmware was downloaded locally. The source distinguishes current
+service availability from complete historical coverage. Sony's transport chunks
+are private implementation details: **one release becomes one complete firmware
+ZIP download**, not a list of individual chunks. SIN/partition extraction remains
+disabled. The matched preferred service supplies its own version number.
+
+Sony bundling is on demand via `sony_bundle.yml`. A cloud runner downloads the
+original components, resumes local partial chunks safely, creates one ZIP64
+archive containing all original components, validates its ZIP CRCs, and uploads
+it to a private temporary R2 bucket through an authenticated multipart gateway.
+No full firmware archive is stored in GitHub Releases. The site issues a signed
+download ticket and streams that ONE ZIP, with HTTP Range support and SHA-256.
+Completed local archive checkpoints are reusable. A new cloud VM cannot retain
+the old VM's temporary files; it can have to reacquire interrupted build inputs.
+
+The service retains a single temporary object of at most 8 GiB plus small ZIP
+headers and permits at most two complete builds per UTC day. Old cached Sony
+bundles are evicted when a new one is uploaded; multipart state is cleaned up
+before another allocation. Configure a one-day lifecycle for `sony/` and
+incomplete multipart uploads when enabling the dedicated bucket. It is an
+on-demand cache, not a permanent mirror of every large ROM. These limits apply
+to this service; they do not account for unrelated account storage.
+
+**Activation still needed:** Cloudflare returned error 10042, requiring R2 to
+be enabled in the dashboard. After enabling R2, create a dedicated PRIVATE
+`findmyrom-sony-temp` bucket, bind it to Web as `SONY_BUNDLES`, and configure a
+new shared random `SONY_BUNDLE_UPLOAD_SECRET` in both Worker secrets and Runner's
+production environment. Then enable `sony_bundle.yml`. Until that is configured,
+the builder exits before firmware downloads/D1 reads and the site says the
+complete-package service is not ready. Do not publish the secret, resource XML,
+raw component URLs or any real firmware as Actions artifacts. The included
+resource-format key is public protocol metadata, not an account credential.

@@ -18,7 +18,7 @@ on:
         description: "audit：检查目录；publish：另将已解析的稳定链接增量入库（不提取镜像）"
         type: choice
         options: [audit, publish]
-        default: audit
+        default: publish
       cycle:
         description: "自动续跑参数，手动启动请留空"
         type: string
@@ -58,7 +58,7 @@ jobs:
           CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
           SIGN_PRIVATE_KEY_HEX: ${{ secrets.SIGN_PRIVATE_KEY_HEX }}
           GH_WORKFLOW_TOKEN: ${{ github.token }}
-          CATALOGUE_MODE: ${{ inputs.mode || 'audit' }}
+          CATALOGUE_MODE: ${{ inputs.mode || 'publish' }}
           CATALOGUE_OPERATION: ${{ inputs.operation || 'incremental' }}
           CATALOGUE_CYCLE: ${{ inputs.cycle }}
           CATALOGUE_BATCH: ${{ inputs.batch || '1' }}

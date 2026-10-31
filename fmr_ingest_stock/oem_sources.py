@@ -20,6 +20,7 @@ RESTRICTED = {'huawei':'No public full-stock firmware catalogue configured',
               'honor':'No public full-stock firmware catalogue configured'}
 WEB_BRANDS = ('xiaomi','google','oneplus','samsung','motorola')
 OEM_HOSTS = {
+    'sony': ('sonymobile.com','sony.net'),
     'xiaomi': ('d.miui.com','xiaomi.com'),
     'google': ('dl.google.com','dl.googleusercontent.com'),
     'samsung': ('samsungmobile.com','samsung.com','ospserver.net','sslcs.cdngc.net'),
@@ -34,7 +35,7 @@ OEM_HOSTS = {
 MIRROR_HOSTS = {'motorola': ('mirrors.lolinet.com',)}
 METADATA_HOSTS = {'raw.githubusercontent.com','fwatlas.com','developers.google.com','xmfirmwareupdater.com',
                   'fota-cloud-dn.ospserver.net','doc.samsungmobile.com',
-                  'consumer.huawei.com','www.honor.com'}
+                  'consumer.huawei.com','www.honor.com','igoreisberg.com','app.swup.update.sony.net'}
 
 
 def text(node):

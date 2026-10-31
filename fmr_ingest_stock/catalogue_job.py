@@ -103,6 +103,9 @@ def bump(summary,error):
 
 def collect_model(device,embedded,http):
     vendor=device['vendor'];provenance={}
+    if vendor=='sony':
+        from .sony_source import releases
+        return releases(device,http)
     if vendor in RESTRICTED:return device,[],{'blocker':RESTRICTED[vendor]}
     if embedded is not None:return device,embedded,{'provider':'google_official'}
     if vendor=='xiaomi':
