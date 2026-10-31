@@ -157,3 +157,10 @@ def test_pending_catalog_rows_do_not_become_a_passing_report(db,monkeypatch):
     assert result['devices'][0]['unfinished'] == 1
     assert result['devices'][0]['missing_image_versions'] == 1
     assert result['all_requested_coverage_passed'] is False
+
+
+def test_checkpoint_load_is_batched_and_run_scoped(db):
+    from fmr_extractor.history_sweep import load_cases
+    save(db,'run_1:case:fw_sample00001',{'final':True})
+    save(db,'runX1:case:fw_sample00002',{'final':False})
+    assert load_cases(db,'run_1') == {'fw_sample00001':{'final':True}}

@@ -51,6 +51,11 @@ def case_key(run, token):
     return run + ':case:' + token
 
 
+
+def load_cases(db, run):
+    rows = db.query("SELECT source_target,last_cursor_val FROM crawler_sources WHERE device_codename='__global__' AND source_kind=? AND source_target GLOB ?", (KIND,run+':case:*'))
+    return {r['source_target'].rsplit(':',1)[-1]:json.loads(r['last_cursor_val']) for r in rows}
+
 def planned_rows(db, tokens):
     rows = []
     for start in range(0, len(tokens), 90):
@@ -211,7 +216,8 @@ def work(db, control):
     run = control['run_id']
     codes = [t['codename'] for t in control['targets']]
     rows = planned_rows(db, control['tokens'])
-    cases = {r['public_token']: load(db, case_key(run, r['public_token']), {}) for r in rows}
+    require(len(rows) == len(control['tokens']))
+    cases = load_cases(db,run)
     batch = choose_batch(rows, cases, codes)
     require(control['generation'] <= len(rows) * 4 + 1)
     # Recover only this run's abandoned claims; a different experiment's queue
@@ -285,7 +291,7 @@ def work(db, control):
             control['state'] = 'blocked_auth'
             save(db, run, control)
             return False
-    remaining = sum(not load(db,case_key(run,r['public_token']),{}).get('final') for r in rows)
+    remaining = sum(not cases.get(r['public_token'],{}).get('final') for r in rows)
     control['remaining'] = remaining
     control['generation'] += 1
     control['state'] = 'working' if remaining else 'finished'
@@ -297,12 +303,14 @@ def report(db, control):
     run = control['run_id']
     rows = planned_rows(db, control['tokens'])
     summary = {'run_id': run, 'state': control['state'], 'generation': control['generation'], 'devices': []}
-    complete = control['state'] == 'finished'
+    summary['missing_catalogue_rows'] = max(0,len(control['tokens'])-len(rows))
+    all_cases = load_cases(db,run)
+    complete = control['state'] == 'finished' and not summary['missing_catalogue_rows']
     for target in control['targets']:
         code = target['codename']
         source = load(db, run + ':source:' + code, {})
         local = [r for r in rows if r['device_codename'] == code]
-        cases = {r['public_token']: load(db,case_key(run,r['public_token']),{}) for r in local}
+        cases = {r['public_token']: all_cases.get(r['public_token'],{}) for r in local}
         versions = {(r['region_code'],r['version_str']) for r in local}
         verified_versions = {(r['region_code'],r['version_str']) for r in local if cases[r['public_token']].get('images_verified') and cases[r['public_token']].get('ok')}
         counters = Counter(r['extract_status'] for r in local)
@@ -310,7 +318,7 @@ def report(db, control):
         item = {'codename': code, 'source_pages': source.get('discovered_pages',0),
                 'source_errors': len(source.get('errors',[])), 'rejected_records': source.get('rejected_records',0),
                 'alternate_packages_not_published': len(source.get('conflicts',[])),
-                'catalog_entries': len(local), 'system_region_versions': len(versions),
+                'catalog_entries': len(local), 'missing_catalogue_rows': max(0,source.get('records',len(local))-len(local)), 'system_region_versions': len(versions),
                 'versions_with_verified_images': len(verified_versions),
                 'missing_image_versions': len(versions-verified_versions),
                 'links_and_redirects_verified': sum(bool(c.get('ok') and c.get('redirect_verified',False)) for c in cases.values()),
@@ -318,7 +326,7 @@ def report(db, control):
                 'range_response_body_bytes': sum(c.get('metrics',{}).get('range_bytes',0) for c in cases.values()),
                 'unfinished': sum(not c.get('final') for c in cases.values()),
                 'extraction_states': dict(counters), 'errors': dict(errors)}
-        item['complete'] = bool(local) and not (item['source_errors'] or item['rejected_records'] or item['alternate_packages_not_published'] or item['missing_image_versions'] or item['unfinished']) and item['links_and_redirects_verified'] == len(local)
+        item['complete'] = bool(local) and not (item['missing_catalogue_rows'] or item['source_errors'] or item['rejected_records'] or item['alternate_packages_not_published'] or item['missing_image_versions'] or item['unfinished']) and item['links_and_redirects_verified'] == len(local)
         complete = complete and item['complete']
         summary['devices'].append(item)
     summary['all_requested_coverage_passed'] = complete
