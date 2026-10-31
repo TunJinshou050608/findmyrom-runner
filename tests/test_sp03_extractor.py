@@ -275,7 +275,7 @@ def proto(number, value):
 
 
 def payload_bytes(raw, kind=0):
-    compressed = bz2.compress(raw) if kind == 1 else raw
+    compressed = bz2.compress(raw) if kind == 1 else __import__("zstandard").ZstdCompressor().compress(raw) if kind == 14 else raw
     extent = proto(1, 0) + proto(2, len(raw) // 4096)
     operation = (
         proto(1, kind)
@@ -290,7 +290,7 @@ def payload_bytes(raw, kind=0):
     return struct.pack(">4sQQI", b"CrAU", 2, len(manifest), 0) + manifest + compressed
 
 
-@pytest.mark.parametrize("kind", [0, 1])
+@pytest.mark.parametrize("kind", [0, 1, 14])
 def test_real_payload_replacement_operations(setup, kind):
     db, server, vault, extractor, tmp = setup
     server.rom = zip_bytes({"payload.bin": payload_bytes(image(), kind)})
@@ -419,3 +419,75 @@ def test_target_inventory_comes_from_the_actual_package(setup, layout):
     expected = ['boot','vbmeta'] if layout == 'zip' else ['boot']
     assert inventory == {'format':layout, 'partitions':expected}
     assert set(result) == set(expected)
+
+
+@pytest.mark.parametrize('compressed', [False, True])
+def test_factory_nested_image_zip_uses_ranges_and_refuses_compressed_parent(setup, compressed):
+    db, server, vault, extractor, tmp = setup
+    nested = zip_bytes({'boot.img': image(), 'vbmeta.img': image('vbmeta')})
+    output = io.BytesIO()
+    with zipfile.ZipFile(output, 'w') as outer:
+        outer.writestr('sample/image-sample-build.zip', nested,
+                       compress_type=zipfile.ZIP_DEFLATED if compressed else zipfile.ZIP_STORED)
+    server.rom = output.getvalue()
+    if compressed:
+        with pytest.raises(ValueError, match='forbidden full-parent'):
+            extractor('https://firmware.example.com/fw.zip', tmp / 'nested')
+    else:
+        inventory = {}
+        result = extractor('https://firmware.example.com/fw.zip', tmp / 'nested', inventory=inventory)
+        assert result['boot'].read_bytes() == image()
+        assert result['vbmeta'].read_bytes() == image('vbmeta')
+        assert inventory == {'format':'nested_zip','partitions':['boot','vbmeta']}
+    assert all('range' in r.headers for r in server.calls if r.url.host=='firmware.example.com')
+
+
+@pytest.mark.parametrize('extra', [False, True])
+def test_zstandard_without_size_and_concatenated_frames(setup, extra):
+    import zstandard
+    db, server, vault, extractor, tmp = setup
+    raw=image()
+    compressed=zstandard.ZstdCompressor(write_content_size=False).compress(raw)
+    if extra:compressed+=zstandard.ZstdCompressor().compress(raw)
+    extent=proto(1,0)+proto(2,len(raw)//4096)
+    op=proto(1,14)+proto(2,0)+proto(3,len(compressed))+proto(6,extent)+proto(8,hashlib.sha256(compressed).digest())
+    part=proto(1,b'boot')+proto(7,proto(1,len(raw))+proto(2,hashlib.sha256(raw).digest()))+proto(8,op)
+    manifest=proto(3,4096)+proto(13,part)
+    payload=struct.pack('>4sQQI',b'CrAU',2,len(manifest),0)+manifest+compressed
+    server.rom=zip_bytes({'payload.bin':payload})
+    if extra:
+        with pytest.raises((ValueError,zstandard.ZstdError)):extractor('https://firmware.example.com/fw.zip',tmp/'zstd')
+    else:
+        result=extractor('https://firmware.example.com/fw.zip',tmp/'zstd')
+        assert result['boot'].read_bytes()==raw
+
+
+@pytest.mark.parametrize('encoding', ['raw','lz4','concatenated','bad_magic','oversize','compressed_parent'])
+def test_samsung_stored_ap_tar_extraction_and_rejection(setup,encoding):
+    import tarfile
+    import lz4.frame
+    db, server, vault, extractor, tmp = setup
+    raw=image(bad=encoding=='bad_magic')
+    if encoding=='oversize':raw=b'A'*(1048576+1)
+    compressed=encoding not in ('raw','compressed_parent')
+    data=lz4.frame.compress(raw) if compressed else raw
+    if encoding=='concatenated':data+=lz4.frame.compress(raw)
+    tar=io.BytesIO()
+    with tarfile.open(fileobj=tar,mode='w',format=tarfile.USTAR_FORMAT) as ap:
+        irrelevant=tarfile.TarInfo('system.img');irrelevant.size=2*1024*1024
+        ap.addfile(irrelevant,io.BytesIO(b'X'*irrelevant.size))
+        name=('vbmeta' if encoding=='oversize' else 'boot')+'.img'+('.lz4' if compressed else '')
+        entry=tarfile.TarInfo(name);entry.size=len(data);ap.addfile(entry,io.BytesIO(data))
+    out=io.BytesIO()
+    with zipfile.ZipFile(out,'w') as outer:
+        outer.writestr('AP_SAMPLE.tar.md5',tar.getvalue(),compress_type=zipfile.ZIP_DEFLATED if encoding=='compressed_parent' else zipfile.ZIP_STORED)
+    server.rom=out.getvalue()
+    if encoding in ('concatenated','bad_magic','oversize','compressed_parent'):
+        with pytest.raises(ValueError):extractor('https://firmware.example.com/fw.zip',tmp/encoding)
+    else:
+        inventory={}
+        result=extractor('https://firmware.example.com/fw.zip',tmp/encoding,inventory=inventory)
+        assert result['boot'].read_bytes()==image()
+        assert inventory=={'format':'samsung_ap_tar','partitions':['boot']}
+        consumed=sum(len(server.rom[int(r.headers['range'].split('=')[1].split('-')[0]):int(r.headers['range'].split('-')[-1])+1]) for r in server.calls if r.url.host=='firmware.example.com')
+        assert consumed<1024*1024  # Never read the irrelevant system.img body.

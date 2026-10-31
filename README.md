@@ -198,3 +198,34 @@ published in Actions logs. Public step summaries contain aggregate coverage
 counts and errors; an in-progress batch explicitly is **not** an overall pass.
 A terminal run with any requested coverage gaps exits nonzero. Source indexes
 can demonstrate only observable public history, not withdrawn or private builds.
+
+## Autonomous multi-manufacturer catalogue
+
+`oem_catalogue.yml` discovers models dynamically rather than reading a fixed
+case list. Run on a frozen tag with `brands=all` (or `web`, or comma-separated
+vendor IDs). Native Xiaomi archive and Google OTA/Factory adapters are combined
+with provenance-labelled public community indexes for Samsung, Motorola,
+OnePlus, OPPO, realme, vivo, ASUS and Nothing. Huawei/Honor product discovery is
+not full firmware support. Sony is deliberately deferred by the user.
+
+Default `mode=audit` writes only private D1 checkpoints. `publish` adds resolved
+stock links insert-only; it preserves existing firmware identities and extraction
+inputs. It rejects unsupported origins and expiring signed downloads. Newly
+published metadata has extraction status `skipped`; **this workflow does not run
+image extraction or claim an image-verification pass**. Full source history,
+authenticated/encrypted downloads and real package coverage remain separate
+acceptance gates. Missing sources and unresolved downloads are terminal gaps.
+
+Leave run ID empty and generation zero to start. Continuations retain the frozen
+tag/SHA, save progress privately and self-dispatch with the ephemeral Actions
+token. Public summaries contain only aggregate results. No real firmware bodies
+are requested by the metadata adapters, including when resolving download-page
+redirects. The independent concurrency group does not control existing history
+experiments. A green continuation is not a completed all-manufacturer pass.
+
+The extraction engine additionally understands bounded REPLACE_ZSTD operations,
+ZIP_STORED nested Pixel factory image ZIPs, and unencrypted ZIP_STORED Samsung
+AP TAR members containing raw or LZ4 images. Compressed parent containers,
+unsupported encryption, incrementals requiring a base image and exceeded byte
+budgets fail closed, without full-ROM fallback. These new branches are covered
+by synthetic offline tests, not yet a multi-OEM real-firmware acceptance run.

@@ -124,15 +124,17 @@ def bounded_html(client, url):
             time.sleep(attempt + 1)
 
 
-def discover_device(code, client=None):
+def discover_device(code, client=None, route_code=None):
     if not re.fullmatch('[a-z0-9-]{2,32}', code):
         raise ValueError('Invalid target')
+    route = route_code or code
+    if not re.fullmatch('[A-Za-z0-9-]{2,32}',route):raise ValueError('Invalid archive route')
     owned = client is None
     client = client or httpx.Client(timeout=30, follow_redirects=False, headers={'User-Agent': 'FindMyROM-History'})
     manifest = {'archive_pages': [], 'detail_pages': [], 'errors': [], 'conflicts': [],
                 'rejected_records': 0, 'discovered_pages': 0}
     versions, seen = set(), set()
-    archives = [INDEX + '/archive/' + family + '/' + code + '/' for family in ('miui', 'hyperos')]
+    archives = [INDEX + '/archive/' + family + '/' + route + '/' for family in ('miui', 'hyperos')]
     try:
         while archives:
             url = archives.pop(0)
@@ -161,9 +163,9 @@ def discover_device(code, client=None):
                 if p.netloc != urlsplit(INDEX).netloc:
                     continue
                 path = unquote(p.path)
-                if re.fullmatch(r'/(miui|hyperos)/' + re.escape(code) + r'/[^/]+/[^/]+/', path):
+                if re.fullmatch(r'/(miui|hyperos)/' + re.escape(route) + r'/[^/]+/[^/]+/', path):
                     versions.add(absolute.split('#')[0])
-                if path in {'/archive/miui/'+code+'/', '/archive/hyperos/'+code+'/'} and p.query:
+                if path in {'/archive/miui/'+route+'/', '/archive/hyperos/'+route+'/'} and p.query:
                     archives.append(absolute.split('#')[0])
         manifest['discovered_pages'] = len(versions)
         def fetch(url):

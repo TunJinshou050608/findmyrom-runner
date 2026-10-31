@@ -130,7 +130,19 @@ def extract_partitions_via_range(
     directory.mkdir(parents=True, exist_ok=True)
     try:
         remote = RemoteZip(url, client, max_bytes, deadline)
-        with zipfile.ZipFile(remote) as archive:
+        with zipfile.ZipFile(remote) as outer:
+            archive = outer
+            nested = None
+            # Pixel factory archives contain a seekable image-*.zip member.
+            # A deflated parent is rejected rather than downloaded in full.
+            names = outer.namelist()
+            if not any(n.rsplit('/',1)[-1].removesuffix('.img') in target_partitions for n in names) and 'payload.bin' not in names:
+                candidates = [i for i in outer.infolist() if re.fullmatch(r'image-[^/]+\.zip',i.filename.rsplit('/',1)[-1])]
+                if len(candidates)==1:
+                    from .containers import StoredMember
+                    remote = StoredMember(remote,candidates[0])
+                    nested = zipfile.ZipFile(remote)
+                    archive = nested
             selected = {}
             for item in archive.infolist():
                 # Match basenames but never trust any archive directory path.
@@ -140,7 +152,7 @@ def extract_partitions_via_range(
                         raise ValueError("Duplicate partition entry")
                     selected[part] = item
             if inventory is not None:
-                inventory.update(format="zip", partitions=sorted(selected))
+                inventory.update(format="nested_zip" if nested else "zip", partitions=sorted(selected))
             result = {}
             for part, item in selected.items():
                 if not LIMITS[part][0] <= item.file_size <= LIMITS[part][1]:
@@ -156,6 +168,12 @@ def extract_partitions_via_range(
                 result[part] = path
             if result:
                 return result
+            ap_members = [p for p in archive.infolist() if re.fullmatch(r'AP_[^/]+\.tar(?:\.md5)?', p.filename.rsplit('/',1)[-1])]
+            if ap_members:
+                if len(ap_members) != 1:
+                    raise ValueError("Ambiguous Samsung AP container")
+                from .containers import extract_samsung_ap
+                return extract_samsung_ap(remote, ap_members[0], directory, target_partitions, inventory)
             payloads = [p for p in archive.infolist() if p.filename == "payload.bin"]
             if len(payloads) != 1 or payloads[0].compress_type != zipfile.ZIP_STORED:
                 raise ValueError("No supported partitions or stored OTA payload")
@@ -178,6 +196,8 @@ def extract_partitions_via_range(
                 remote, base, item.file_size, directory, target_partitions, inventory=inventory
             )
     finally:
+        if "nested" in locals() and nested is not None:
+            nested.close()
         if http_client is None:
             client.close()
 

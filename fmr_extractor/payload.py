@@ -95,7 +95,7 @@ def extract_payload(remote, base, payload_size, directory, targets, inventory=No
             for raw_operation in part.get(8, []):
                 op = fields(raw_operation)
                 kind = one(op, 1)
-                if kind not in {0, 1, 6, 8}:
+                if kind not in {0, 1, 6, 8, 14}:
                     raise ValueError("Unsupported incremental payload operation")
                 ranges = []
                 for raw_extent in op.get(6, []):
@@ -121,6 +121,20 @@ def extract_payload(remote, base, payload_size, directory, targets, inventory=No
                         raise ValueError("Payload operation hash mismatch")
                     if kind == 0:
                         data = compressed
+                    elif kind == 14:
+                        import zstandard as zstd
+                        params = zstd.get_frame_parameters(compressed)
+                        if params.content_size not in (zstd.CONTENTSIZE_UNKNOWN, output_size) or params.window_size > 64 * 1024 * 1024:
+                            raise ValueError("Zstandard frame exceeds declared partition operation")
+                        data = zstd.ZstdDecompressor(max_window_size=64 * 1024).decompress(
+                            compressed, max_output_size=output_size + 1, allow_extra_data=False)
+                        # Some bindings ignore allow_extra_data for unknown-size
+                        # frames. First bound the output above, then independently
+                        # require exactly one complete frame with no trailing data.
+                        validator = zstd.ZstdDecompressor(max_window_size=64 * 1024).decompressobj()
+                        checked = validator.decompress(compressed)
+                        if not validator.eof or validator.unused_data or checked != data:
+                            raise ValueError("Incomplete or concatenated Zstandard frame")
                     else:
                         decoder = (
                             bz2.BZ2Decompressor()
