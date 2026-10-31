@@ -408,3 +408,14 @@ def test_patch_tool_version_updates_keep_token(setup, monkeypatch):
             token = current["public_token"]
         else:
             assert current["public_token"] == token
+
+
+@pytest.mark.parametrize('layout', ['zip', 'payload'])
+def test_target_inventory_comes_from_the_actual_package(setup, layout):
+    db, server, vault, extractor, tmp = setup
+    server.rom = zip_bytes({'boot.img': image(), 'vbmeta.img': image('vbmeta')}) if layout == 'zip' else zip_bytes({'payload.bin': payload_bytes(image())})
+    inventory = {}
+    result = extractor('https://firmware.example.com/fw.zip', tmp / layout, inventory=inventory)
+    expected = ['boot','vbmeta'] if layout == 'zip' else ['boot']
+    assert inventory == {'format':layout, 'partitions':expected}
+    assert set(result) == set(expected)

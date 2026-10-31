@@ -51,7 +51,7 @@ def one(message, key, default=None):
     return message.get(key, [default])[-1]
 
 
-def extract_payload(remote, base, payload_size, directory, targets):
+def extract_payload(remote, base, payload_size, directory, targets, inventory=None):
     def read(offset, length):
         if offset < 0 or length < 0 or offset + length > payload_size:
             raise ValueError("Payload read out of bounds")
@@ -67,6 +67,10 @@ def extract_payload(remote, base, payload_size, directory, targets):
     if block_size != 4096:
         raise ValueError("Unsupported payload block size")
     blob_start = 24 + manifest_size + signature_size
+    if inventory is not None:
+        inventory.update(format="payload", partitions=sorted(
+            one(fields(raw), 1, b" ").decode("ascii") for raw in manifest.get(13, [])
+            if one(fields(raw), 1, b" ").decode("ascii") in targets))
     result = {}
     for raw_part in manifest.get(13, []):
         part = fields(raw_part)

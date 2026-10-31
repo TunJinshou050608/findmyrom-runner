@@ -164,3 +164,37 @@ This is one successful direct-ZIP case, not proof of all brands, modern OTA
 codecs, root patching or successful on-device flashing. SP06 remains the next
 index/Bot extension; it is not a prerequisite for this delivery loop. Scheduled
 extraction remains disabled pending controlled data and format expansion.
+
+
+## Autonomous historical coverage experiment
+
+`history_sweep.yml` is a finite, manually started experiment, separate from the
+regular extraction schedule. Start it on a frozen source tag; the selected
+devices are supplied only by encrypted production Secret `FMR_HISTORY_CONFIG`.
+It discovers both MIUI and HyperOS archive indexes, follows history pagination,
+parses full Recovery/Fastboot packages, and signs the discovered catalog into D1.
+It does not substitute the latest-only tracker for a historical archive.
+
+All subsequent jobs use the original tag and verify the original source SHA.
+The workflow's repository-scoped ephemeral `GITHUB_TOKEN` has Actions write
+permission solely to dispatch the next bounded batch. It never uses the Vault
+credential for workflow control. Each batch is at most 12 catalog entries with
+two extractor workers, a 50-minute scheduler deadline, and the existing 250 MiB
+per-firmware response-body limit. The next batch starts automatically, with
+finite attempt limits; no cron or assistant polling is required.
+
+Only the frozen manifest's firmware tokens enter this test's scheduler. Checks
+include both source links, site redirects, actual package partition inventory,
+image SHA-256/length and cache hits. Fastboot archives are indexed, but the
+existing extractor has no full-TGZ random-access implementation; versions with
+no successfully verified corresponding Recovery images remain coverage gaps.
+Unsupported codecs, lost links, missing source history, conflicts under the
+frozen schema, and exhausted attempts remain failures. The extraction algorithm
+is not patched mid-run to rescue individual versions.
+
+Detailed source manifests and per-version checkpoints stay in private D1's
+existing `crawler_sources` table. No binary artifacts or private archive IDs are
+published in Actions logs. Public step summaries contain aggregate coverage
+counts and errors; an in-progress batch explicitly is **not** an overall pass.
+A terminal run with any requested coverage gaps exits nonzero. Source indexes
+can demonstrate only observable public history, not withdrawn or private builds.

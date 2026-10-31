@@ -119,6 +119,7 @@ def extract_partitions_via_range(
     http_client=None,
     command_executor=None,
     deadline=None,
+    inventory=None,
 ) -> dict[str, Path]:
     if type(max_bytes) is not int or not 0 < max_bytes <= MAX_DOWNLOAD_BYTES_PER_FW:
         raise ValueError("Invalid download budget")
@@ -138,6 +139,8 @@ def extract_partitions_via_range(
                     if part in selected:
                         raise ValueError("Duplicate partition entry")
                     selected[part] = item
+            if inventory is not None:
+                inventory.update(format="zip", partitions=sorted(selected))
             result = {}
             for part, item in selected.items():
                 if not LIMITS[part][0] <= item.file_size <= LIMITS[part][1]:
@@ -172,7 +175,7 @@ def extract_partitions_via_range(
                     remote, base, item.file_size, directory, target_partitions
                 )
             return extract_payload(
-                remote, base, item.file_size, directory, target_partitions
+                remote, base, item.file_size, directory, target_partitions, inventory=inventory
             )
     finally:
         if http_client is None:
