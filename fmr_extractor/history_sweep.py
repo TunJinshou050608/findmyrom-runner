@@ -5,6 +5,7 @@ Each continuation consumes a bounded batch; no recurring schedule is installed.
 """
 import argparse
 from collections import Counter
+from contextlib import closing
 import hashlib
 import json
 import os
@@ -264,7 +265,7 @@ def work(db, control):
                 raise
             finally:
                 case.update(inventory=inventory, metrics=metrics)
-        with VaultClient() as vault:
+        with closing(VaultClient()) as vault:
             stats = run_extraction_batch(ScopedDB(db, selected, codes), vault, extractor,
                 batch_limit=BATCH, max_workers=2, max_runtime_sec=3000)
         control['last_batch'] = stats

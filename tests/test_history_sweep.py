@@ -164,3 +164,47 @@ def test_checkpoint_load_is_batched_and_run_scoped(db):
     save(db,'run_1:case:fw_sample00001',{'final':True})
     save(db,'runX1:case:fw_sample00002',{'final':False})
     assert load_cases(db,'run_1') == {'fw_sample00001':{'final':True}}
+
+
+def test_work_executes_real_vault_lifecycle_and_persists_a_completed_link_case(db,tmp_path,monkeypatch):
+    import json
+    from fmr_core.crypto import generate_keypair
+    from fmr_ingest_stock import sync_firmwares
+    from fmr_extractor import history_sweep, VaultClient
+    key,_=generate_keypair()
+    monkeypatch.setenv('SIGN_PRIVATE_KEY_HEX',key)
+    monkeypatch.setenv('GH_VAULT_TOKEN','test-only-token')
+    monkeypatch.setenv('GH_VAULT_REPO','owner/vault')
+    source=tmp_path/'source.json'
+    origin='https://firmware.example.com/sample.tgz'
+    source.write_text(json.dumps([{'codename':'sample','version':'V1','link':origin}]))
+    sync_firmwares(db,str(source))
+    token=db.query('SELECT public_token FROM stock_firmwares')[0]['public_token']
+    original=httpx.Client
+    def handler(request):
+        if request.url.host=='firmware.example.com':
+            return httpx.Response(200,stream=httpx.ByteStream(b''))
+        if request.url.path.startswith('/verify/'):
+            return httpx.Response(200,text='Verified metadata')
+        if request.url.path=='/api/ticket':
+            return httpx.Response(200,json={'download_url':'/api/dl?token='+token})
+        if request.url.path=='/api/dl':
+            return httpx.Response(302,headers={'Location':origin})
+        raise AssertionError('Unexpected HTTP request')
+    transport=httpx.MockTransport(handler)
+    closed=[]
+    class ObservedVault(VaultClient):
+        def close(self):
+            closed.append(True)
+            super().close()
+    with original(transport=transport) as vault_http:
+        vault=ObservedVault('test-only-token','owner/vault',vault_http)
+        monkeypatch.setattr(history_sweep,'VaultClient',lambda: vault)
+        monkeypatch.setattr(history_sweep.httpx,'Client',lambda **kw: original(transport=transport,**kw))
+        control={'run_id':'integration_run','generation':0,'tokens':[token],'targets':[{'codename':'sample','name':'Sample'}]}
+        assert history_sweep.work(db,control) is False
+    assert closed==[True]
+    assert control['state']=='finished'
+    case=history_sweep.load(db,'integration_run:case:'+token)
+    assert case['final'] and case['ok'] and case['redirect_verified']
+    assert not case.get('images_verified')
