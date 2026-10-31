@@ -106,6 +106,7 @@ def main() -> int:
         stage = 'asset_download'
         for attempt in range(6):
             with client.stream('GET', SITE + download) as response:
+                print(json.dumps({'stage': 'asset_download', 'http_status': response.status_code}))
                 require(response.status_code == 200)
                 data = b''
                 for chunk in response.iter_bytes():
