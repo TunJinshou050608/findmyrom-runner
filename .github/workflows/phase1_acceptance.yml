@@ -1,0 +1,31 @@
+name: Phase 1 real firmware acceptance
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: production-extraction
+  cancel-in-progress: false
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r requirements.txt
+      - name: Acquire one real firmware and verify private delivery
+        env:
+          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+          CF_D1_DATABASE_ID: ${{ secrets.CF_D1_DATABASE_ID }}
+          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          SIGN_PRIVATE_KEY_HEX: ${{ secrets.SIGN_PRIVATE_KEY_HEX }}
+          GH_VAULT_TOKEN: ${{ secrets.GH_VAULT_TOKEN }}
+          GH_VAULT_REPO: ${{ secrets.GH_VAULT_REPO }}
+          FMR_PHASE1_CONFIG: ${{ secrets.FMR_PHASE1_CONFIG }}
+        run: python verify_phase1_live.py
