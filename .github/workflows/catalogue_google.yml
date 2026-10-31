@@ -1,6 +1,10 @@
 name: "Google Pixel / Nexus · 固件目录更新"
 run-name: "Google Pixel / Nexus · 增量更新 · 第 ${{ inputs.batch || '1' }} 批"
 on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/catalogue_google.yml'
   schedule:
     - cron: '9 */6 * * *'
   workflow_dispatch:

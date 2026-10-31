@@ -1,6 +1,10 @@
 name: "三星 · 固件目录更新"
 run-name: "三星 · 增量更新 · 第 ${{ inputs.batch || '1' }} 批"
 on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/catalogue_samsung.yml'
   schedule:
     - cron: '17 */6 * * *'
   workflow_dispatch:

@@ -298,3 +298,8 @@ usually exposes the summary when its step ends; the step log is the live view.
 Individual firmware identifiers, source URLs, raw page bodies, signatures and
 private Vault IDs stay out of public logs. Detailed state remains in private D1.
 All local tests use synthetic metadata/archives; real firmware work remains cloud-only.
+
+Changes to a manufacturer's own workflow file on `main` also trigger only that
+manufacturer's incremental audit. This provides a direct initial handoff from
+the retired mixed workflow; normal manual and staggered scheduled runs remain
+available. Runtime source collection is still text-only and cloud-only.

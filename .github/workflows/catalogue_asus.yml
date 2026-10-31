@@ -1,6 +1,10 @@
 name: "ASUS · 固件目录更新"
 run-name: "ASUS · 增量更新 · 第 ${{ inputs.batch || '1' }} 批"
 on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/catalogue_asus.yml'
   schedule:
     - cron: '37 */6 * * *'
   workflow_dispatch:

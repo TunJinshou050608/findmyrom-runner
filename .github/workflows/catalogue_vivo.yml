@@ -1,6 +1,10 @@
 name: "vivo · 固件目录更新"
 run-name: "vivo · 增量更新 · 第 ${{ inputs.batch || '1' }} 批"
 on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/catalogue_vivo.yml'
   schedule:
     - cron: '33 */6 * * *'
   workflow_dispatch:

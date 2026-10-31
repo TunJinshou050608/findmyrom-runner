@@ -1,6 +1,10 @@
 name: "华为 · 固件目录更新"
 run-name: "华为 · 增量更新 · 第 ${{ inputs.batch || '1' }} 批"
 on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/catalogue_huawei.yml'
   workflow_dispatch:
     inputs:
       operation:
