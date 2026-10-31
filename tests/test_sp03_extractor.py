@@ -1,3 +1,4 @@
+from pathlib import Path
 """Real ZIP/Payload bytes, real crypto/DB/compressor/Vault; HTTP only is faked."""
 
 import bz2
@@ -366,3 +367,44 @@ def test_wrong_content_range_and_payload_hash_rejected(setup):
     server.rom = zip_bytes({"payload.bin": payload[:-1] + b"x"})
     assert run_extraction_batch(db, vault, extractor)["failed"] == 1
     assert not server.uploads
+
+
+def test_go_adapter_uses_bounded_local_payload(setup):
+    from fmr_extractor.range_extractor import payload_dumper_executor
+
+    db, server, vault, extractor, tmp = setup
+    server.rom = zip_bytes({"payload.bin": payload_bytes(image())})
+
+    def command_runner(argv, **kwargs):
+        assert argv[0] == "payload-dumper-go"
+        assert not any("https://" in argument for argument in argv)
+        assert Path(argv[-1]).read_bytes().startswith(b"CrAU")
+        assert kwargs["check"] and kwargs["timeout"] > 0
+        output = Path(argv[argv.index("-o") + 1])
+        (output / "boot.img").write_bytes(image())
+
+    result = extractor(
+        "https://firmware.example.com/fw.zip",
+        tmp / "go",
+        command_executor=payload_dumper_executor(command_runner),
+    )
+    assert result["boot"].read_bytes() == image()
+
+
+def test_patch_tool_version_updates_keep_token(setup, monkeypatch):
+    from fmr_extractor import patcher
+
+    db, server, vault, extractor, tmp = setup
+    monkeypatch.setattr(patcher, "PATCH_HOOKS", {})
+    for version in ["first", "second"]:
+        patcher.register_patch_hook("magisk", version, lambda path: path)
+        db.execute("UPDATE stock_firmwares SET extract_status='pending'")
+        assert run_extraction_batch(db, vault, extractor)["succeeded"] == 1
+        current = db.query(
+            "SELECT public_token,patch_tool_ver FROM extracted_boot_images WHERE variant_type='magisk'"
+        )[0]
+        assert current["patch_tool_ver"] == version
+        if version == "first":
+            token = current["public_token"]
+        else:
+            assert current["public_token"] == token

@@ -32,6 +32,7 @@ IMAGE_FIELDS = (
 )
 IMAGE_SQL = f"""INSERT INTO extracted_boot_images ({",".join(IMAGE_FIELDS)}) VALUES ({",".join("?" for _ in IMAGE_FIELDS)})
  ON CONFLICT(firmware_id,partition_name,variant_type) DO UPDATE SET
+ patch_tool_ver=excluded.patch_tool_ver,device_codename=excluded.device_codename,version_str=excluded.version_str,
  file_name=excluded.file_name,file_size_bytes=excluded.file_size_bytes,sha256_hash=excluded.sha256_hash,
  gh_private_repo=excluded.gh_private_repo,gh_release_tag=excluded.gh_release_tag,
  gh_asset_id=excluded.gh_asset_id,ed25519_signature=excluded.ed25519_signature
