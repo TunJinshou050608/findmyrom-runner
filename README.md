@@ -137,6 +137,5 @@ This verifies credential usability and the diagnostic delivery path, not a real
 firmware extraction. Real firmware metadata ingestion and extraction remain
 unverified. Scheduled extraction stays disabled (`FMR_EXTRACTION_ENABLED` unset).
 
-The local editor environment disconnected during this check. Subsequent source
-changes were committed directly to GitHub; synchronize the local source before
-publishing another curated snapshot so these fixes are preserved.
+The source changes committed during the disconnected session have since been
+reviewed and synchronized back into the local workspace (2026-10-31).
