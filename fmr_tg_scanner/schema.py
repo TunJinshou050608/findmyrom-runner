@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS tg_discovered_packages (
  has_tg_attachment INTEGER NOT NULL DEFAULT 0, file_attachment_name TEXT,
  extraction_method TEXT NOT NULL, rule_confidence REAL NOT NULL,
  published_timestamp INTEGER, raw_text_hash TEXT NOT NULL,
+ package_name TEXT, sender_id INTEGER, sender_username TEXT,
  UNIQUE(channel_username,msg_id)
 );
 CREATE INDEX IF NOT EXISTS idx_tg_pkg_codename ON tg_discovered_packages(device_codename,published_timestamp DESC);
@@ -29,10 +30,16 @@ CREATE INDEX IF NOT EXISTS idx_tg_pkg_hash ON tg_discovered_packages(raw_text_ha
 COLUMNS = ('channel_username msg_id tg_post_url origin_type is_forwarded original_channel_username original_msg_id '
  'original_post_url sender_author_signature maintainer_handle maintainer_display_name device_codename resource_kind '
  'project_name android_version build_version_tag download_links_json has_tg_attachment file_attachment_name '
- 'extraction_method rule_confidence published_timestamp raw_text_hash').split()
+ 'extraction_method rule_confidence published_timestamp raw_text_hash package_name sender_id sender_username').split()
 
 
 def initialize(db):
     db.execute_script(SCHEMA)
     if 'scan_state_json' not in {c['name'] for c in db.query('PRAGMA table_info(tg_scan_cursors)')}:
         db.execute("ALTER TABLE tg_scan_cursors ADD COLUMN scan_state_json TEXT NOT NULL DEFAULT '{}'")
+    columns={c['name'] for c in db.query('PRAGMA table_info(tg_discovered_packages)')}
+    for name,kind in [('package_name','TEXT'),('sender_id','INTEGER'),('sender_username','TEXT')]:
+        if name not in columns:
+            db.execute(f'ALTER TABLE tg_discovered_packages ADD COLUMN {name} {kind}')
+    if 'package_name' not in columns:
+        db.execute("UPDATE tg_discovered_packages SET package_name=COALESCE(NULLIF(file_attachment_name,''),project_name) WHERE package_name IS NULL")

@@ -57,7 +57,17 @@ def parse_tg_channel_page(html_text: str, channel_username: str) -> dict:
             if not match or match[1].lower()!=channel:continue
             children=list(node.walk());text=next((n.text() for n in children if n.has('tgme_widget_message_text')),'')[:65536]
             forward=next((n for n in children if n.has('tgme_widget_message_forwarded_from_name')),None)
-            author=next((n.text().strip() for n in children if n.has('tgme_widget_message_author')),None)
+            author_node=next((n for n in children if n.has('tgme_widget_message_author')),None)
+            author=author_node.text().strip() if author_node else None
+            # A display signature or body "By @developer" is not a numeric sender ID.
+            # Only retain a sender username when the author DOM actually links to it.
+            sender_username=None
+            for n in author_node.walk() if author_node else ():
+                try:
+                    profile=urlsplit(n.attrs.get('href',''))
+                    if profile.scheme=='https' and profile.hostname=='t.me' and re.fullmatch(r'/[A-Za-z0-9_]{4,32}',profile.path):
+                        sender_username='@'+profile.path[1:].lower();break
+                except ValueError:pass
             title=next((n.text().strip() for n in children if n.has('tgme_widget_message_document_title')),None)
             links=[n.attrs['href'] for n in children if n.tag=='a' and 'href' in n.attrs and not n.has('tgme_widget_message_date')]
             stamp=None
@@ -69,6 +79,7 @@ def parse_tg_channel_page(html_text: str, channel_username: str) -> dict:
             messages[mid]={'channel_username':channel,'msg_id':mid,'tg_post_url':f'https://t.me/{channel}/{mid}',
                 'text':text,'links':links,'forwarded_from_url':forward.attrs.get('href') if forward else None,
                 'has_forward_header':forward is not None,'sender_author_signature':author,
+                'sender_id':None,'sender_username':sender_username,
                 'has_tg_attachment':bool(title),'file_attachment_name':title,'published_timestamp':stamp}
         if node.tag=='a' and node.has('tme_messages_more'):
             url=urlsplit(node.attrs.get('href',''));values=parse_qs(url.query).get('before',[])

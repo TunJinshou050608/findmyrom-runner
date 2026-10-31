@@ -3,7 +3,7 @@ import hashlib
 import ipaddress
 import json
 import re
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, unquote
 
 MAINTAINER_REGEX=r'(?i)(?:by|maintainer|dev|developer|author|builder|built\s+by|credits?)\s*[:：\-]?\s*(?:https?://t\.me/|@)([a-zA-Z0-9_]{4,32})\b'
 CODENAME_FIELD_REGEX=r'(?i)(?:device|codename|for)\s*[:：\-]?\s*[^\n\(\)]*\(([a-z0-9_-]{3,24})\)'
@@ -99,6 +99,17 @@ def extract_package_by_rules(msg_dict: dict, default_codename=None):
     recognized=bool(project or re.search(r'\b(?:rom|recovery|kernel|firmware|boot|init_boot|vbmeta)\b',combined,re.I))
     if not project and recognized:project={'boot_image':'Boot image','kernel':'Kernel','firmware':'Firmware','recovery':'Recovery','rom':'Custom ROM'}[kind]
     title=next((l.strip() for l in text.splitlines() if l.strip()),'Resource')[:40]
+    package_name=m.get('file_attachment_name')
+    if not package_name:
+        for link in links:
+            filename=unquote(urlsplit(link).path.rsplit('/',1)[-1])
+            if re.search(r'(?i)\.(?:zip|tgz|tar(?:\.(?:gz|xz|zst))?|img(?:\.gz)?|bin|7z)$',filename):
+                package_name=filename;break
+    package_name=re.sub(r'[\x00-\x1f\x7f]','',package_name or title)[:512]
+    sender_id=m.get('sender_id')
+    if type(sender_id) is not int or not -(2**53)<sender_id<2**53 or sender_id==0:
+        sender_id=None
+    sender_username=handle(m.get('sender_username') or '')
     android=re.search(r'(?i)\bandroid\s*[:：-]?\s*(\d{1,2}(?:\.\d+)?)\b',text)
     version=re.search(r'(?i)\b(?:v\d+(?:\.[\w-]+)+|R\d+(?:\.[\w-]+)*|\d{8}|\d{4}-\d{2}-\d{2})\b',text)
     confidence=round(.30+(.25 if recognized else 0)+(.25 if code else 0)+(.20 if match or android else 0),2)
@@ -106,6 +117,7 @@ def extract_package_by_rules(msg_dict: dict, default_codename=None):
         'is_forwarded':int(origin=='native_forward'),'original_channel_username':original[0] if original else None,
         'original_msg_id':original[1] if original else None,'original_post_url':f'https://t.me/{original[0]}/{original[1]}' if original else url,
         'sender_author_signature':signature,'maintainer_handle':maintainer,'maintainer_display_name':None,
+        'package_name':package_name,'sender_id':sender_id,'sender_username':sender_username,
         'device_codename':code,'resource_kind':kind,'project_name':project or title,
         'android_version':android[1] if android else None,'build_version_tag':version[0] if version else None,
         'download_links_json':json.dumps(links,ensure_ascii=False),'has_tg_attachment':int(attachment),

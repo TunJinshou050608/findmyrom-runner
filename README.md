@@ -399,6 +399,15 @@ and compares two independently generated file trees.
 
 ### TG01 independent public-channel scanner (single FindMyROM bot)
 
+TG01 is a link-only catalogue: package name (`package_name`), download links,
+message URL (`tg_post_url`), and observed sender ID/username are recorded. It
+never downloads a package or submits it to the official-ROM image extractor.
+`maintainer_handle` from a post's "By" line is distinct from its message sender.
+Public previews may not expose the sender's numeric ID; `sender_id` stays null
+in that case. Display names, channel names and maintainer handles never become
+invented numeric sender IDs. Package names come from attachment/link metadata,
+with the release title as fallback; no package request is made to discover them.
+
 The project uses only `@FindMyROM_bot`; the SP06 query/referral frontend and
 TG01 resource discovery belong to that same project. Discovery uses public
 `https://t.me/s/` HTML, without another bot or a personal Telegram login. The

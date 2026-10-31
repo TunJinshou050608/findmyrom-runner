@@ -3,6 +3,8 @@ import json
 import os
 import random
 import time
+import re
+from urllib.parse import urlsplit
 
 import httpx
 from .html_parser import parse_tg_channel_page, channel_name, ChannelUnavailableError
@@ -21,6 +23,9 @@ def pause(seconds=None):
 class PageFetcher:
     def __init__(self):self.client=httpx.Client(timeout=30,follow_redirects=False,headers={'User-Agent':'Mozilla/5.0 (compatible; FindMyROMMetadata/1.0)'})
     def __call__(self,url):
+        parsed=urlsplit(url)
+        if parsed.scheme!='https' or parsed.netloc!='t.me' or not re.fullmatch(r'/s/[a-z][a-z0-9_]{3,31}',parsed.path) or parsed.fragment or (parsed.query and not re.fullmatch(r'before=[1-9][0-9]*',parsed.query)):
+            raise ValueError('Scanner fetches public preview pages only, never package URLs')
         for attempt in range(3):
             pause()
             try:
@@ -79,7 +84,7 @@ def scan_channel(db_client, channel_username: str, default_codename=None, max_pa
                 existing=db.query('SELECT * FROM tg_discovered_packages WHERE channel_username=? AND msg_id=?',(channel,msg['msg_id']))
                 package=extract_package_by_rules(msg,default_codename)
                 if package is None:stats['skipped_noise_count']+=1;continue
-                if existing and all(existing[0][k]==package[k] for k in ('raw_text_hash','download_links_json','original_post_url','origin_type','sender_author_signature','has_tg_attachment','file_attachment_name','published_timestamp')):continue
+                if existing and all(existing[0][k]==package[k] for k in ('raw_text_hash','download_links_json','original_post_url','origin_type','sender_author_signature','has_tg_attachment','file_attachment_name','published_timestamp','package_name','sender_id','sender_username')):continue
                 digest=package['raw_text_hash'];known=db.query('SELECT * FROM tg_discovered_packages WHERE raw_text_hash=? LIMIT 1',(digest,))
                 if known and known[0]['extraction_method']=='rule_plus_llm':
                     for name in llm_fallback.FIELDS:

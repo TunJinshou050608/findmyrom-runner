@@ -256,3 +256,43 @@ def test_independent_storage_rolls_back_failed_page(tmp_path):
         result=scan_channel(db,'marbleupdates','marble',page_fetcher=pages,enable_llm=False)
         assert result['packages_saved']==5
     finally:db.close()
+
+
+def test_link_only_catalogue_records_package_and_sender_without_inventing_id():
+    html=LATEST.replace('<span class="tgme_widget_message_author">@ralf_dev</span>','<span class="tgme_widget_message_author"><a href="https://t.me/actual_poster">Actual poster</a></span>')
+    msg=parse_tg_channel_page(html,'marbleupdates')['messages'][0]
+    record=extract_package_by_rules(msg)
+    assert record['package_name']=='marble.zip'
+    assert record['tg_post_url']=='https://t.me/marbleupdates/105'
+    assert record['maintainer_handle']=='@ralf_dev'
+    assert record['sender_username']=='@actual_poster' and record['sender_id'] is None
+    msg['sender_id']=12345678
+    assert extract_package_by_rules(msg)['sender_id']==12345678
+    msg['sender_id']='@ralf_dev'
+    assert extract_package_by_rules(msg)['sender_id'] is None
+    attachment=extract_package_by_rules(parse_tg_channel_page(OLD,'marbleupdates')['messages'][0])
+    assert attachment['package_name']=='boot_magisk_v28.img.gz'
+
+
+def test_page_fetcher_cannot_download_firmware_or_tg_attachment():
+    fetch=PageFetcher();requests=[]
+    fetch.client.close()
+    fetch.client=httpx.Client(transport=httpx.MockTransport(lambda request:requests.append(str(request.url))))
+    try:
+        for url in ['https://sourceforge.net/projects/rom/files/rom.zip','https://t.me/marbleupdates/102','https://t.me/s/marbleupdates?before=5&download=rom.zip','https://t.me.evil.example/s/marbleupdates']:
+            with pytest.raises(ValueError):fetch(url)
+        assert requests==[]
+    finally:fetch.close()
+
+
+def test_metadata_columns_migrate_once_without_rescanning_history(db):
+    from fmr_tg_scanner.schema import initialize
+    scan_channel(db,'marbleupdates','marble',max_pages=1,page_fetcher=pages,enable_llm=False)
+    snapshot=db.query('SELECT * FROM tg_scan_cursors')
+    for column in ['package_name','sender_id','sender_username']:db.execute('ALTER TABLE tg_discovered_packages DROP COLUMN '+column)
+    initialize(db)
+    assert db.query('SELECT * FROM tg_scan_cursors')==snapshot
+    assert all(row['package_name'] for row in db.query('SELECT * FROM tg_discovered_packages'))
+    before=db._get_sqlite_conn().total_changes
+    initialize(db)
+    assert before==db._get_sqlite_conn().total_changes
