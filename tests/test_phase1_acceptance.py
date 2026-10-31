@@ -83,3 +83,10 @@ def test_download_checks_complete_bytes_not_just_the_hash_header():
     with client_for(payload[:-1] + bytes([payload[-1] ^ 1])) as client:
         with pytest.raises(ValueError):
             verify_download(client, '/api/dl?test=1', image)
+
+
+def test_pinned_metadata_is_read_from_a_bounded_stream():
+    url = 'https://raw.githubusercontent.com/XiaomiFirmwareUpdater/miui-updates-tracker/' + 'a' * 40 + '/data/latest.yml'
+    with httpx.Client(transport=httpx.MockTransport(lambda req: httpx.Response(200,
+            stream=httpx.ByteStream(b'- codename: sample\n  android: 11.0\n')))) as client:
+        assert read_metadata(client, url) == [{'codename': 'sample', 'android': 11.0}]

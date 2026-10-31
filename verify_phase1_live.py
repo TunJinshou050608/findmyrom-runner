@@ -45,7 +45,7 @@ def read_metadata(client, url):
         for chunk in response.iter_bytes(65536):
             data.extend(chunk)
             require(len(data) <= 5 * 1024 * 1024)
-    return yaml.safe_load(data)
+    return yaml.safe_load(bytes(data))
 
 
 def select_seed(devices, firmwares, config):
