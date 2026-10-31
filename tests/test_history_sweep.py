@@ -208,3 +208,70 @@ def test_work_executes_real_vault_lifecycle_and_persists_a_completed_link_case(d
     case=history_sweep.load(db,'integration_run:case:'+token)
     assert case['final'] and case['ok'] and case['redirect_verified']
     assert not case.get('images_verified')
+
+
+def test_complete_recovery_batch_extracts_signs_archives_and_verifies_all_package_partitions(db,tmp_path,monkeypatch):
+    import io,json,zipfile
+    from fmr_core.crypto import generate_keypair
+    from fmr_ingest_stock import sync_firmwares
+    from fmr_extractor import history_sweep,VaultClient
+    from verify_phase1_live import MeteredClient
+    key,_=generate_keypair()
+    monkeypatch.setenv('SIGN_PRIVATE_KEY_HEX',key)
+    monkeypatch.setenv('GH_VAULT_TOKEN','test-only-token')
+    monkeypatch.setenv('GH_VAULT_REPO','owner/vault')
+    origin='https://firmware.example.com/sample.zip'
+    source=tmp_path/'source.json'
+    source.write_text(json.dumps([{'codename':'sample','version':'V1','link':origin}]))
+    sync_firmwares(db,str(source))
+    token=db.query('SELECT public_token FROM stock_firmwares')[0]['public_token']
+    output=io.BytesIO()
+    with zipfile.ZipFile(output,'w',compression=zipfile.ZIP_STORED) as archive:
+        archive.writestr('boot.img',b'ANDROID!'+b'\0'*(65536-8))
+        archive.writestr('vbmeta.img',b'AVB0'+b'\0'*(4096-4))
+    package=output.getvalue()
+    blobs={}
+    original=httpx.Client
+    def handler(request):
+        if request.url.host=='firmware.example.com':
+            start,end=map(int,request.headers['Range'].removeprefix('bytes=').split('-'))
+            return httpx.Response(206,headers={'Content-Range':f'bytes {start}-{end}/{len(package)}'},stream=httpx.ByteStream(package[start:end+1]))
+        if request.url.host=='api.github.com':
+            if request.url.path=='/repos/owner/vault':
+                return httpx.Response(200,json={'private':True})
+            if '/tags/' in request.url.path:
+                return httpx.Response(404)
+            return httpx.Response(201,json={'id':1})
+        if request.url.host=='uploads.github.com':
+            asset=len(blobs)+101
+            blobs[asset]=request.content
+            return httpx.Response(201,json={'id':asset})
+        if request.url.path.startswith('/devices/'):
+            return httpx.Response(200,text=token+' '+ ' '.join(r['public_token'] for r in db.query('SELECT public_token FROM extracted_boot_images')))
+        if request.url.path.startswith('/verify/'):
+            resource=request.url.path.rsplit('/',1)[-1]
+            rows=db.query('SELECT sha256_hash FROM extracted_boot_images WHERE public_token=?',(resource,))
+            return httpx.Response(200,text=rows[0]['sha256_hash'] if rows else 'Verified metadata')
+        if request.url.path=='/api/ticket':
+            resource=json.loads(request.content)['token']
+            return httpx.Response(200,json={'download_url':'/api/dl?token='+resource})
+        if request.url.path=='/api/dl':
+            resource=request.url.params['token']
+            if resource==token:
+                return httpx.Response(302,headers={'Location':origin})
+            image=db.query('SELECT gh_asset_id,sha256_hash FROM extracted_boot_images WHERE public_token=?',(resource,))[0]
+            return httpx.Response(200,headers={'Content-Type':'application/gzip','X-FindMyROM-SHA256':image['sha256_hash'],'X-FindMyROM-Cache':'HIT'},stream=httpx.ByteStream(blobs[image['gh_asset_id']]))
+        raise AssertionError('Unexpected external endpoint')
+    transport=httpx.MockTransport(handler)
+    with original(transport=transport) as vault_http:
+        vault=VaultClient('test-only-token','owner/vault',vault_http)
+        monkeypatch.setattr(history_sweep,'VaultClient',lambda: vault)
+        monkeypatch.setattr(history_sweep.httpx,'Client',lambda **kw: original(transport=transport,**kw))
+        monkeypatch.setattr(history_sweep,'MeteredClient',lambda metrics,**kw: MeteredClient(metrics,transport=transport,**kw))
+        control={'run_id':'recovery_run','generation':0,'tokens':[token],'targets':[{'codename':'sample','name':'Sample'}]}
+        assert history_sweep.work(db,control) is False
+    case=history_sweep.load(db,'recovery_run:case:'+token)
+    assert case['final'] and case['ok'] and case['images_verified']
+    assert case['inventory']=={'format':'zip','partitions':['boot','vbmeta']}
+    assert case['partitions']==['boot','vbmeta'] and len(blobs)==2
+    assert db.query('SELECT extract_status FROM stock_firmwares')[0]['extract_status']=='done'
