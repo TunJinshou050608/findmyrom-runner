@@ -1,52 +1,14 @@
-name: Autonomous all-manufacturer catalogue
+name: "已停用 · 旧版混合厂商目录"
 on:
   workflow_dispatch:
-    inputs:
-      brands:
-        description: all, web, or comma-separated manufacturer identifiers
-        type: string
-        default: all
-      mode:
-        description: Audit private metadata or publish resolved links insert-only
-        type: choice
-        options: [audit, publish]
-        default: audit
-      run_id:
-        description: Leave empty; autonomous continuations fill this
-        type: string
-        default: ''
-      generation:
-        description: Leave at zero; autonomous continuations fill this
-        type: string
-        default: '0'
 permissions:
   contents: read
-  actions: write
-concurrency:
-  group: oem-catalogue-${{ inputs.run_id || format('oem_{0}', github.run_id) }}
-  cancel-in-progress: false
 jobs:
-  catalogue:
+  moved:
+    name: "请使用各厂商的独立入口"
     runs-on: ubuntu-latest
-    timeout-minutes: 90
-    environment: production
     steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - run: python -m pip install -r requirements.txt
-      - name: Discover all models and resolve public stock links without firmware downloads
-        env:
-          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
-          CF_D1_DATABASE_ID: ${{ secrets.CF_D1_DATABASE_ID }}
-          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
-          SIGN_PRIVATE_KEY_HEX: ${{ secrets.SIGN_PRIVATE_KEY_HEX }}
-          GH_WORKFLOW_TOKEN: ${{ github.token }}
-          CATALOGUE_BRANDS: ${{ inputs.brands }}
-          CATALOGUE_MODE: ${{ inputs.mode }}
-          CATALOGUE_RUN_ID: ${{ inputs.run_id }}
-          CATALOGUE_GENERATION: ${{ inputs.generation }}
-        run: python -u -m fmr_ingest_stock.catalogue_job --brands "$CATALOGUE_BRANDS" --mode "$CATALOGUE_MODE" --run-id "$CATALOGUE_RUN_ID" --generation "$CATALOGUE_GENERATION"
+      - name: "查看新的操作方式"
+        run: |
+          echo '旧混合任务已停用；请在 Actions 选择对应厂商的“固件目录更新”。'
+          echo '新任务自动迁移旧检查点；operation=incremental，cycle 留空，batch=1。'
