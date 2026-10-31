@@ -1,7 +1,7 @@
 """Manual cloud-only credential probe. Uses tiny diagnostic text, never firmware.
 
 No credential values, resource URLs, tokens, Vault IDs or response bodies are logged.
-Only this invocation's random records and draft Release are deleted on completion.
+Only this invocation's random records and private Release are deleted on completion.
 """
 from __future__ import annotations
 
@@ -63,7 +63,7 @@ def main() -> int:
         response = client.post(f'https://api.github.com/repos/{repo}/releases', headers=headers,
                                json={'tag_name': tag, 'name': 'Temporary credential probe',
                                      'body': 'Diagnostic text only. Not firmware. Automatically removed.',
-                                     'draft': True})
+                                     'draft': False, 'prerelease': True, 'make_latest': 'false'})
         require(response.status_code == 201)
         release_id = response.json()['id']
         payload = gzip.compress(b'FindMyROM credential probe. NOT FIRMWARE. NOT FOR FLASHING.\n', mtime=0)
@@ -142,6 +142,8 @@ def main() -> int:
                 require(response.status_code in (204, 404))
                 response = client.get(f'https://api.github.com/repos/{repo}/releases/{release_id}', headers=headers)
                 require(response.status_code == 404)
+                response = client.delete(f'https://api.github.com/repos/{repo}/git/refs/tags/{tag}', headers=headers)
+                require(response.status_code in (204, 404))
             except Exception:
                 cleanup_ok = False
         client.close()
