@@ -238,3 +238,15 @@ def test_cloud_entrypoint_autonomously_continues_same_frozen_tag_without_binary_
  db.close()
  assert job.main(['--run-id','oem_123','--generation','1'])==0 # Stale duplicate cannot repeat or dispatch.
  assert len(dispatched)==1
+
+
+def test_progress_logs_only_operational_fields_and_heartbeat_stops(capsys):
+ from fmr_ingest_stock.catalogue_job import progress,heartbeat
+ import threading
+ progress('task_checkpoint_saved',vendor='google',processed=2)
+ row=json.loads(capsys.readouterr().out)
+ assert row=={'event':'task_checkpoint_saved','vendor':'google','processed':2}
+ with pytest.raises(ValueError):progress('unsafe',download_url='https://private.example/file.zip')
+ stop=threading.Event();stop.set()
+ heartbeat(stop)
+ assert not capsys.readouterr().out

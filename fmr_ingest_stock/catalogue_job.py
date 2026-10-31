@@ -10,6 +10,7 @@ import json
 import os
 import re
 import time
+import threading
 from urllib.parse import urlsplit
 from pathlib import Path
 import httpx
@@ -23,6 +24,20 @@ from .catalogue_sync import publish_device,publish_release
 
 KIND='oem_catalogue'
 ALL=tuple(ATLAS_BRANDS)+tuple(RESTRICTED)+tuple(DEFERRED)
+
+
+def progress(event, **counts):
+    """Only aggregate operational data; never source URLs or firmware identities."""
+    allowed = {'vendor','generation','records','processed','attempt','elapsed_seconds','phase'}
+    if not set(counts) <= allowed:
+        raise ValueError('Unsafe progress field')
+    print(json.dumps({'event':event, **counts}, sort_keys=True), flush=True)
+
+
+def heartbeat(stop):
+    started = time.monotonic()
+    while not stop.wait(30):
+        progress('heartbeat', elapsed_seconds=int(time.monotonic()-started))
 
 
 def save(db,key,value):
@@ -57,6 +72,7 @@ def start(db,run,brands,mode,http):
              'sha':os.environ['GITHUB_SHA'],'state':'discovering','summary':{},'started_at':int(time.time())}
     save(db,run,control)
     for vendor in brands:
+        progress('manufacturer_discovery_start',vendor=vendor)
         summary={'models':0,'release_records':0,'resolved_downloads':0,'published':0,
                  'errors':{},'extraction_verified':0,'source_scope':'observable_public_catalogues'}
         if vendor in DEFERRED:
@@ -76,6 +92,7 @@ def start(db,run,brands,mode,http):
             if vendor in RESTRICTED:summary['firmware_blocker']=RESTRICTED[vendor]
         except Exception as exc:summary.update(status='discovery_failed',errors={type(exc).__name__:1})
         control['summary'][vendor]=summary;save(db,run,control)
+        progress('manufacturer_discovery_end',vendor=vendor,records=summary['models'])
     control['state']='working';save(db,run,control)
     return control
 
@@ -121,17 +138,20 @@ def collect_model(device,embedded,http):
 
 def step(db,control,http):
     run=control['run'];processed=0
+    progress('batch_start',generation=control['generation'])
     # Model metadata fan-out is separate from release resolution; a large model
     # never forces all binary/download entries into one job's time window.
     for key,value in tasks(db,run,'model',8):
         device=value['device'];vendor=device['vendor'];summary=control['summary'][vendor]
+        progress('task_start',vendor=vendor,attempt=value.get('attempts',0)+1,processed=processed)
         try:
             device,rows,provenance=collect_model(device,value.get('embedded'),http)
             if control['mode']=='publish':publish_device(db,device)
-            for row in rows:
+            for index,row in enumerate(rows):
                 identity=vendor+':'+device['upstream_id']+':'+str(row.get('version'))+':'+str(row.get('region'))+':'+str(row.get('kind'))
                 rkey=task_key(run,'release',identity)
                 if get(db,rkey) is None:save(db,rkey,{'device':device,'release':row,'done':False})
+                if (index+1)%50==0:progress('release_checkpoints_saved',vendor=vendor,records=index+1)
             summary['release_records']+=len(rows)
             value.update(device=device,provenance=provenance,releases=len(rows),done=True)
             if not rows and vendor not in RESTRICTED:bump(summary,'NoPublicReleases')
@@ -143,8 +163,10 @@ def step(db,control,http):
             value.update(done=value['attempts']>=3,error=type(exc).__name__)
             if value['done']:bump(summary,type(exc).__name__)
         save(db,key,value);processed+=1
+        progress('task_checkpoint_saved',vendor=vendor,processed=processed)
     for key,value in tasks(db,run,'release',128):
         device=value['device'];vendor=device['vendor'];summary=control['summary'][vendor]
+        progress('task_start',vendor=vendor,attempt=value.get('attempts',0)+1,processed=processed)
         try:
             row=value['release']
             if not row.get('download_url'):row=resolve_atlas(row,http)
@@ -162,6 +184,7 @@ def step(db,control,http):
             value.update(done=value['attempts']>=3,error=type(exc).__name__)
             if value['done']:bump(summary,type(exc).__name__)
         save(db,key,value);processed+=1
+        progress('task_checkpoint_saved',vendor=vendor,processed=processed)
     control['generation']+=1
     control['metadata_requests_this_batch']=len(http.snapshots)
     control['source_snapshots_this_batch']=http.snapshots
@@ -196,6 +219,10 @@ def main(argv=None):
     parser.add_argument('--brands',default='web');parser.add_argument('--mode',choices=['audit','publish'],default='audit')
     parser.add_argument('--run-id',default='');parser.add_argument('--generation',type=int,default=0)
     args=parser.parse_args(argv);db=None;control=None
+    stopped=threading.Event()
+    worker=threading.Thread(target=heartbeat,args=(stopped,),daemon=True)
+    worker.start()
+    progress('process_started')
     try:
         if os.environ.get('GITHUB_ACTIONS')!='true' or os.environ.get('GITHUB_REF_TYPE')!='tag':raise ValueError('Requires cloud execution on a frozen tag')
         run=args.run_id or 'oem_'+os.environ['GITHUB_RUN_ID']
@@ -223,6 +250,8 @@ def main(argv=None):
             control['state']='blocked_error';save(db,control['run'],control);report(db,control)
         return 1
     finally:
+        stopped.set()
+        worker.join(timeout=1)
         if db:db.close()
 
 
