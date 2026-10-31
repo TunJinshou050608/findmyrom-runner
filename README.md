@@ -82,3 +82,40 @@ uses an isolated temporary database and a disposable test key. It also works
 when this Runner directory is checked out without Repo-Web. Remote transport is
 mocked in tests; live D1 credentials and production metadata URLs are not
 configured by this module.
+
+## SP03 extraction
+
+`python verify_sp03.py` runs the complete offline extraction acceptance suite.
+Tests construct small ZIP and CrAU payloads in memory and intercept HTTP with
+`httpx.MockTransport`; no real ROM is downloaded on the development computer.
+
+Production entry point: `python -m fmr_extractor.cli`. Use `--dry-run` to recover
+stale locks and inspect the queue without downloading or uploading. Argument
+limits are `--batch-limit 1..500`, `--max-workers 1..6`, and
+`--max-runtime-sec 10..3600`. Production credentials are the D1 variables above
+plus `SIGN_PRIVATE_KEY_HEX`, `GH_VAULT_TOKEN`, and `GH_VAULT_REPO`.
+
+The extractor supports ZIP/ZIP64 partition entries and stored CrAU v2 payloads
+with REPLACE, REPLACE_BZ, REPLACE_XZ and ZERO operations. Incremental operations
+requiring a source partition and newer unsupported codecs fail safely; do not
+classify that failure as successful extraction. Payload operation and complete
+partition hashes are verified before archiving. A budgeted optional Go executor
+adapter is available for payloads that fit the remaining download budget.
+
+Each firmware is limited to 250 MiB of HTTP response body data; ignored Range
+responses are closed without consuming their body. Known image size and magic
+limits apply before any upload. All compressed images are deterministic and
+signed using their compressed hash/size. Root patch hooks are opt-in trusted
+callbacks with recorded tool versions; none is configured by default.
+
+Vault visibility is checked before every upload. Public Vaults are rejected.
+The production workflow is disabled until repository variable
+`FMR_EXTRACTION_ENABLED=true` and the `production` environment's Secrets are
+configured. Configure them through GitHub's encrypted Secrets UI/CLI; never
+commit them. Start with a manual dry-run in Actions and a small cloud-only real
+batch. No images are published as Actions artifacts or public Releases.
+
+Dispatch stops at the runtime deadline; HTTP operations are time-bounded and
+in-flight tasks finish or fail before cleanup. HTTP libraries may exceed a
+wall-clock deadline slightly while a current I/O operation is unwinding. Stale
+processing claims recover after 30 minutes, with at most three failures.
