@@ -106,7 +106,8 @@ def collect_model(device,embedded,http):
     if vendor in RESTRICTED:return device,[],{'blocker':RESTRICTED[vendor]}
     if embedded is not None:return device,embedded,{'provider':'google_official'}
     if vendor=='xiaomi':
-        rows,provenance=discover_device(device['upstream_id'],route_code=device.get('route_code'))
+        rows,provenance=discover_device(device['upstream_id'],route_code=device.get('route_code'),
+            client=http.client, max_workers=getattr(http,'history_workers',4))
         releases=[]
         from .firmware_sync import normalize
         for row in rows:
@@ -130,7 +131,9 @@ def collect_model(device,embedded,http):
                         'region':region,'kind':'samsung_firmware','android_version':'unknown',
                         'detail_page':device['page']+'/'+version.split('/')[0].lower(),
                         'origin_kind':'unresolved','metadata_source':'samsung_fota_version_xml'})
-            except Exception as exc:errors.append({'region':region,'error':type(exc).__name__})
+            except Exception as exc:
+                if getattr(exc,'fmr_batch_deadline',False):raise
+                errors.append({'region':region,'error':type(exc).__name__})
         rows.extend(full);provenance={'provider':'atlas_plus_samsung_fota','fota_errors':errors,
                                     'history_limits':'Manufacturer may omit withdrawn builds; encrypted/authenticated packages need a resolver.'}
     return device,rows,provenance

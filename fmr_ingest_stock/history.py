@@ -124,7 +124,9 @@ def bounded_html(client, url):
             time.sleep(attempt + 1)
 
 
-def discover_device(code, client=None, route_code=None):
+def discover_device(code, client=None, route_code=None, max_workers=4):
+    if type(max_workers) is not int or not 1 <= max_workers <= 4:
+        raise ValueError('Invalid discovery concurrency')
     if not re.fullmatch('[a-z0-9-]{2,32}', code):
         raise ValueError('Invalid target')
     route = route_code or code
@@ -152,6 +154,7 @@ def discover_device(code, client=None, route_code=None):
                     manifest['errors'].append({'stage': 'archive', 'error': type(exc).__name__})
                 continue
             except Exception as exc:
+                if getattr(exc,'fmr_batch_deadline',False):raise
                 manifest['errors'].append({'stage': 'archive', 'error': type(exc).__name__})
                 continue
             manifest['archive_pages'].append({'url': url, 'status': 200, 'sha256': hashlib.sha256(data).hexdigest()})
@@ -174,10 +177,12 @@ def discover_device(code, client=None, route_code=None):
                 rows, rejected = parse_detail(data.decode('utf-8'), code)
                 return url, rows, rejected, hashlib.sha256(data).hexdigest(), None
             except Exception as exc:
+                if getattr(exc,'fmr_batch_deadline',False):raise
                 return url, [], 0, None, type(exc).__name__
         records = []
-        with ThreadPoolExecutor(max_workers=4) as pool:
-            for url, rows, rejected, digest, error in pool.map(fetch, sorted(versions)):
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            results = map(fetch, sorted(versions)) if max_workers == 1 else pool.map(fetch, sorted(versions))
+            for url, rows, rejected, digest, error in results:
                 manifest['detail_pages'].append({'url': url, 'sha256': digest, 'records': len(rows)})
                 manifest['rejected_records'] += rejected
                 if error or not rows:

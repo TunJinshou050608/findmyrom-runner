@@ -199,7 +199,7 @@ counts and errors; an in-progress batch explicitly is **not** an overall pass.
 A terminal run with any requested coverage gaps exits nonzero. Source indexes
 can demonstrate only observable public history, not withdrawn or private builds.
 
-## Autonomous multi-manufacturer catalogue
+## Historical multi-manufacturer catalogue (retired)
 
 `oem_catalogue.yml` discovers models dynamically rather than reading a fixed
 case list. Run on a frozen tag with `brands=all` (or `web`, or comma-separated
@@ -229,3 +229,72 @@ AP TAR members containing raw or LZ4 images. Compressed parent containers,
 unsupported encryption, incrementals requiring a base image and exceeded byte
 budgets fail closed, without full-ROM fallback. These new branches are covered
 by synthetic offline tests, not yet a multi-OEM real-firmware acceptance run.
+
+## Current operation: one workflow per manufacturer (incremental v2)
+
+The old mixed `oem_catalogue.yml` workflow is retired. Use a manufacturer entry
+below, on `main`; no frozen tag or device whitelist is needed for normal operation.
+Sony remains deferred pending the user's adapter. Huawei/Honor have manual product
+catalogue checks only and still have no accepted full-firmware source.
+
+| Manufacturer | Actions entry |
+| --- | --- |
+| Xiaomi / Redmi / POCO | [小米：固件目录更新](https://github.com/TunJinshou050608/findmyrom-runner/actions/workflows/catalogue_xiaomi.yml) |
+| Google Pixel / Nexus | [Google：固件目录更新](https://github.com/TunJinshou050608/findmyrom-runner/actions/workflows/catalogue_google.yml) |
+| OnePlus | [一加：固件目录更新](https://github.com/TunJinshou050608/findmyrom-runner/actions/workflows/catalogue_oneplus.yml) |
+| Samsung | [三星：固件目录更新](https://github.com/TunJinshou050608/findmyrom-runner/actions/workflows/catalogue_samsung.yml) |
+| Motorola | [摩托罗拉：固件目录更新](https://github.com/TunJinshou050608/findmyrom-runner/actions/workflows/catalogue_motorola.yml) |
+| OPPO | [OPPO：固件目录更新](https://github.com/TunJinshou050608/findmyrom-runner/actions/workflows/catalogue_oppo.yml) |
+| realme | [realme：固件目录更新](https://github.com/TunJinshou050608/findmyrom-runner/actions/workflows/catalogue_realme.yml) |
+| vivo | [vivo：固件目录更新](https://github.com/TunJinshou050608/findmyrom-runner/actions/workflows/catalogue_vivo.yml) |
+| ASUS | [ASUS：固件目录更新](https://github.com/TunJinshou050608/findmyrom-runner/actions/workflows/catalogue_asus.yml) |
+| Nothing | [Nothing：固件目录更新](https://github.com/TunJinshou050608/findmyrom-runner/actions/workflows/catalogue_nothing.yml) |
+| Huawei | [华为：检查来源缺口](https://github.com/TunJinshou050608/findmyrom-runner/actions/workflows/catalogue_huawei.yml) |
+| Honor | [荣耀：检查来源缺口](https://github.com/TunJinshou050608/findmyrom-runner/actions/workflows/catalogue_honor.yml) |
+
+Click **Run workflow** and leave `cycle` empty and `batch=1`. The default
+`operation=incremental`, `mode=audit` resumes pending work and checks only due
+sources. Normal supported entries also run every six hours at staggered times.
+Huawei/Honor are manual-only while their firmware sources remain blocked.
+
+- `retry_failed` also rechecks failed/blocked tasks. Successful fresh models and
+  resolved links remain reusable. **Re-run failed jobs** also resumes actual work;
+  terminal gaps are retried rather than reported as a fake successful stale skip.
+- `refresh_sources` revalidates model/history pages, preserving the task database;
+  it is not a delete-and-rebuild operation.
+- `mode=publish` incrementally adds already-resolved stable firmware links, with
+  existing tokens/signatures/extraction inputs preserved. Audit results can be
+  published later without repeating successful link discovery. Neither mode
+  starts binary extraction or claims an image acceptance pass.
+
+Each workflow owns its concurrency group and private D1 namespace. A new job
+loads durable state automatically, imports old mixed-job checkpoints once, and
+continues the existing queue. Model and release tasks have stable keys across
+run IDs; successes are not scoped to a single experiment. Stale continuations
+are discarded. A changed manual operation starts a new cycle over the same data.
+Scheduled jobs resume an active cycle without silently changing its mode.
+
+The text-only HTTP cache persists bounded compressed metadata in private D1.
+Device/model index pages refresh after one hour; model history tasks after six
+hours; immutable version-detail pages and stable resolved links after 30 days.
+Fresh cache entries avoid network requests. Expired entries use ETag or
+Last-Modified conditional requests when available; a 304 reuses the saved body.
+Changed/new source entries enqueue only the corresponding release records.
+Download landing/go-token pages are never persisted. Temporary/signed download
+URLs remain gaps rather than being advertised as permanent links. Failed tasks
+have finite retries and a 24-hour retry window unless explicitly retried.
+
+Each batch handles up to four model tasks and 100 release tasks. A 45-minute
+HTTP/fanout budget hands remaining work to the next batch instead of consuming
+its 90-minute hard job limit. The checkpoint import is itself paginated and
+resumable. Existing legacy rows are preserved and the separate frozen historical
+image experiment is outside this migration.
+
+Open the collection step for Chinese phase/progress messages, checkpoint counts
+and a 30-second liveness heartbeat. A heartbeat explicitly reports execution and
+checkpoint age; it does not claim a source request has succeeded. The step
+summary shows model/release status counts and network/cache/304 totals. GitHub
+usually exposes the summary when its step ends; the step log is the live view.
+Individual firmware identifiers, source URLs, raw page bodies, signatures and
+private Vault IDs stay out of public logs. Detailed state remains in private D1.
+All local tests use synthetic metadata/archives; real firmware work remains cloud-only.

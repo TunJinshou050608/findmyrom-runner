@@ -189,7 +189,9 @@ def google_catalogue(http):
                         'region':'Global','android_version':version.split(',')[0],'kind':role,'download_url':a['href'],
                         'sha256':digest.lower(),'origin_kind':'oem','metadata_source':'https://developers.google.com/android/'+page})
             if not found:errors.append({'source':page,'error':'NoFirmwareTables'})
-        except Exception as exc:errors.append({'source':page,'error':type(exc).__name__})
+        except Exception as exc:
+            if getattr(exc,'fmr_batch_deadline',False):raise
+            errors.append({'source':page,'error':type(exc).__name__})
     if not devices:raise ValueError('Google catalogue unavailable')
     for code,device in devices.items():
         majors=[int(m[1]) for row in all_releases[code] if (m:=re.match(r'^(\d+)',row['android_version']))]
