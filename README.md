@@ -119,3 +119,24 @@ Dispatch stops at the runtime deadline; HTTP operations are time-bounded and
 in-flight tasks finish or fail before cleanup. HTTP libraries may exceed a
 wall-clock deadline slightly while a current I/O operation is unwinding. Stale
 processing claims recover after 30 minutes, with at most three failures.
+
+
+## Production credential verification (2026-10-31)
+
+The cloud-only diagnostic passed D1 reads/writes, private Vault upload, Worker
+Ed25519 verification, ticket issuance, byte-for-byte download and edge cache hit.
+Evidence: https://github.com/TunJinshou050608/findmyrom-runner/actions/runs/41184710718
+
+It used only a tiny gzip diagnostic text file, never firmware. Temporary D1 rows,
+Release assets, the Release and its tag were deleted. No credentials or private
+archive URLs were logged. Draft Releases are unsuitable for the read-only gateway
+probe; the probe now uses a published Release inside the private Vault, matching
+production archiving. The Worker sends GitHub a User-Agent header.
+
+This verifies credential usability and the diagnostic delivery path, not a real
+firmware extraction. Real firmware metadata ingestion and extraction remain
+unverified. Scheduled extraction stays disabled (`FMR_EXTRACTION_ENABLED` unset).
+
+The local editor environment disconnected during this check. Subsequent source
+changes were committed directly to GitHub; synchronize the local source before
+publishing another curated snapshot so these fixes are preserved.
