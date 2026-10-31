@@ -105,3 +105,15 @@ def test_publisher_indexes_one_bundle_and_keeps_transport_manifest_private(tmp_p
  assert json.loads(saved[0]['last_cursor_val'])['public_token']==records[0]['public_token']
  assert 'software.sonymobile.com' not in records[0]['fast_cdn_url']
  db.close()
+
+
+def test_google_build_identity_keeps_carrier_market_visible(tmp_path,monkeypatch):
+ db=D1Client(local_sqlite_path=str(tmp_path/'google.sqlite'));db.execute_script(Path(__file__).parents[1].joinpath('schema.sql').read_text());ensure_base_brands_and_anchor(db)
+ key,_=generate_keypair();monkeypatch.setenv('SIGN_PRIVATE_KEY_HEX',key)
+ device={'vendor':'google','upstream_id':'pixel-test','name':'Pixel Test'}
+ row={'version':'16.0.0 (BP1A.123456.001, October 2026, Verizon, Japan)','region':'Global','kind':'factory','android_version':'16.0.0 (BP1A.123456.001)','download_url':'https://dl.google.com/android/test.zip'}
+ publish_release(db,device,row)
+ saved=db.query('SELECT * FROM stock_firmwares')[0]
+ assert saved['version_str']=='BP1A.123456.001'
+ assert saved['region_code']=='Verizon · Japan' and saved['android_version']=='16.0.0'
+ db.close()

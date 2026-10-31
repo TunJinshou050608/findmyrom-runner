@@ -76,6 +76,14 @@ def publish_release(db,device,release):
         if match:raw_version=match[1]
     version=build_version(raw_version)
     region=str(release.get('region') or 'Global').strip()[:64]
+    if vendor=='google' and region=='Global':
+        # Official Google labels include carrier/market exceptions after the
+        # build and date. Keep them visible instead of silently calling all Global.
+        block=re.search(r'\(([^)]+)\)',str(release['version']))
+        if block:
+            parts=[v.strip() for v in block[1].split(',')[1:]]
+            editions=[v for v in parts if v and not re.fullmatch(r'(?:[A-Za-z]{3,9}\.?\s+\d{4}|\d{4}-\d{2}(?:-\d{2})?)',v)]
+            if editions:region=' · '.join(editions)[:64]
     kind=package_kind(vendor,release)
     fast=rewrite_to_fast_cdn(vendor,url)
     digest=release.get('sha256') or release.get('md5')

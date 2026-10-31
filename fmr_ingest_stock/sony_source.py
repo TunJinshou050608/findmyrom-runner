@@ -129,7 +129,7 @@ def releases(device,http):
                 'version':service['version'],'service':service['url'],'files':files}
             total=validate_manifest(manifest);key=manifest_digest(manifest)
             rows.append({'vendor':'sony','device_id':device['upstream_id'],'version':service['version'],
-                'region':'CDF '+cust['id']+' · '+(cust['name'] or '')[:40],'kind':'sony_bundle',
+                'region':(cust['name'] or 'Customization')[:40]+' · CDF '+cust['id'],'kind':'sony_bundle',
                 'android_version':'unknown','size':f'{total/1024**3:.2f} GiB · complete firmware ZIP',
                 'bundle':manifest,'download_url':'https://findmyrom.com/sony/bundles/'+key,
                 'origin_kind':'sony_assembled_bundle','resolution':'resolved'})
