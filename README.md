@@ -366,3 +366,33 @@ the builder exits before firmware downloads/D1 reads and the site says the
 complete-package service is not ready. Do not publish the secret, resource XML,
 raw component URLs or any real firmware as Actions artifacts. The included
 resource-format key is public protocol metadata, not an account credential.
+
+### SP06 public index and Telegram entry points
+
+`python -m fmr_extractor.jumper_sync --output-dir ./public-index` exports a
+strictly public Markdown projection of the existing database. Only verification
+links on `https://findmyrom.com` are exported; firmware, private asset locations,
+signatures and download URLs never enter this tree. Exports are deterministic,
+remove obsolete Markdown, limit each device to 50 versions and each file to
+512,000 bytes. `LOCAL_SQLITE_PATH` supports completely offline use.
+
+Actions → **Publish public firmware index** (`jumper_sync.yml`) runs every six
+hours or by manual dispatch. It only runs when repository variable
+`FMR_JUMPER_ENABLED=true`. Production environment secret `GH_JUMPER_SSH_KEY`
+is a dedicated deploy key restricted to `android-boot-images-index`; it is not
+the private Vault credential. The initial quota pause is enforced before any
+production DB connection. After the November 1 UTC reset, the existing resume
+workflow enables and dispatches this workflow. No production export was run
+before the reset.
+
+Telegram request handling lives in Repo-Web. One-time registration runs outside
+the Worker: provide `TG_BOT_TOKEN`, `TG_WEBHOOK_SECRET`, and optionally
+`PUBLIC_SITE_URL` through the environment, then execute
+`python -m fmr_extractor.telegram_setup`. First store the same webhook secret in
+the production Worker. It registers only message/inline updates and commands;
+it does not send chat messages. Enable inline mode with BotFather `/setinline`.
+The Worker never calls the Telegram API while serving a webhook request.
+
+Offline acceptance: `FMR_TEST_NO_SLEEP=1 python -m pytest -v` plus
+`tests/test_sp06_jumper_sync.py`'s CLI test, which seeds its own SQLite database
+and compares two independently generated file trees.

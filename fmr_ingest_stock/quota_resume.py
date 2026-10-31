@@ -21,6 +21,10 @@ def main():
         # Manual-only source diagnostics; no automatic repeated blocked requests.
         for vendor in ('huawei','honor'):
             response=client.put(base+'catalogue_'+vendor+'.yml/enable');response.raise_for_status()
+        if os.environ.get('FMR_JUMPER_ENABLED')=='true':
+            response=client.put(base+'jumper_sync.yml/enable');response.raise_for_status()
+            response=client.post(base+'jumper_sync.yml/dispatches',json={'ref':'main'})
+            response.raise_for_status();print('Public Markdown index handoff accepted',flush=True)
         # One indexed control read, only after the UTC reset. Retain the frozen
         # extraction ref/SHA and exact saved generation; no algorithm edits.
         from fmr_core.d1_client import D1Client

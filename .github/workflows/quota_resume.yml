@@ -30,6 +30,7 @@ jobs:
           CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
           CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
           CF_D1_DATABASE_ID: ${{ secrets.CF_D1_DATABASE_ID }}
+          FMR_JUMPER_ENABLED: ${{ vars.FMR_JUMPER_ENABLED }}
         run: |
           if [ "${{ github.event_name }}" != 'workflow_dispatch' ] && [ "$(date -u +%Y-%m-%d)" != '2026-11-01' ]; then exit 0; fi
           python -u -m fmr_ingest_stock.quota_resume
