@@ -1,0 +1,24 @@
+- codename: marble
+  brand: Redmi
+  name: Redmi Note 12 Turbo
+  android_release: 13
+- codename: pdx234
+  brand: Sony
+  name: Sony Xperia 1 V
+  android_release: 13
+- codename: alioth
+  brand: POCO
+  name: POCO F3
+  android_release: 11
+- codename: phone2
+  brand: Nothing
+  name: Nothing Phone (2)
+  android_release: 13
+- codename: marble
+  brand: Xiaomi
+  name: Redmi Note 12 Turbo CN
+  android_release: 13
+- codename: bad codename!!
+  brand: Xiaomi
+  name: Bad
+  android_release: 13

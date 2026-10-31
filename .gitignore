@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+*.db
+.DS_Store
+
+# Secrets & local overrides
+.env
+.env.*
+!.env.example
