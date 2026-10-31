@@ -1,0 +1,258 @@
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+import time
+
+import httpx
+import pytest
+from fmr_core.d1_client import D1Client
+from fmr_core.crypto import verify_signature,build_custom_resource_payload,generate_keypair
+from fmr_tg_scanner import scan_channel,parse_tg_channel_page,extract_package_by_rules,export_to_custom_resources
+from fmr_tg_scanner.crawler import PageFetcher,ScanHTTPError
+from fmr_tg_scanner.html_parser import ChannelUnavailableError
+from fmr_tg_scanner.cli import export_jsonl
+
+ROOT=Path(__file__).resolve().parents[1]
+LATEST=(ROOT/'tests/fixtures/tg01_page_latest.html').read_text()
+OLD=(ROOT/'tests/fixtures/tg01_page_before_103.html').read_text()
+EMPTY='<section class="tgme_widget_history"></section>'
+
+@pytest.fixture
+def db(tmp_path,monkeypatch):
+    monkeypatch.setenv('FMR_TEST_NO_SLEEP','1')
+    client=D1Client(local_sqlite_path=str(tmp_path/'tg.sqlite'))
+    yield client
+    client.close()
+
+
+def pages(url):
+    return OLD if '?before=103' in url else EMPTY if '?before=100' in url else LATEST
+
+
+def test_deep_backfill_pagination_climbs_all_floors_to_bottom(db):
+    requests=[]
+    def fetch(url):requests.append(url);return pages(url)
+    result=scan_channel(db,'@MarbleUpdates','marble',page_fetcher=fetch,enable_llm=False)
+    assert requests==['https://t.me/s/marbleupdates','https://t.me/s/marbleupdates?before=103','https://t.me/s/marbleupdates?before=100']
+    assert result['min_scanned_msg_id']==100 and result['max_scanned_msg_id']==105 and result['history_exhausted']
+    assert result['packages_saved']==5 and result['skipped_noise_count']==1
+    requests.clear()
+    result=scan_channel(db,'marbleupdates','marble',page_fetcher=fetch,enable_llm=False)
+    assert len(requests)==1 and result['messages_inspected']==0 and result['packages_saved']==0
+
+
+def test_author_direct_vs_native_forward_vs_repost_attribution(db):
+    scan_channel(db,'marbleupdates','marble',max_pages=1,page_fetcher=pages)
+    rows=db.query('SELECT * FROM tg_discovered_packages ORDER BY msg_id DESC')
+    assert [r['origin_type'] for r in rows]==['author_direct','native_forward','repost_aggregator']
+    assert rows[0]['maintainer_handle']=='@ralf_dev' and rows[0]['tg_post_url']=='https://t.me/marbleupdates/105'
+    assert rows[1]['original_post_url']=='https://t.me/orangefoxupdates/88' and rows[1]['is_forwarded']==1
+    assert rows[1]['resource_kind']=='recovery' and rows[1]['maintainer_handle']=='@darthjabba9'
+    assert rows[2]['original_post_url']=='https://t.me/crdroidmarble/42' and rows[2]['maintainer_handle']=='@gwolf2u'
+
+
+def test_direct_tg_document_attachment_package_detection():
+    msg=parse_tg_channel_page(OLD,'marbleupdates')['messages'][0]
+    resource=extract_package_by_rules(msg)
+    assert resource['resource_kind']=='boot_image' and resource['has_tg_attachment']==1
+    assert json.loads(resource['download_links_json'])==['https://t.me/marbleupdates/102']
+    assert resource['file_attachment_name']=='boot_magisk_v28.img.gz'
+
+
+def test_rule_engine_handles_standard_posts_with_zero_llm_calls(db):
+    html='<section class="tgme_widget_history">'+''.join(f'<div class="tgme_widget_message" data-post="TestChannel/{i}"><div class="tgme_widget_message_text">Evolution X v9.5 #marble Android 15 By @ralf_dev https://sourceforge.net/a.zip</div></div>' for i in range(1,6))+'</section>'
+    def forbidden(_):raise AssertionError('Standard releases must not call AI')
+    result=scan_channel(db,'testchannel',page_fetcher=lambda _:html,llm_callable=forbidden)
+    assert result['packages_saved']==5 and result['llm_calls_used']==0
+
+
+def test_llm_fallback_triggered_only_on_low_confidence_and_respects_budget(db):
+    calls=[]
+    def llm(text):calls.append(text);return {'device_codename':'marble','project_name':'Mystery ROM'}
+    result=scan_channel(db,'marbleupdates',page_fetcher=pages,llm_callable=llm)
+    assert result['llm_calls_used']==1 and len(calls)==1
+    assert db.query('SELECT extraction_method FROM tg_discovered_packages WHERE msg_id=101')[0]['extraction_method']=='rule_plus_llm'
+    low='<section class="tgme_widget_history">'+''.join(f'<div class="tgme_widget_message" data-post="BudgetChannel/{i}"><div class="tgme_widget_message_text">New flashable zip build {i} here https://mega.nz/file/{i}</div></div>' for i in range(1,6))+'</section>'
+    result=scan_channel(db,'budgetchannel','marble',page_fetcher=lambda _:low,llm_callable=llm,max_llm_calls=2)
+    assert result['llm_calls_used']==2
+    # Same content reposted at a new floor reuses the prior parsed metadata.
+    duplicate=OLD.replace('MarbleUpdates/101','DuplicateChan/1').replace('MarbleUpdates/102','InvalidChannel/2').replace('MarbleUpdates/100','InvalidChannel/3')
+    result=scan_channel(db,'duplicatechan',page_fetcher=lambda _:duplicate,llm_callable=llm)
+    assert result['llm_calls_used']==0
+
+
+def test_llm_failure_gracefully_degrades_to_rule_only_without_losing_cursor(db):
+    def failure(_):raise httpx.ReadTimeout('synthetic failure')
+    result=scan_channel(db,'marbleupdates','marble',page_fetcher=pages,llm_callable=failure)
+    assert result['min_scanned_msg_id']==100 and result['packages_saved']==5
+    assert db.query('SELECT extraction_method FROM tg_discovered_packages WHERE msg_id=101')[0]['extraction_method']=='rule_only'
+
+
+def test_export_jsonl_and_bridge_sync_to_sp07_custom_resources(db,tmp_path,monkeypatch):
+    scan_channel(db,'marbleupdates','marble',page_fetcher=pages,enable_llm=False)
+    file=tmp_path/'out.jsonl';assert export_jsonl(db,'marbleupdates',file)
+    before=file.stat().st_mtime_ns;assert not export_jsonl(db,'marbleupdates',file);assert before==file.stat().st_mtime_ns
+    assert len(file.read_text().splitlines())==5
+    db.execute_script((ROOT/'schema.sql').read_text())
+    db.execute("INSERT INTO brands(id,name,bl_unlock_status) VALUES ('xiaomi','Xiaomi','easy')")
+    db.execute("INSERT INTO devices(codename,brand_id,marketing_name) VALUES ('marble','xiaomi','POCO F5')")
+    private,public=generate_keypair();monkeypatch.setenv('SIGN_PRIVATE_KEY_HEX',private)
+    assert export_to_custom_resources(db)['inserted']==5
+    assert export_to_custom_resources(db)['unchanged']==5
+    for row in db.query('SELECT * FROM custom_resources'):
+        assert verify_signature(build_custom_resource_payload(row['public_token'],row['zone_type'],row['target_post_url']),row['ed25519_signature'],public)
+    row=db.query("SELECT target_post_url FROM custom_resources WHERE project_name='OrangeFox'")[0]
+    assert row['target_post_url']=='https://t.me/orangefoxupdates/88'
+
+
+def simple_page(channel,ids):
+    return '<section class="tgme_widget_history">'+''.join(f'<div class="tgme_widget_message" data-post="{channel}/{i}"><div class="tgme_widget_message_text">Evolution X v9.5 #marble Android 15 By @ralf_dev https://sourceforge.net/{i}.zip</div></div>' for i in ids)+'</section>'
+
+
+def test_incremental_gap_survives_budget_and_restart_without_skipping(db):
+    scan_channel(db,'gapchannel','marble',max_pages=1,page_fetcher=lambda _:simple_page('gapchannel',[10,9]))
+    requested=[]
+    def fetch(url):
+        requested.append(url)
+        if '?before=29' in url:return simple_page('gapchannel',[28,27])
+        if '?before=27' in url:return simple_page('gapchannel',[26,10])
+        return simple_page('gapchannel',[30,29])
+    scan_channel(db,'gapchannel','marble',max_pages=1,direction='incremental',page_fetcher=fetch)
+    scan_channel(db,'gapchannel','marble',max_pages=1,direction='incremental',page_fetcher=fetch)
+    assert requested[-1].endswith('?before=29')
+    scan_channel(db,'gapchannel','marble',max_pages=1,direction='incremental',page_fetcher=fetch)
+    assert requested[-1].endswith('?before=27')
+    row=db.query('SELECT * FROM tg_scan_cursors')[0]
+    assert row['max_scanned_msg_id']==30 and row['min_scanned_msg_id']==9
+    assert {r['msg_id'] for r in db.query('SELECT msg_id FROM tg_discovered_packages')}=={9,10,26,27,28,29,30}
+
+
+def test_failed_page_retains_previous_commit_and_private_channel_never_marks_done(db):
+    def fetch(url):
+        if '?' in url:raise ScanHTTPError('synthetic failure')
+        return LATEST
+    with pytest.raises(ScanHTTPError):scan_channel(db,'marbleupdates','marble',page_fetcher=fetch)
+    assert db.query('SELECT min_scanned_msg_id FROM tg_scan_cursors')[0]['min_scanned_msg_id']==103
+    before=db.query('SELECT * FROM tg_scan_cursors')
+    with pytest.raises(ChannelUnavailableError):scan_channel(db,'marbleupdates','marble',direction='backfill',page_fetcher=lambda _:'<html>Private channel</html>')
+    assert before==db.query('SELECT * FROM tg_scan_cursors')
+
+
+def test_urls_no_intranet_and_algorithm_20_floors_under_100ms(db):
+    html=simple_page('speedchannel',range(1,21))
+    started=time.perf_counter();result=scan_channel(db,'speedchannel','marble',page_fetcher=lambda _:html,enable_llm=False)
+    assert time.perf_counter()-started<=.1
+    assert result['packages_saved']==20
+    msg=parse_tg_channel_page(LATEST,'marbleupdates')['messages'][0]
+    msg.update(text='Android ROM for #marble http://192.168.1.1/rom.zip',links=[])
+    assert extract_package_by_rules(msg) is None
+    assert parse_tg_channel_page('<section class="tgme_widget_history"><div class="tgme_widget_message" data-post="Elsewhere/5"></div></section>','marbleupdates')['messages']==[]
+
+
+def test_http_retries_bounded_and_no_download_urls_are_requested(monkeypatch):
+    monkeypatch.setenv('FMR_TEST_NO_SLEEP','1');urls=[]
+    def handler(req):urls.append(str(req.url));return httpx.Response(429,headers={'Retry-After':'0'})
+    fetch=PageFetcher();fetch.client.close();fetch.client=httpx.Client(transport=httpx.MockTransport(handler))
+    try:
+        with pytest.raises(ScanHTTPError):fetch('https://t.me/s/marbleupdates')
+        assert len(urls)==3 and set(urls)=={'https://t.me/s/marbleupdates'}
+    finally:fetch.close()
+
+
+def test_private_checkpoint_uploads_before_deletion_and_unchanged_is_zero_upload(tmp_path):
+    from fmr_tg_scanner.cloud_job import PrivateCheckpoint
+    import hashlib
+    file=tmp_path/'state.sqlite';file.write_bytes(b'synthetic state')
+    digest=hashlib.sha256(file.read_bytes()).hexdigest();calls=[]
+    def handler(request):
+        calls.append((request.method,str(request.url)))
+        return httpx.Response(201 if request.method=='POST' else 204, json={'id':99} if request.method=='POST' else None)
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        checkpoint=PrivateCheckpoint(client,'test/private-vault','marbleupdates')
+        assert not checkpoint.save(file,digest,{'id':1},[])
+        assert calls==[]
+        assert checkpoint.save(file,None,{'id':1},[{'name':'tg01-marbleupdates.sqlite.'+'a'*64,'id':4}])
+        assert [c[0] for c in calls]==['POST','DELETE']
+        assert 'uploads.github.com' in calls[0][1]
+
+
+def test_checkpoint_upload_failure_never_deletes_last_good_generation(tmp_path):
+    from fmr_tg_scanner.cloud_job import PrivateCheckpoint
+    file=tmp_path/'state.sqlite';file.write_bytes(b'synthetic');calls=[]
+    def handler(request):calls.append(request.method);return httpx.Response(500)
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        with pytest.raises(httpx.HTTPStatusError):
+            PrivateCheckpoint(client,'test/private-vault','marbleupdates').save(file,None,{'id':1},[{'name':'tg01-marbleupdates.sqlite.'+'a'*64,'id':4}])
+    assert calls==['POST']
+
+
+def test_offline_cli_and_limits(tmp_path):
+    env=dict(os.environ,LOCAL_SQLITE_PATH=str(tmp_path/'cli.db'),FMR_TEST_NO_SLEEP='1')
+    cmd=[sys.executable,'-m','fmr_tg_scanner.cli','--channel','@MarbleUpdates','--default-codename','marble','--no-llm','--offline-pages','tests/fixtures/tg01_page_latest.html,tests/fixtures/tg01_page_before_103.html','--export-jsonl',str(tmp_path/'out.jsonl')]
+    result=subprocess.run(cmd,cwd=ROOT,env=env,text=True,capture_output=True)
+    assert result.returncode==0,result.stderr
+    summary=json.loads(result.stdout.splitlines()[-1]);assert summary['packages_saved']==5
+    assert summary['max_scanned_msg_id']==105 and summary['min_scanned_msg_id']==100
+    assert len((tmp_path/'out.jsonl').read_text().splitlines())==5
+    result=subprocess.run(cmd+['--max-pages','5001'],cwd=ROOT,env=env,text=True,capture_output=True)
+    assert result.returncode==2
+
+
+def test_stalled_incremental_page_does_not_skip_catchup_gap(db):
+    scan_channel(db,'gapchannel','marble',max_pages=1,page_fetcher=lambda _:simple_page('gapchannel',[10,9]))
+    fetch=lambda _:simple_page('gapchannel',[30,29])
+    scan_channel(db,'gapchannel','marble',max_pages=1,direction='incremental',page_fetcher=fetch)
+    before=db.query('SELECT * FROM tg_scan_cursors')
+    with pytest.raises(ScanHTTPError):scan_channel(db,'gapchannel','marble',max_pages=1,direction='incremental',page_fetcher=fetch)
+    assert db.query('SELECT * FROM tg_scan_cursors')==before
+
+
+def test_ai_attempt_intent_survives_crash_without_repeated_billing(db):
+    class SimulatedKill(BaseException):pass
+    calls=[]
+    def llm(text):calls.append(text);raise SimulatedKill()
+    with pytest.raises(SimulatedKill):scan_channel(db,'marbleupdates','marble',page_fetcher=pages,llm_callable=llm)
+    row=db.query('SELECT * FROM tg_scan_cursors')[0]
+    assert row['min_scanned_msg_id']==103
+    result=scan_channel(db,'marbleupdates','marble',direction='backfill',page_fetcher=pages,llm_callable=llm)
+    assert result['llm_calls_used']==0 and len(calls)==1
+    assert db.query('SELECT COUNT(*) AS n FROM tg_discovered_packages')[0]['n']==5
+
+
+def test_private_checkpoint_restore_is_verified_and_reuses_existing_cursor(db,tmp_path):
+    from fmr_tg_scanner.cloud_job import PrivateCheckpoint
+    from fmr_tg_scanner.storage import SQLiteDB
+    import hashlib
+    scan_channel(db,'marbleupdates','marble',max_pages=1,page_fetcher=pages)
+    raw=Path(db.local_path).read_bytes();digest=hashlib.sha256(raw).hexdigest()
+    def handler(request):
+        url=str(request.url)
+        if '/releases/tags/' in url:return httpx.Response(200,json={'id':1})
+        if '/releases/1/assets?' in url:return httpx.Response(200,json=[{'id':9,'name':'tg01-marbleupdates.sqlite.'+digest}])
+        if '/releases/assets/9' in url:return httpx.Response(200,content=raw)
+        raise AssertionError(url)
+    restored=tmp_path/'restored.sqlite'
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        got,info,assets=PrivateCheckpoint(client,'owner/private-vault','marbleupdates').restore(restored)
+        assert got==digest
+        copied=SQLiteDB(restored)
+        try:
+            urls=[]
+            def fetch(url):urls.append(url);return pages(url)
+            result=scan_channel(copied,'marbleupdates','marble',direction='backfill',page_fetcher=fetch,enable_llm=False)
+            assert urls[0].endswith('?before=103') and result['packages_saved']==2
+        finally:copied.close()
+
+
+def test_independent_storage_rolls_back_failed_page(tmp_path):
+    from fmr_tg_scanner.storage import SQLiteDB
+    db=SQLiteDB(tmp_path/'independent.sqlite')
+    try:
+        db.execute('CREATE TABLE tx(id INTEGER PRIMARY KEY)')
+        with pytest.raises(Exception):db.execute_batch([('INSERT INTO tx VALUES (?)',(1,)),('INSERT INTO missing VALUES (?)',(2,))])
+        assert db.query('SELECT * FROM tx')==[]
+        result=scan_channel(db,'marbleupdates','marble',page_fetcher=pages,enable_llm=False)
+        assert result['packages_saved']==5
+    finally:db.close()

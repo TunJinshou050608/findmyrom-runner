@@ -381,9 +381,9 @@ hours or by manual dispatch. It only runs when repository variable
 `FMR_JUMPER_ENABLED=true`. Production environment secret `GH_JUMPER_SSH_KEY`
 is a dedicated deploy key restricted to `android-boot-images-index`; it is not
 the private Vault credential. The initial quota pause is enforced before any
-production DB connection. After the November 1 UTC reset, the existing resume
-workflow enables and dispatches this workflow. No production export was run
-before the reset.
+production DB connection. Public referral publishing is currently disabled by the owner: variable
+`FMR_JUMPER_ENABLED=false`, workflow disabled, and quota recovery does not
+activate it. No production export is scheduled until explicitly requested.
 
 Telegram request handling lives in Repo-Web. One-time registration runs outside
 the Worker: provide `TG_BOT_TOKEN`, `TG_WEBHOOK_SECRET`, and optionally
@@ -396,3 +396,49 @@ The Worker never calls the Telegram API while serving a webhook request.
 Offline acceptance: `FMR_TEST_NO_SLEEP=1 python -m pytest -v` plus
 `tests/test_sp06_jumper_sync.py`'s CLI test, which seeds its own SQLite database
 and compares two independently generated file trees.
+
+### TG01 independent public-channel scanner (single FindMyROM bot)
+
+The project uses only `@FindMyROM_bot`; the SP06 query/referral frontend and
+TG01 resource discovery belong to that same project. Discovery uses public
+`https://t.me/s/` HTML, without another bot or a personal Telegram login. The
+Bot Token is stored in Worker secrets, never in code or scanner checkpoints.
+Public referral delivery is **disabled**, including webhook registration and
+public GitHub index publishing, until the owner enables it after data preparation.
+
+`python -m fmr_tg_scanner.cli --channel CHANNEL --default-codename DEVICE
+--max-pages 20 --direction both --no-llm` uses independent local SQLite state
+(`LOCAL_SQLITE_PATH`, default `tg01-state.sqlite`). It never implicitly connects
+to production D1. No ROM/image file is downloaded. HTML parser and storage use
+the standard library; HTTP uses httpx. Optional SP07 signing reuses project crypto.
+
+Cursors commit atomically with packages on each page. Backfill starts below the
+oldest completed floor; incremental catch-up persists its anchor/target/next page
+when the page budget is exhausted. Overlaps and unchanged posts do not rewrite
+packages. Identical text hashes reuse parsed AI metadata; AI attempt intent is
+persisted before each call so interruption does not trigger another charge.
+Noise/complete releases consume zero AI calls. AI is disabled by default in cloud
+Actions; local optional fallback has a strict per-run call budget. Existing
+packages and the latest checkpoint are retained on page errors.
+
+Actions → **Telegram resources · incremental scan** (`telegram_scan.yml`):
+enter a real public channel username, an optional device codename, and a finite
+page budget. Run again with the same channel to continue. Live page statistics
+appear in logs. Scans are serialized to prevent concurrent checkpoint races.
+Checkpoint generations stay in the existing private Vault and are SHA-256 and
+SQLite-integrity checked; a new generation uploads successfully before deleting
+its predecessor. Normal exceptions/SIGTERM save the completed pages. An abrupt
+VM kill can replay at most the current batch (default 20 pages), not its entire
+history. The cloud checkpoint currently has a 128 MiB per-channel safety limit.
+No public Actions artifact or public repository receives scanner records.
+
+`--export-jsonl FILE` creates a deterministic snapshot and skips writing an
+unchanged snapshot. `--sync-to-sp07` explicitly bridges into a prepared local
+main-site schema using `SIGN_PRIVATE_KEY_HEX`; it preserves author post URLs,
+existing public tokens, votes and author opt-outs. It does not activate frontend
+SP07 tabs automatically. No production main-site sync runs by default.
+
+Limitations: Telegram public previews may omit deleted/private/unavailable posts;
+no scraper can guarantee recovery of those. `author_direct` describes observed
+post provenance, not cryptographic verification of the developer's identity.
+No production channel scan has been launched without a channel source list.

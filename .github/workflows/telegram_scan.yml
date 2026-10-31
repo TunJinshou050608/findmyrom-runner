@@ -1,0 +1,59 @@
+name: Telegram resources · incremental scan
+on:
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: Public channel username, without @ (required)
+        type: string
+        required: true
+      default_codename:
+        description: Optional fallback device codename
+        type: string
+        default: ''
+      max_pages:
+        description: Maximum preview pages in this batch (1–100)
+        type: number
+        default: 20
+      direction:
+        description: Incremental updates and/or historical backfill
+        type: choice
+        options: [both, incremental, backfill]
+        default: both
+permissions:
+  contents: read
+concurrency:
+  group: tg01-private-checkpoints
+  cancel-in-progress: false
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r requirements.txt
+      - name: Restore private state, scan a finite batch, save checkpoint
+        env:
+          GH_VAULT_TOKEN: ${{ secrets.GH_VAULT_TOKEN }}
+          GH_VAULT_REPO: ${{ secrets.GH_VAULT_REPO }}
+          CHANNEL: ${{ inputs.channel }}
+          DEVICE: ${{ inputs.default_codename }}
+          PAGES: ${{ inputs.max_pages }}
+          DIRECTION: ${{ inputs.direction }}
+        run: |
+          python - <<'PY'
+          import os
+          from fmr_tg_scanner.cloud_job import main
+          count=int(os.environ['PAGES'])
+          if not 1<=count<=100:raise SystemExit('Batch page limit must be 1–100')
+          raise SystemExit(main(['--channel',os.environ['CHANNEL'],'--default-codename',os.environ['DEVICE'],'--max-pages',str(count),'--direction',os.environ['DIRECTION']]))
+          PY
+      - name: Explain checkpoints
+        if: always()
+        run: |
+          echo 'Each completed page commits packages and cursors atomically. State generations stay in the private Vault. Re-run with the same channel to continue. No firmware, personal Telegram login, LLM calls, or production D1 queries.' >> "$GITHUB_STEP_SUMMARY"
