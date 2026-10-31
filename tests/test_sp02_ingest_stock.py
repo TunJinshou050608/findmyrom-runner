@@ -445,3 +445,14 @@ def test_remote_read_errors_cannot_advance_cursor():
                     "UPDATE crawler_sources SET last_cursor_val=?", ("test",)
                 )
     remote.close()
+
+
+def test_existing_internal_anchor_is_repaired_without_overwriting_real_devices(db):
+    from fmr_ingest_stock.device_sync import ensure_base_brands_and_anchor
+    ensure_base_brands_and_anchor(db)
+    db.execute("UPDATE devices SET brand_id='google',marketing_name='Incorrect anchor' WHERE codename='__global__'")
+    db.execute("INSERT INTO devices(codename,brand_id,marketing_name) VALUES ('sample','google','Real device')")
+    ensure_base_brands_and_anchor(db)
+    assert db.query("SELECT brand_id,marketing_name FROM devices WHERE codename='__global__'") == [
+        {'brand_id': 'other', 'marketing_name': 'Global System Anchor'}]
+    assert db.query("SELECT marketing_name FROM devices WHERE codename='sample'")[0]['marketing_name'] == 'Real device'

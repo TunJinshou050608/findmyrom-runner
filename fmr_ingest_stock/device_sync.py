@@ -44,7 +44,7 @@ def ensure_base_brands_and_anchor(db_client):
             (bid, name, unlock, order),
         )
     db_client.execute(
-        "INSERT OR IGNORE INTO devices(codename,brand_id,marketing_name) VALUES ('__global__','other','Global System Anchor')"
+        "INSERT INTO devices(codename,brand_id,marketing_name) VALUES ('__global__','other','Global System Anchor') ON CONFLICT(codename) DO UPDATE SET brand_id=excluded.brand_id,marketing_name=excluded.marketing_name"
     )
     db_client.execute(
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_crawler_src_uniq ON crawler_sources(device_codename,source_kind,source_target)"

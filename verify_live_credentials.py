@@ -76,7 +76,7 @@ def main() -> int:
         require(isinstance(asset_id, int) and asset_id > 0)
         checks[stage] = True
         stage = 'd1_write'
-        brand = db.query('SELECT id FROM brands ORDER BY id LIMIT 1')
+        brand = db.query("SELECT id FROM brands WHERE id='other'")
         require(bool(brand))
         db.execute("INSERT OR IGNORE INTO devices(codename,brand_id,marketing_name) VALUES ('__global__',?,'Global System Anchor')", (brand[0]['id'],))
         source = 'https://example.invalid/credential-probe.zip'

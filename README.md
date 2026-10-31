@@ -133,9 +133,34 @@ archive URLs were logged. Draft Releases are unsuitable for the read-only gatewa
 probe; the probe now uses a published Release inside the private Vault, matching
 production archiving. The Worker sends GitHub a User-Agent header.
 
-This verifies credential usability and the diagnostic delivery path, not a real
-firmware extraction. Real firmware metadata ingestion and extraction remain
-unverified. Scheduled extraction stays disabled (`FMR_EXTRACTION_ENABLED` unset).
+The diagnostic above verifies credentials. A separate real-firmware acceptance
+run has now passed, as documented below. Scheduled extraction stays disabled
+(`FMR_EXTRACTION_ENABLED` unset).
 
 The source changes committed during the disconnected session have since been
 reviewed and synchronized back into the local workspace (2026-10-31).
+
+
+## Phase 1 real-firmware acceptance (2026-10-31)
+
+The manual cloud-only `phase1_acceptance.yml` workflow passed one official full
+Recovery ZIP through signed ingestion, HTTP Range extraction, private Vault
+archiving, SSR views, download tickets, streamed SHA-256/length verification and
+edge cache hits for two stock partitions. Real production records are retained.
+Evidence: https://github.com/TunJinshou050608/findmyrom-runner/actions/runs/41185952812
+
+The source ZIP was 2,557,402,968 bytes; extraction consumed 15,294,251 response
+body bytes across 446 Range requests, with no full-ROM fallback. All real image
+handling and verification downloads ran on GitHub's cloud runner. No real images or
+production source metadata are published as Actions artifacts or checked into Runner.
+
+Source selection is held in encrypted production Secret `FMR_PHASE1_CONFIG`.
+The verifier pins the upstream metadata commit, selects one exact Stable full
+Recovery build, checks its recorded MD5 against the reviewed selection, and
+checks Range support before ingestion. It never claims to have recomputed the
+full-ROM MD5. The public script contains no production selection records or URLs.
+
+This is one successful direct-ZIP case, not proof of all brands, modern OTA
+codecs, root patching or successful on-device flashing. SP06 remains the next
+index/Bot extension; it is not a prerequisite for this delivery loop. Scheduled
+extraction remains disabled pending controlled data and format expansion.
