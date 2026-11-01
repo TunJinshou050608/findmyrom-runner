@@ -48,7 +48,7 @@ jobs:
           python - <<'PY'
           from pathlib import Path
           import subprocess
-          paths=[str(p) for p in Path('.').rglob('*') if p.is_file() and '.git' not in p.parts and p.suffix in ('.sqlite','.json','.jsonl')]
+          paths=[str(p) for p in Path('.').rglob('*') if p.is_file() and '.git' not in p.parts and p.suffix in ('.sqlite','.json','.jsonl','.md')]
           if paths:subprocess.run(['git','add','--',*paths],check=True)
           PY
           if git diff --cached --quiet; then exit 0; fi

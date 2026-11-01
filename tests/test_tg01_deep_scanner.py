@@ -491,6 +491,8 @@ def test_empty_bottom_page_keeps_verified_android_source_on_frequent_updates(tmp
     report=run(tmp_path,fetcher=pages,discoverer=lambda *_:[{'channel':'marbleupdates'}])
     registry=json.loads((tmp_path/'source_registry.json').read_text())
     assert report['ok'] and registry['marbleupdates']['phone_context'] is True
+    summary=(tmp_path/'reports/latest.md').read_text()
+    assert '查看 Telegram 原消息' in summary and '下载链接 1' in summary and '没有下载' in summary
     assert registry['marbleupdates']['next_scan_at']-registry['marbleupdates']['last_scan_at']<600
 
 
@@ -517,3 +519,18 @@ def test_resident_cancellation_saves_state_without_starting_handoff(tmp_path,mon
     with pytest.raises(KeyboardInterrupt):watch(tmp_path,producer=cancelled,publisher=lambda root:saved.append(True),clock=lambda:0,sleeper=lambda *_:None)
     assert json.loads((tmp_path/'monitor_state.json').read_text())['handoff_ready'] is False
     assert len(saved)>=2
+
+
+def test_source_selection_does_not_starve_unvisited_or_old_sources():
+    from fmr_tg_scanner.trial import select_sources
+    registry={f'source{i}':{'quality_score':300-i,'last_scan_at':1,'next_scan_at':0} for i in range(9)}
+    registry['unvisited']={'quality_score':1,'last_scan_at':0,'next_scan_at':0}
+    registry['cooling']={'quality_score':999,'last_scan_at':0,'next_scan_at':99999}
+    visited=set()
+    for now in range(1000,7000,600):
+        selected=select_sources(registry,now,3)
+        assert 'source0' in selected and 'cooling' not in selected
+        visited.update(selected)
+        for ch in selected:registry[ch].update(last_scan_at=now,next_scan_at=now+480)
+    assert visited==set(registry)-{'cooling'}
+    assert select_sources({'low':{'last_scan_at':0},'high':{'quality_score':999,'last_scan_at':2}},100,1)==['low']

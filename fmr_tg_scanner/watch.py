@@ -18,7 +18,7 @@ def publish_private(root):
         result=subprocess.run(['git','-C',str(root),*args],capture_output=True,text=True,timeout=60)
         if check and result.returncode:raise RuntimeError('Private checkpoint Git operation failed')
         return result
-    paths=[str(p.relative_to(root)) for p in root.rglob('*') if p.is_file() and '.git' not in p.relative_to(root).parts and p.suffix in ('.sqlite','.json','.jsonl')]
+    paths=[str(p.relative_to(root)) for p in root.rglob('*') if p.is_file() and '.git' not in p.relative_to(root).parts and p.suffix in ('.sqlite','.json','.jsonl','.md')]
     if paths:git('add','--',*paths)
     if git('diff','--cached','--quiet',check=False).returncode==0:return False
     git('-c','user.name=FindMyROM','-c','user.email=automation@findmyrom.com','commit','--quiet','-m','TG01 resident check: private metadata and audit')

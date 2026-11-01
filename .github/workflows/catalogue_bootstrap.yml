@@ -1,0 +1,70 @@
+name: 官包链路恢复 · 迁移检查点并启动增量发布
+'on':
+  workflow_dispatch: null
+permissions:
+  contents: read
+  actions: write
+concurrency:
+  group: catalogue-bootstrap
+  cancel-in-progress: false
+jobs:
+  restore:
+    name: 接续旧进度，恢复采集及10分钟发布
+    permissions:
+      contents: read
+      actions: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: production
+    env:
+      GH_WORKFLOW_TOKEN: ${{ github.token }}
+      SIGN_PRIVATE_KEY_HEX: ${{ secrets.SIGN_PRIVATE_KEY_HEX }}
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        persist-credentials: false
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+        cache: pip
+    - run: python -m pip install -r requirements.txt
+    - name: 验证当前脚本后再恢复
+      run: FMR_TEST_NO_SLEEP=1 python -m pytest -q
+    - name: 检查迁移基线
+      id: baseline
+      run: 'python - <<''PYCODE''
+
+        import os
+
+        from fmr_ingest_stock.staged_catalogue import Artifacts,BASELINE
+
+        artifacts=Artifacts()
+
+        try:needed=not bool(artifacts.list(BASELINE))
+
+        finally:artifacts.close()
+
+        with open(os.environ[''GITHUB_OUTPUT''],''a'') as handle:handle.write(''needed=''+str(needed).lower()+''\n'')
+
+        PYCODE'
+    - name: 暂停旧D1写入入口，保留所有检查点
+      run: python -u -m fmr_ingest_stock.staged_catalogue prepare
+      if: steps.baseline.outputs.needed == 'true'
+    - name: 只读迁移D1旧检查点，之后采集不再访问D1
+      env:
+        CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+        CF_D1_DATABASE_ID: ${{ secrets.CF_D1_DATABASE_ID }}
+        CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+      run: python -u -m fmr_ingest_stock.staged_catalogue baseline
+      if: steps.baseline.outputs.needed == 'true'
+    - name: 保存加密迁移快照
+      uses: actions/upload-artifact@v4
+      with:
+        name: catalogue-v3-baseline
+        path: catalogue-state/upload/*.sqlite.enc
+        if-no-files-found: error
+        retention-days: 90
+        compression-level: 0
+      if: steps.baseline.outputs.needed == 'true'
+    - name: 启用厂商入口及统一发布，提交启动后停止
+      run: python -u -m fmr_ingest_stock.quota_resume
