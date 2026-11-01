@@ -27,7 +27,7 @@ try:
  limit=pathlib.Path('/sys/fs/cgroup/memory.max').read_text().strip()
  if limit!='max':available=min(available,max(0,int(limit)-int(pathlib.Path('/sys/fs/cgroup/memory.current').read_text())))
 except (OSError,ValueError):pass
-count=max(1,min(4,max(1,cores-1),max(1,available//(1024**3)-1)))
+count=max(1,min(8,max(1,cores-1),max(1,available//(1024**3)-1)))
 if available<1024**3:raise SystemExit('Less than 1 GiB available; stopped before installing extra runners.')
 print(f'Detected CPU capacity: {cores}; available memory: {available//(1024**2)} MiB; collectors: {count}; dedicated publisher: 1',file=sys.stderr)
 print(count)
