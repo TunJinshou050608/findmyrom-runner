@@ -112,7 +112,7 @@ def test_device_sync_fixture_and_brand_mapping(db, tmp_path):
     sync_devices(db, path)
     row = db.query("SELECT * FROM devices WHERE codename='marble'")[0]
     assert row["boot_partition_type"] == "boot"
-    assert row["marketing_name"] == "Redmi Note 12 Turbo CN"
+    assert row["marketing_name"] == "Redmi Note 12 Turbo"
     assert row["soc_name"] == "measured" and json.loads(row["model_numbers_json"]) == [
         "old"
     ]
