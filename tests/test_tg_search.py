@@ -208,3 +208,13 @@ def test_official_companion_resource_survives_rom_mentions(heading,kind):
     msg=parse_tg_channel_page(page(text=heading),'testchannel')['messages'][0]
     result,reason=analyse(msg,'alioth',[],{'alioth':[]})
     assert reason=='accepted' and result['package']['resource_kind']==kind
+
+
+def test_multidevice_post_does_not_mix_download_targets():
+    html=page(text='#alioth #liuqin Evolution X unofficial Android 15')
+    html=html.replace('Download</a>','Download</a><a href="https://sourceforge.net/files/EvolutionX_liuqin-15.zip">Download</a>')
+    html=html.replace('project/files/alioth-12.zip','files/EvolutionX_alioth-15.zip')
+    msg=parse_tg_channel_page(html,'testchannel')['messages'][0]
+    result,reason=analyse(msg,'alioth',[],{'alioth':[],'liuqin':[]})
+    assert reason=='accepted'
+    assert json.loads(result['package']['download_links_json'])==['https://sourceforge.net/files/EvolutionX_alioth-15.zip']

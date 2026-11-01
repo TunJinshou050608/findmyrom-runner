@@ -12,17 +12,20 @@ MAINSTREAM_ROMS=MAINSTREAM|{'pixelexperience','pixelplusui','blissrom','project 
 def token(text,value):return bool(re.search(r'(?<![a-z0-9_])'+re.escape(value)+r'(?![a-z0-9_])',text,re.I))
 
 
+def path_token(text,value):return bool(re.search(r'(?<![a-z0-9])'+re.escape(value)+r'(?![a-z0-9])',text,re.I))
+
+
 def target_evidence(message,target,names,all_names,profile=''):
     text=message.get('text','');head='\n'.join(text.splitlines()[:4])
-    files=(message.get('file_attachment_name') or '')+' '+unquote(' '.join(message.get('links',[])))
+    files=(message.get('file_attachment_name') or '')+' '+' '.join(unquote(urlsplit(u).path) for u in message.get('links',[]) if urlsplit(u).hostname not in ('t.me','telegram.me'))
     tokens=re.findall(r'(?i)#([a-z][a-z0-9_-]{2,24})\b|(?:codename|device)\s*[:：-]\s*([a-z0-9_-]{3,24})\b|[\[(]\s*([a-z0-9_-]{3,24})\s*[\])]',text)
     explicit={part.lower() for groups in tokens for part in groups if part and (part.lower() in all_names or part.lower()==target)}
     if explicit and target not in explicit:return None
     if len(explicit)>1:
-        if not token(files,target):return None
-        return {'kind':'target_in_download_path','value':target}
+        if not path_token(files,target):return None
+        return {'kind':'target_in_download_path','value':target,'multi_device_post':True}
     if target in explicit:return {'kind':'explicit_codename','value':target}
-    if token(files,target):return {'kind':'target_in_download_path','value':target}
+    if path_token(files,target):return {'kind':'target_in_download_path','value':target}
     for alias in names:
         if len(alias)>4 and token(text,alias):return {'kind':'catalogue_model_alias','value':alias}
     if token(head,target):return {'kind':'codename_in_release_heading','value':target}
@@ -68,6 +71,14 @@ def analyse(message,target,names,all_names,profile=''):
     package=extract_package_by_rules(message)
     if package is None:return None,'not_a_resource'
     package['device_codename']=target
+    if evidence.get('multi_device_post'):
+        attachment_target=path_token(package.get('file_attachment_name') or '',target)
+        links=[u for u in json.loads(package['download_links_json']) if path_token(unquote(urlsplit(u).path),target) or (attachment_target and u==package['tg_post_url'])]
+        if not links:return None,'ambiguous_multi_device_downloads'
+        package['download_links_json']=json.dumps(links,ensure_ascii=False)
+        if not attachment_target:package.update(file_attachment_name=None,has_tg_attachment=0)
+        filename=unquote(urlsplit(links[0]).path).rstrip('/').split('/')[-1]
+        if re.search(r'(?i)\.(?:zip|img|tgz|7z)(?:\.gz)?$',filename):package['package_name']=filename
     text=message.get('text','');heading=primary_release(package,message)
     links=json.loads(package['download_links_json'])
     paths=' '.join(unquote(urlsplit(u).path) for u in links)
