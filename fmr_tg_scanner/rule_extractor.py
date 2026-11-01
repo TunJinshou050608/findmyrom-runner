@@ -83,7 +83,7 @@ def extract_package_by_rules(msg_dict: dict, default_codename=None):
     else:origin='author_direct'
     if not maintainer and origin=='author_direct':maintainer=handle(channel)
     code=None
-    field=re.search(CODENAME_FIELD_REGEX,text)
+    field=re.search(CODENAME_FIELD_REGEX,text) or re.search(r'(?i)(?:device|codename|for)\s*[:：-]?\s*[^\n\[\]]*\[([a-z0-9_-]{3,24})\]',text)
     explicit=re.search(r'(?i)\bcodename\s*[:：-]\s*([a-z0-9_-]{3,24})',text)
     if field:code=field[1].lower()
     elif explicit:code=explicit[1].lower()

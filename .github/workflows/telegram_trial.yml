@@ -1,0 +1,58 @@
+name: TG01 · annibale live trial and audit
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: tg01-annibale-private-trial
+  cancel-in-progress: false
+jobs:
+  trial:
+    if: vars.FMR_TG_TRIAL_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: runner
+          persist-credentials: false
+      - name: Restore private test repository
+        uses: actions/checkout@v4
+        with:
+          repository: TunJinshou050608/findmyrom-tg01-test
+          path: state
+          ssh-key: ${{ secrets.GH_TG_TEST_SSH_KEY }}
+          persist-credentials: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: runner/requirements.txt
+      - run: python -m pip install -r runner/requirements.txt
+      - name: Scan finite pages and inspect actual products
+        working-directory: runner
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python -u -m fmr_tg_scanner.trial --state-dir ../state
+      - name: Save private logs, packages and checkpoints even on failure
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd state
+          if [ ! -d .git ]; then exit 1; fi
+          python - <<'PY'
+          from pathlib import Path
+          import subprocess
+          paths=[str(p) for p in Path('.').rglob('*') if p.is_file() and '.git' not in p.parts and p.suffix in ('.sqlite','.json','.jsonl')]
+          if paths:subprocess.run(['git','add','--',*paths],check=True)
+          PY
+          if git diff --cached --quiet; then exit 0; fi
+          git -c user.name=FindMyROM -c user.email=automation@findmyrom.com commit -m 'TG01 trial: metadata, checkpoint and audit'
+          git push origin HEAD:main
+      - name: Public status summary
+        if: always()
+        run: echo 'Detailed per-page and per-message logs, source coverage, cursors, package records and the latest integrity audit are in the dedicated PRIVATE test repository. No D1 queries, ROM downloads or LLM calls. GitHub cron requests an audit every 10 minutes; queue delays are possible.' >> "$GITHUB_STEP_SUMMARY"

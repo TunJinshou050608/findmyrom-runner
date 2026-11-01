@@ -21,7 +21,7 @@ def pause(seconds=None):
 
 
 class PageFetcher:
-    def __init__(self):self.client=httpx.Client(timeout=30,follow_redirects=False,headers={'User-Agent':'Mozilla/5.0 (compatible; FindMyROMMetadata/1.0)'})
+    def __init__(self):self.client=httpx.Client(timeout=30,follow_redirects=False,headers={'User-Agent':'Mozilla/5.0'})
     def __call__(self,url):
         parsed=urlsplit(url)
         if parsed.scheme!='https' or parsed.netloc!='t.me' or not re.fullmatch(r'/s/[a-z][a-z0-9_]{3,31}',parsed.path) or parsed.fragment or (parsed.query and not re.fullmatch(r'before=[1-9][0-9]*',parsed.query)):
@@ -57,7 +57,7 @@ def upsert(package):
 
 def scan_channel(db_client, channel_username: str, default_codename=None, max_pages: int=10,
                  direction: str='both', enable_llm: bool=True, max_llm_calls: int=20, page_fetcher=None,
-                 *, llm_callable=None, on_page=None):
+                 *, llm_callable=None, on_page=None, target_codenames=None, event_sink=None):
     if direction not in ('both','incremental','backfill') or not 1<=max_pages<=5000 or not 0<=max_llm_calls<=500:raise ValueError('Invalid scanner limits')
     channel=channel_name(channel_username);db=db_client;initialize(db)
     rows=db.query('SELECT * FROM tg_scan_cursors WHERE channel_username=?',(channel,))
@@ -70,12 +70,17 @@ def scan_channel(db_client, channel_username: str, default_codename=None, max_pa
     before=pending['before'] if pending and mode=='new' else low if mode=='old' else None
     anchor=pending['anchor'] if pending else high;target=pending['target'] if pending else high
     stats={'channel':channel,'pages_fetched':0,'messages_inspected':0,'packages_saved':0,'skipped_noise_count':0,'llm_calls_used':0}
+    targets={str(code).lower() for code in target_codenames} if target_codenames else None
+    def event(name,**data):
+        if event_sink:event_sink({'event':name,'channel':channel,**data})
     owns=page_fetcher is None;fetch=page_fetcher or PageFetcher()
     try:
         while stats['pages_fetched']<max_pages:
             if mode=='old' and exhausted:break
             url='https://t.me/s/'+channel+(f'?before={before}' if before else '')
+            event('page_fetch_start',direction=mode,before=before)
             page=parse_tg_channel_page(fetch(url),channel);stats['pages_fetched']+=1
+            event('page_fetched',floors=len(page['messages']),page_min=page['min_msg_id'],page_max=page['max_msg_id'])
             lo,hi=page['min_msg_id'],page['max_msg_id'];cold=high==0
             messages=[m for m in page['messages'] if cold or (mode=='new' and m['msg_id']>anchor) or (mode=='old' and m['msg_id']<low)]
             packages=[];saved=0
@@ -83,8 +88,18 @@ def scan_channel(db_client, channel_username: str, default_codename=None, max_pa
                 stats['messages_inspected']+=1
                 existing=db.query('SELECT * FROM tg_discovered_packages WHERE channel_username=? AND msg_id=?',(channel,msg['msg_id']))
                 package=extract_package_by_rules(msg,default_codename)
-                if package is None:stats['skipped_noise_count']+=1;continue
-                if existing and all(existing[0][k]==package[k] for k in ('raw_text_hash','download_links_json','original_post_url','origin_type','sender_author_signature','has_tg_attachment','file_attachment_name','published_timestamp','package_name','sender_id','sender_username')):continue
+                if package is None:
+                    stats['skipped_noise_count']+=1;event('message_skipped',msg_id=msg['msg_id'],reason='unsupported_preview' if msg.get('preview_unavailable') else 'no_resource_evidence');continue
+                if targets:
+                    strong=[code for code in targets if re.search(r'(?i)(?:#'+re.escape(code)+r'\b|[\[(]\s*'+re.escape(code)+r'\s*[\])])',msg['text'])]
+                    if len(strong)==1:package['device_codename']=strong[0]
+                    if not package['device_codename']:
+                        detected=[code for code in targets if re.search(r'(?<![a-z0-9_])'+re.escape(code)+r'(?![a-z0-9_])',msg['text'],re.I)]
+                        if len(detected)==1:package['device_codename']=detected[0]
+                    if package['device_codename'] not in targets:
+                        event('message_skipped',msg_id=msg['msg_id'],reason='target_mismatch',detected_codename=package['device_codename']);continue
+                if existing and all(existing[0][k]==package[k] for k in ('raw_text_hash','download_links_json','original_post_url','origin_type','sender_author_signature','has_tg_attachment','file_attachment_name','published_timestamp','package_name','sender_id','sender_username')):
+                    event('message_skipped',msg_id=msg['msg_id'],reason='unchanged');continue
                 digest=package['raw_text_hash'];known=db.query('SELECT * FROM tg_discovered_packages WHERE raw_text_hash=? LIMIT 1',(digest,))
                 if known and known[0]['extraction_method']=='rule_plus_llm':
                     for name in llm_fallback.FIELDS:
@@ -101,6 +116,7 @@ def scan_channel(db_client, channel_username: str, default_codename=None, max_pa
                     except Exception:pass
                 if package.get('device_codename') or package['extraction_method']=='rule_plus_llm':
                     packages.append(package);saved+=1
+                else:event('message_skipped',msg_id=msg['msg_id'],reason='unknown_codename')
             if cold:
                 if hi is None:exhausted=True
                 else:high=hi;low=lo;anchor=hi;exhausted=lo<=1
@@ -131,6 +147,7 @@ def scan_channel(db_client, channel_username: str, default_codename=None, max_pa
                   OR tg_scan_cursors.scan_state_json IS NOT excluded.scan_state_json""",
                 (channel,high,low,int(exhausted),channel,json.dumps(state,sort_keys=True))))
             db.execute_batch(statements);stats['packages_saved']+=saved
+            for package in packages:event('package_committed',package=package)
             if on_page:on_page(dict(stats,min_scanned_msg_id=low,max_scanned_msg_id=high,history_exhausted=exhausted))
             if direction=='incremental' and next_mode=='old':break
             mode=next_mode;before=next_before

@@ -296,3 +296,71 @@ def test_metadata_columns_migrate_once_without_rescanning_history(db):
     before=db._get_sqlite_conn().total_changes
     initialize(db)
     assert before==db._get_sqlite_conn().total_changes
+
+
+def test_live_dom_container_and_annibale_target_do_not_turn_project_tags_into_devices(db):
+    html='<section class="tgme_channel_history js-message_history"><div class="tgme_widget_message" data-post="MixUpdates/10"><div class="tgme_widget_message_text">New custom ROM Project Infinity X for POCO F8 PRO [ANNIBALE] #ProjectInfinityX #SMGTeams #annibale By @dev_name https://sourceforge.net/new.zip</div></div><div class="tgme_widget_message" data-post="MixUpdates/9"><div class="tgme_widget_message_text">crDroid v12 for #whyred Android 16 https://sourceforge.net/whyred.zip</div></div></section>'
+    events=[]
+    result=scan_channel(db,'mixupdates',max_pages=1,page_fetcher=lambda _:html,target_codenames={'annibale'},event_sink=events.append,enable_llm=False)
+    assert result['packages_saved']==1
+    assert db.query('SELECT device_codename FROM tg_discovered_packages')==[{'device_codename':'annibale'}]
+    assert any(e.get('reason')=='target_mismatch' for e in events)
+    assert sum(e['event']=='package_committed' for e in events)==1
+
+
+def test_trial_official_policy_keeps_unofficial_before_matching_official_word():
+    from fmr_tg_scanner.trial import classify
+    package={'project_name':'LineageOS','download_links_json':'["https://sourceforge.net/lineage.zip"]'}
+    assert classify(package,'LineageOS 24 UNOFFICIAL build for annibale')=='unofficial'
+    assert classify(package,'LineageOS 24 OFFICIAL build for annibale')=='mainstream_official'
+    assert classify(package,'LineageOS 24 build for annibale')=='unknown'
+
+
+def test_live_trial_saves_private_log_export_audit_and_resumes(tmp_path,monkeypatch):
+    from fmr_tg_scanner.trial import run
+    monkeypatch.setenv('GITHUB_RUN_ID','test-run');monkeypatch.setenv('FMR_TEST_NO_SLEEP','1')
+    (tmp_path/'config.json').write_text(json.dumps({'target_codenames':['marble'],'pages_per_channel':3,'channels_per_batch':1,'discover_linked_channels':False}))
+    report=run(tmp_path,fetcher=pages,discoverer=lambda device,cache,log:[{'channel':'marbleupdates'}])
+    assert report['ok'] and report['packages']==4
+    assert (tmp_path/'state.sqlite').exists() and (tmp_path/'packages/marbleupdates.jsonl').exists()
+    log=(tmp_path/'logs/test-run-1.jsonl').read_text();assert 'page_fetch_start' in log and 'message_skipped' in log and 'package_committed' in log
+    assert 'no_resource_evidence' in log
+    monkeypatch.setenv('GITHUB_RUN_ID','second-run')
+    second=run(tmp_path,fetcher=pages,discoverer=lambda device,cache,log:[{'channel':'marbleupdates'}])
+    assert second['ok'] and second['packages']==4 and second['batch_results']==[]
+
+
+def test_autonomous_discovery_only_needs_codename_and_caches_search(monkeypatch):
+    from fmr_tg_scanner import discovery
+    requests=[];events=[]
+    monkeypatch.setattr(discovery,'SEARCH_PROVIDERS',[('search','https://search.example/search','q')])
+    def handler(request):
+        requests.append(str(request.url))
+        if request.url.host=='search.example':
+            assert 'annibale' in request.url.params['q']
+            return httpx.Response(200,text='<a href="https://t.me/AutoFoundChannel/73">annibale ROM</a>')
+        if request.url.host=='api.github.com':return httpx.Response(200,json={'items':[]})
+        raise AssertionError(str(request.url))
+    cache={}
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        result=discovery.discover_channels('annibale',cache,events.append,client=client,now=10)
+        assert [r['channel'] for r in result]==['autofoundchannel']
+        count=len(requests)
+        again=discovery.discover_channels('annibale',cache,events.append,client=client,now=11)
+        assert again==result and len(requests)==count
+    assert any(e['event']=='discovery_cache_hit' for e in events)
+
+
+def test_autonomous_trial_rejects_human_channel_seeds(tmp_path):
+    from fmr_tg_scanner.trial import run
+    (tmp_path/'config.json').write_text(json.dumps({'target_codenames':['annibale'],'seed_channels':['manualhelp']}))
+    with pytest.raises(ValueError,match='Manual channel seeds'):run(tmp_path,fetcher=lambda _:EMPTY)
+
+
+def test_no_sources_is_a_failed_trial_not_a_success(tmp_path,monkeypatch):
+    from fmr_tg_scanner.trial import run
+    monkeypatch.setenv('GITHUB_RUN_ID','no-sources')
+    (tmp_path/'config.json').write_text(json.dumps({'target_codenames':['annibale']}))
+    report=run(tmp_path,fetcher=lambda _:EMPTY,discoverer=lambda *_:[])
+    assert not report['ok'] and report['source_count']==0
+    assert {'reason':'autonomous_discovery_found_no_sources'} in report['errors']

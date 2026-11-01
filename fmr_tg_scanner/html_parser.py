@@ -48,7 +48,7 @@ def parse_tg_channel_page(html_text: str, channel_username: str) -> dict:
     channel=channel_name(channel_username)
     if len(html_text.encode('utf-8'))>4*1024*1024:raise ValueError('Preview page exceeds limit')
     dom=DOM();dom.feed(html_text)
-    if not any(n.has('tgme_widget_history') for n in dom.root.walk()):
+    if not any(n.has('tgme_widget_history') or n.has('tgme_channel_history') for n in dom.root.walk()):
         raise ChannelUnavailableError('Public channel preview unavailable')
     messages={};before=[]
     for node in dom.root.walk():
@@ -80,6 +80,7 @@ def parse_tg_channel_page(html_text: str, channel_username: str) -> dict:
                 'text':text,'links':links,'forwarded_from_url':forward.attrs.get('href') if forward else None,
                 'has_forward_header':forward is not None,'sender_author_signature':author,
                 'sender_id':None,'sender_username':sender_username,
+                'preview_unavailable':not text and any(n.has('text_not_supported_wrap') for n in children),
                 'has_tg_attachment':bool(title),'file_attachment_name':title,'published_timestamp':stamp}
         if node.tag=='a' and node.has('tme_messages_more'):
             url=urlsplit(node.attrs.get('href',''));values=parse_qs(url.query).get('before',[])
