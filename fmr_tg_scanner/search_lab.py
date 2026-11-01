@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 from .search_engine import run
 from .trial import atomic_json
+from .search_validation import validate
 
 
 def main():
@@ -16,6 +17,7 @@ def main():
     root=Path(args.state_dir)/'experiments'/'search-v3'/os.environ.get('GITHUB_RUN_ID','local')
     modes=['query_first'] if args.mode=='batch' else ['query_first','latest_first']
     reports={mode:run(root/mode,targets,max_requests=180,max_seconds=480,mode=mode) for mode in modes}
+    for mode in modes:validate(root/mode)
     atomic_json(root/'comparison.json',{'reports':reports,'same_request_budget':180,
         'same_time_budget_seconds':480,'channel_seeds':[],
         'comparison_scope':'Search ordering ablation using the same new discovery and policy; not a frozen legacy baseline.',

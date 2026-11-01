@@ -19,7 +19,7 @@ from .search_store import SearchStore
 from .trial import atomic_json
 
 
-def run(root,targets,*,max_requests=180,max_seconds=480,http_factory=SearchHTTP,mode='query_first',cold=False):
+def run(root,targets,*,max_requests=180,max_seconds=480,http_factory=SearchHTTP,mode='query_first'):
     root=Path(root);root.mkdir(parents=True,exist_ok=True)
     if not 1<=len(targets)<=500 or not all(re.fullmatch('[a-z0-9_-]{3,24}',v) for v in targets):raise ValueError('Invalid target codenames')
     if not 1<=max_requests<=2000 or not 10<=max_seconds<=1800:raise ValueError('Invalid batch budget')
@@ -80,10 +80,11 @@ def run(root,targets,*,max_requests=180,max_seconds=480,http_factory=SearchHTTP,
             package=result['package'];evidence={**result['evidence'],'source_url':source,'message_identity_verified':True,
                 'source_post_url':package['original_post_url'],'numeric_sender_id_observed':package.get('sender_id') is not None,
                 'author_identity_verified':False}
+            already_product=bool(store.query('SELECT 1 FROM tg_search_records WHERE fingerprint=? AND accepted=1 LIMIT 1',(store.fingerprint(package),)))
             changed=store.save(package,evidence,result['classification'],reason,result['accepted'])
             if result['accepted']:
                 per_device[code]+=1
-                if changed:
+                if changed and not already_product:
                     new_products+=1
                     if first_product is None:first_product=round(time.monotonic()-started,3)
                 if depth<2:
@@ -139,7 +140,10 @@ def run(root,targets,*,max_requests=180,max_seconds=480,http_factory=SearchHTTP,
                     page=search_page(lambda url:http.get(url,ttl=86400 if payload.get('state',{}).get('before') else 120),payload['channel'],payload['query'],payload.get('state'))
                     for msg in page['messages']:count+=int(message(code,msg,page['source_url'],depth))
                     payload['state']=page['state'];delay=0 if page['has_more'] else 1800
-                    if page['status'] not in ('more','search_exhausted'):delay=7200;emit({'event':'query_incomplete','status':page['status'],'device':code,'channel':payload['channel']})
+                    if page['status'] not in ('more','search_exhausted'):
+                        delay=7200
+                        store.enqueue('history',code,{'channel':payload['channel'],'depth':depth,'state':{}},30)
+                        emit({'event':'query_incomplete','status':page['status'],'device':code,'channel':payload['channel']})
                     emit({'event':'query_page','device':code,'channel':payload['channel'],'status':page['status'],'matched_products':count,'messages':len(page['messages'])})
                 elif kind in ('head','history'):
                     before=payload.get('state',{}).get('before')
@@ -151,6 +155,15 @@ def run(root,targets,*,max_requests=180,max_seconds=480,http_factory=SearchHTTP,
                         lo=page['min_msg_id']
                         if lo and (not before or lo<before):payload['state']={'before':lo};delay=0
                         else:delay=86400
+                    else:
+                        state=payload.get('state',{});anchor=state.get('anchor',0)
+                        highest=max(state.get('highest',0),page['max_msg_id'] or 0)
+                        lo=page['min_msg_id']
+                        # Preserve the old head watermark until every page of
+                        # an incremental gap has reached it, even across runs.
+                        if anchor and lo and lo>anchor and (not before or lo<before):
+                            payload['state']={'before':lo,'anchor':anchor,'highest':highest};delay=0
+                        else:payload['state']={'anchor':highest,'highest':highest}
                 else:raise ValueError('Unknown search task')
                 store.finish(task,delay=delay,payload=payload);processed+=1
                 emit({'event':'task_finished','kind':kind,'device':code,'count':count,'next_in_seconds':delay})
@@ -158,6 +171,7 @@ def run(root,targets,*,max_requests=180,max_seconds=480,http_factory=SearchHTTP,
                 store.finish(task,payload=payload);outcome='budget_reached';break
             except Exception as exc:
                 reason=type(exc).__name__;failures.append({'kind':kind,'device':code,'error_type':reason})
+                if kind=='query':store.enqueue('history',code,{'channel':payload['channel'],'depth':depth,'state':{}},30)
                 store.finish(task,delay=min(86400,900*(2**min(task['attempts'],5))),error=reason,payload=payload)
                 emit({'event':'task_failed','kind':kind,'device':code,'error_type':reason})
             task=None
@@ -171,13 +185,14 @@ def run(root,targets,*,max_requests=180,max_seconds=480,http_factory=SearchHTTP,
         atomic_json(root/'candidates.json',{'candidates':[{'package':json.loads(r['payload']),'evidence':json.loads(r['evidence']),'reason':r['reason']} for r in rows if not r['accepted']]})
         todo=store.query("SELECT kind,status,COUNT(*) AS count FROM tg_search_tasks GROUP BY kind,status")
         counts=Counter(v['package']['device_codename'] for v in products)
-        report={'engine':'query_first_v3','mode':mode,'ok':bool(products),'outcome':outcome,'targets':targets,
+        report={'engine':'query_first_v3','mode':mode,'ok':not failures or len(failures)<processed,'has_products':bool(products),'activity':'new_products' if new_products else 'no_new_products','outcome':outcome,'targets':targets,
             'new_qualified_products':new_products,'packages':len(products),'stored_observations':len(rows),'per_device':dict(counts),
             'http_requests':http.requests,'cache_hits':http.cache_hits,'response_bytes':http.bytes,'http_errors':http.errors,
             'first_product_seconds':first_product,'elapsed_seconds':round(time.monotonic()-started,3),'tasks_processed':processed,
             'requests_per_new_product':round(http.requests/new_products,3) if new_products else None,
             'events':dict(events),'task_states':todo,'failures':failures,'sources':len(store.meta('sources',{})),
             'D1_requests':0,'llm_calls':0,'firmware_downloaded':False,'global_coverage_complete':False,
+            'frontier_limit_observed':store.meta('frontier_limit_observed',False),
             'note':'Products are observed metadata, not binary integrity or independent author verification. Search completion is not complete Telegram history.'}
         atomic_json(root/'reports'/f'{run_id}.json',report);atomic_json(root/'reports/latest.json',report)
         print(json.dumps({k:report[k] for k in ('engine','mode','ok','outcome','new_qualified_products','packages','per_device','http_requests','cache_hits','first_product_seconds','elapsed_seconds','sources')}),flush=True)

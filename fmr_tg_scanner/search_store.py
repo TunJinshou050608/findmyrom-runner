@@ -34,6 +34,10 @@ class SearchStore(SQLiteDB):
         # Pagination lives in payload.state and must not enter the task identity.
         identity={k:v for k,v in payload.items() if k not in ('state','reason','depth')}
         key=hashlib.sha256(json.dumps([kind,device,identity],sort_keys=True).encode()).hexdigest()
+        if self.query('SELECT 1 FROM tg_search_tasks WHERE key=?',(key,)):return key
+        if self.query('SELECT COUNT(*) AS n FROM tg_search_tasks WHERE device=?',(device,))[0]['n']>=1500:
+            self.set_meta('frontier_limit_observed',True)
+            return None
         self.execute('INSERT OR IGNORE INTO tg_search_tasks(key,kind,device,payload,priority) VALUES (?,?,?,?,?)',
                      (key,kind,device,json.dumps(payload,sort_keys=True),priority))
         return key
@@ -53,11 +57,13 @@ class SearchStore(SQLiteDB):
     def finish(self,task,*,delay=0,error=None,payload=None):
         self.execute("UPDATE tg_search_tasks SET status='ready',next_at=?,last_error=?,attempts=?,payload=?,updated=? WHERE key=?",
                      (time.time()+delay,error,task['attempts']+1 if error else 0,json.dumps(payload if payload is not None else task['payload'],sort_keys=True),time.time(),task['key']))
-    def save(self,package,evidence,classification,reason,accepted):
-        key=f"{package['device_codename']}|{package['channel_username']}|{package['msg_id']}"
+    def fingerprint(self,package):
         links=json.loads(package['download_links_json'])
         version=package.get('build_version_tag') or package.get('file_attachment_name') or package.get('package_name') or package['tg_post_url']
-        fingerprint=hashlib.sha256(json.dumps([package['device_codename'],package['resource_kind'],package['project_name'].lower(),version,sorted(links)],sort_keys=True).encode()).hexdigest()
+        return hashlib.sha256(json.dumps([package['device_codename'],package['resource_kind'],package['project_name'].lower(),version,sorted(links)],sort_keys=True).encode()).hexdigest()
+    def save(self,package,evidence,classification,reason,accepted):
+        key=f"{package['device_codename']}|{package['channel_username']}|{package['msg_id']}"
+        fingerprint=self.fingerprint(package)
         old=self.query('SELECT payload,accepted,evidence FROM tg_search_records WHERE key=?',(key,))
         payload=json.dumps(package,sort_keys=True,ensure_ascii=False);proof=json.dumps(evidence,sort_keys=True,ensure_ascii=False)
         changed=not old or old[0]['payload']!=payload or old[0]['accepted']!=int(accepted)
