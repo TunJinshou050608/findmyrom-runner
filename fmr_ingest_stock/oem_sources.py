@@ -282,6 +282,10 @@ def resolve_atlas(release,http):
             with http.client.stream('GET',url,headers={'Referer':landing}) as response:
                 if response.status_code in (301,302,303,307,308):
                     url=normalize_download(release['vendor'],urljoin(url,response.headers.get('Location','')))
+                    target=urlsplit(url)
+                    if target.hostname!='fwatlas.com':
+                        result['resolver_observation']={'host':target.hostname,
+                            'suffix':target.path.rsplit('.',1)[-1].lower()[-12:] if '.' in target.path.rsplit('/',1)[-1] else 'none'}
                     if download_origin(release['vendor'],url):
                         candidates.append(url)
                         break
