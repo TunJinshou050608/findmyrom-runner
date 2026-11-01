@@ -482,3 +482,13 @@ def test_metadata_repair_failure_is_not_marked_complete_and_has_retry_cooldown(d
     assert 'rule_revision' not in registry['marbleupdates']
     repair_existing(db,registry,failed,{'marble'},lambda *_:None)
     assert len(calls)==1
+
+
+def test_empty_bottom_page_keeps_verified_android_source_on_frequent_updates(tmp_path,monkeypatch):
+    from fmr_tg_scanner.trial import run
+    monkeypatch.setenv('GITHUB_RUN_ID','phone-bottom');monkeypatch.setenv('FMR_TEST_NO_SLEEP','1')
+    (tmp_path/'config.json').write_text(json.dumps({'target_codenames':['marble'],'pages_per_channel':3,'channels_per_batch':1,'discover_linked_channels':False}))
+    report=run(tmp_path,fetcher=pages,discoverer=lambda *_:[{'channel':'marbleupdates'}])
+    registry=json.loads((tmp_path/'source_registry.json').read_text())
+    assert report['ok'] and registry['marbleupdates']['phone_context'] is True
+    assert registry['marbleupdates']['next_scan_at']-registry['marbleupdates']['last_scan_at']<600

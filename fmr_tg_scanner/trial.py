@@ -169,6 +169,7 @@ def run(state_dir,*,fetcher=None,discoverer=None):
             # Telegram's own footer says "Android" on every channel. It must
             # never turn a music/account landing page into an Android source.
             phone_context=bool(re.search(r'(?i)\b(android|rom|firmware|kernel|lineageos|hyperos|miui|xiaomi|redmi|poco|twrp|orangefox|magisk|kernelsu|flashable|(?:init_|vendor_)?boot|vbmeta)\b',' '.join(context_parts)))
+            if not context_parts and registry[ch].get('phone_context') is True:phone_context=True
             registry[ch]['phone_context']=phone_context
             # An unavailable history can still be a public profile pointing to
             # its author's update channel. Follow metadata links, not files.
