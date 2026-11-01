@@ -196,3 +196,12 @@ def test_resident_reuses_discovered_sources_without_importing_products(tmp_path,
         db.close();return {'ok':True,'packages':0}
     monkeypatch.setattr(search_watch,'run',run)
     assert search_watch.produce(tmp_path)['packages']==0
+
+
+@pytest.mark.parametrize('heading,kind',[
+    ('#Kernel Official #alioth<br>Kernel for LineageOS Android 15','kernel'),
+    ('#TWRP Official #alioth<br>Recovery for LineageOS Android 15','recovery')])
+def test_official_companion_resource_survives_rom_mentions(heading,kind):
+    msg=parse_tg_channel_page(page(text=heading),'testchannel')['messages'][0]
+    result,reason=analyse(msg,'alioth',[],{'alioth':[]})
+    assert reason=='accepted' and result['package']['resource_kind']==kind

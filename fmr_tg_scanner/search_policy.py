@@ -53,6 +53,11 @@ def primary_release(package,message):
     elif kind!=package['resource_kind']:package['project_name']={'rom':'Custom ROM','kernel':'Kernel','recovery':'Recovery','boot_image':'Boot image'}.get(kind,package['project_name'])
     if project and project not in ('TWRP','OrangeFox','HyperOS','MIUI'):kind='rom'
     if project in ('HyperOS','MIUI') and re.search(r'(?i)\bport(?:ed)?\b|\bcustom\b',heading):kind='rom'
+    first=lines[0] if lines else ''
+    first_rom=any(re.search(pattern,first,re.I) for name,pattern in projects if name not in ('TWRP','OrangeFox'))
+    if not first_rom and re.search(r'(?i)\b(?:TWRP|OrangeFox|OFRP|recovery)\b',first):
+        kind='recovery';package['project_name']='TWRP' if re.search('twrp',first,re.I) else 'OrangeFox' if re.search('orangefox|ofrp',first,re.I) else 'Recovery'
+    elif not first_rom and re.search(r'(?i)\bkernel\b',first):kind='kernel';package['project_name']='Kernel'
     package['resource_kind']=kind
     return heading
 
