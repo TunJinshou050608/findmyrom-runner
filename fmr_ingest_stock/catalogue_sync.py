@@ -9,6 +9,7 @@ import json
 import re
 from urllib.parse import urlsplit
 from fmr_core.crypto import generate_public_token,sign_firmware
+from fmr_core.extraction_policy import extraction_eligible
 from .common import private_key
 from .device_sync import ensure_base_brands_and_anchor
 from .cdn_rewriter import rewrite_to_fast_cdn
@@ -101,12 +102,13 @@ def publish_release(db,device,release):
     if digest and not re.fullmatch('[0-9a-fA-F]{32}|[0-9a-fA-F]{64}',digest):raise ValueError('Invalid source checksum')
     token=generate_public_token('fw')
     signature=sign_firmware(token,fast,private_key())
+    status='pending' if extraction_eligible(vendor,kind,fast) else 'skipped'
     db.execute('''INSERT OR IGNORE INTO stock_firmwares(public_token,device_codename,region_code,model_code,
         version_str,android_version,package_type,file_size_str,md5_or_sha256,original_official_url,fast_cdn_url,
-        published_date,ed25519_signature,extract_status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,'skipped')''',
+        published_date,ed25519_signature,extract_status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
         (token,code,region,str(device.get('codename') or device['upstream_id']),version,
          (re.match(r'^\d+(?:\.\d+)*',str(release.get('android_version') or ''))[0] if re.match(r'^\d+(?:\.\d+)*',str(release.get('android_version') or '')) else str(release.get('android_version') or 'unknown')),kind,release.get('size'),digest.lower() if digest else None,
-         url,fast,release.get('date'),signature))
+         url,fast,release.get('date'),signature,status))
     row=db.query('SELECT public_token,extract_status,original_official_url,fast_cdn_url FROM stock_firmwares WHERE device_codename=? AND region_code=? AND version_str=? AND package_type=?',
                  (code,region,version,kind))[0]
     # Repair only a proven expiring URL for the same build/region/type. Keep the

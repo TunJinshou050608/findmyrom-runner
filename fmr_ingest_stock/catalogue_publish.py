@@ -46,6 +46,9 @@ def sync_one(db,ledger,vendor,candidate):
 
 
 def main():
+    if os.environ.get('FMR_D1_WRITES_PAUSED')=='true':
+        print('D1 发布已暂停；本次不连接 D1，不读取远端快照，不改动确认点。',flush=True)
+        return 0
     ROOT.mkdir(parents=True,exist_ok=True,mode=0o700);path=ROOT/'publisher.sqlite';artifacts=Artifacts();ledger=None;db=None
     completed=failed=0
     try:

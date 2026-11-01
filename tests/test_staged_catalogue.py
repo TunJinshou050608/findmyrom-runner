@@ -22,6 +22,19 @@ def test_snapshot_roundtrip_tamper_and_scope_isolation(env):
     with pytest.raises(InvalidTag):staged.unseal(blob[:-1]+bytes([blob[-1]^1]),'google')
 
 
+def test_snapshot_writer_and_reader_enforce_separate_transfer_and_decoded_limits(env,monkeypatch):
+    monkeypatch.setattr(staged,'MAX_SNAPSHOT',1000)
+    monkeypatch.setattr(staged,'MAX_ENCRYPTED_SNAPSHOT',200)
+    # A highly compressible database can exceed its transfer size safely.
+    blob=staged.seal(b'x'*1000,'xiaomi')
+    assert len(blob)<200 and staged.unseal(blob,'xiaomi')==b'x'*1000
+    with pytest.raises(ValueError,match='snapshot size'):staged.seal(b'x'*1001,'xiaomi')
+    monkeypatch.setattr(staged,'MAX_SNAPSHOT',999)
+    with pytest.raises(ValueError,match='snapshot size'):staged.unseal(blob,'xiaomi')
+    monkeypatch.setattr(staged,'MAX_ENCRYPTED_SNAPSHOT',20)
+    with pytest.raises(ValueError,match='Oversize'):staged.unseal(blob,'xiaomi')
+
+
 def test_artifact_restore_redirect_keeps_token_off_blob_and_authenticates_scope(env,tmp_path,monkeypatch):
     archive=io.BytesIO()
     with zipfile.ZipFile(archive,'w') as z:z.writestr('google.sqlite.enc',staged.seal(b'SQLite bytes','google'))
@@ -106,6 +119,20 @@ def test_publish_global_ten_minute_slot_no_change_avoids_d1(env,tmp_path,monkeyp
     assert publisher.main()==0
     assert publisher.main()==0
     assert '跳过重复触发' in capsys.readouterr().out
+
+
+def test_publication_pause_does_not_construct_clients_or_touch_confirmation_points(monkeypatch):
+    from fmr_extractor import cli
+    from fmr_ingest_stock.catalogue_publish_monitor import run
+    monkeypatch.setenv('FMR_D1_WRITES_PAUSED','true')
+    def forbidden(*a,**kw):pytest.fail('Paused operation attempted database/network work')
+    monkeypatch.setattr(publisher,'Artifacts',forbidden)
+    monkeypatch.setattr(publisher,'open_ledger',forbidden)
+    monkeypatch.setattr(cli,'D1Client',forbidden)
+    monkeypatch.setattr(cli,'VaultClient',forbidden)
+    assert publisher.main()==0
+    assert run(clock=forbidden,sleep=forbidden,publish=forbidden)==0
+    assert cli.main(['--requeue-skipped'])==0
 
 
 def test_budget_settlement_refunds_unused_reservation_and_keeps_overhead(tmp_path):
@@ -213,6 +240,8 @@ def test_metadata_runner_routing_keeps_binary_and_pr_jobs_off_local_host():
                 assert job['if']=="github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || vars.FMR_SAMSUNG_AUTO_ENABLED == 'true')"
             elif path.name in ('catalogue_huawei.yml','catalogue_honor.yml'):
                 assert job['if']=="github.ref == 'refs/heads/main' && false"
+            elif path.name=='catalogue_publish.yml':
+                assert job['if']=="github.ref == 'refs/heads/main' && vars.FMR_D1_WRITES_PAUSED != 'true'"
             else:assert job['if']=="github.ref == 'refs/heads/main'"
     for name in ('batch_extract.yml','history_sweep.yml','sony_bundle.yml','ci.yml','telegram_trial.yml'):
         assert 'FMR_CATALOGUE_RUNNER' not in (root/name).read_text()
@@ -230,6 +259,7 @@ def test_job_tokens_only_verify_workflow_state_and_dispatch(env,monkeypatch):
     real=httpx.Client
     monkeypatch.setattr(staged.httpx,'Client',lambda *a,**kw:real(*a,**kw,transport=httpx.MockTransport(handler)))
     staged.prepare()
+    assert not any(str(r.url).endswith('/batch_extract.yml') for r in requests)
     def resume_handler(req):
         requests.append(req);assert req.method not in ('PUT','DELETE')
         return httpx.Response(200,json={'state':'active'}) if req.method=='GET' else httpx.Response(204)

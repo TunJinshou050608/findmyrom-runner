@@ -11,7 +11,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   publish:
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && vars.FMR_D1_WRITES_PAUSED != 'true'
     runs-on: ${{ fromJSON(vars.FMR_PUBLISH_RUNNER || vars.FMR_CATALOGUE_RUNNER || '"ubuntu-latest"') }}
     timeout-minutes: 115
     environment: production
@@ -20,6 +20,7 @@ jobs:
       FMR_CATALOGUE_LOCAL_STATE: ${{ vars.FMR_CATALOGUE_RUNNER != '' && 'true' || 'false' }}
       FMR_CATALOGUE_STATE_DIR: ${{ vars.FMR_CATALOGUE_STATE_DIR || (vars.FMR_CATALOGUE_RUNNER != '' && format('{0}/../.fmr-catalogue-state-v3', github.workspace) || 'catalogue-state') }}
       SIGN_PRIVATE_KEY_HEX: ${{ secrets.SIGN_PRIVATE_KEY_HEX }}
+      FMR_D1_WRITES_PAUSED: ${{ vars.FMR_D1_WRITES_PAUSED }}
     steps:
       - uses: actions/checkout@v4
         with:

@@ -123,7 +123,7 @@ def test_audit_results_can_be_published_without_refetch_and_repeat_publish_prese
     assert job.run(db,'oneplus',mode='publish')==0
     rows=db.query('SELECT * FROM stock_firmwares');assert len(rows)==1
     token=rows[0]['public_token'];signature=rows[0]['ed25519_signature']
-    assert rows[0]['extract_status']=='skipped' and len(source.requests)==n
+    assert rows[0]['extract_status']=='pending' and len(source.requests)==n
     monkeypatch.setenv('GITHUB_RUN_ID','127');job.run(db,'oneplus',mode='publish')
     again=db.query('SELECT * FROM stock_firmwares')[0]
     assert again['public_token']==token and again['ed25519_signature']==signature

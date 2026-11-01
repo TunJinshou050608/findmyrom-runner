@@ -69,7 +69,7 @@ def run_extraction_batch(
         (now, now - 1800),
     )["changes"]
     rows = db_client.query(
-        "SELECT * FROM stock_firmwares WHERE extract_status='pending' AND extract_retries<3 ORDER BY id LIMIT ?",
+        "SELECT * FROM stock_firmwares WHERE extract_status='pending' AND extract_retries<3 ORDER BY COALESCE(published_date,'') DESC,id DESC LIMIT ?",
         (batch_limit,),
     )
     stats = dict(

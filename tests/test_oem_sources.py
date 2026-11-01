@@ -156,7 +156,7 @@ def test_controller_real_database_discovery_resolution_publication_and_report(da
   result=report(db,control)
  assert result['complete'] and not result['firmware_extraction_verified']
  assert len(seen)==2 and len(db.query('SELECT * FROM stock_firmwares'))==2
- assert all(r['extract_status']=='skipped' for r in db.query('SELECT * FROM stock_firmwares'))
+ assert all(r['extract_status']=='pending' for r in db.query('SELECT * FROM stock_firmwares'))
  assert get(db,'test_run')['generation']==1
  assert not tasks(db,'test_run','release')
 

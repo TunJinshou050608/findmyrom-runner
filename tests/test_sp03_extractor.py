@@ -164,6 +164,66 @@ def test_full_extraction_pipeline_and_device_boot_type_calibration(setup):
     )
 
 
+def test_catalogue_queue_repair_is_bounded_idempotent_and_keeps_images(setup):
+    from fmr_extractor.queue_repair import requeue_skipped
+    db, server, vault, extractor, _ = setup
+    db.execute("UPDATE stock_firmwares SET extract_status='skipped'")
+    assert requeue_skipped(db, dry_run=True)['eligible'] == 1
+    assert db.query('SELECT extract_status FROM stock_firmwares')[0]['extract_status'] == 'skipped'
+    assert requeue_skipped(db)['requeued'] == 1
+    assert requeue_skipped(db)['requeued'] == 0
+    assert run_extraction_batch(db, vault, extractor)['succeeded'] == 1
+    images = db.query('SELECT * FROM extracted_boot_images')
+    # A bad legacy state must not cause a second upload when images exist.
+    db.execute("UPDATE stock_firmwares SET extract_status='skipped'")
+    assert requeue_skipped(db)['requeued'] == 0
+    assert db.query('SELECT * FROM extracted_boot_images') == images
+
+
+@pytest.mark.parametrize('status,retries,error', [
+    ('done', 0, None), ('processing', 0, None), ('failed', 1, 'HTTPStatusError'),
+    ('skipped', 1, None), ('skipped', 0, 'DeliberatelySkipped'),
+], ids=['completed', 'active', 'failed', 'previous-attempt', 'manual-exclusion'])
+def test_queue_repair_preserves_protected_states(setup, status, retries, error):
+    from fmr_extractor.queue_repair import requeue_skipped
+    db, server, *_ = setup
+    db.execute('UPDATE stock_firmwares SET extract_status=?,extract_retries=?,extract_error=?',
+               (status, retries, error))
+    before = db.query('SELECT * FROM stock_firmwares')
+    assert requeue_skipped(db)['requeued'] == 0
+    assert db.query('SELECT * FROM stock_firmwares') == before
+    assert not server.calls
+
+
+def test_newer_firmware_is_extracted_before_historical_backlog(setup):
+    db, _, vault, extractor, tmp = setup
+    source = tmp / 'new.yml'
+    source.write_text(json.dumps([dict(codename='sample', version='v2',
+        link='https://firmware.example.com/new.zip', date='2026-11-01')]))
+    sync_firmwares(db, str(source))
+    assert run_extraction_batch(db, vault, extractor, batch_limit=1)['succeeded'] == 1
+    rows = {r['version_str']: r['extract_status'] for r in db.query('SELECT * FROM stock_firmwares')}
+    assert rows == {'v1': 'pending', 'v2': 'done'}
+
+
+@pytest.mark.parametrize('brand,package,url,expected', [
+    ('xiaomi', 'recovery_zip', 'https://cdn.example.com/rom.zip', True),
+    ('google', 'factory_zip', 'https://dl.google.com/factory.zip', True),
+    ('motorola', 'fastboot_zip', 'https://cdn.example.com/rom.zip', True),
+    ('nothing', 'incremental_zip', 'https://cdn.example.com/delta.zip', False),
+    ('xiaomi', 'fastboot_tgz', 'https://cdn.example.com/rom.tgz', False),
+    ('realme', 'recovery_ozip', 'https://cdn.example.com/rom.ozip', False),
+    ('samsung', 'recovery_zip', 'https://cdn.example.com/rom.zip', False),
+    ('huawei', 'recovery_zip', 'https://cdn.example.com/rom.zip', False),
+    ('honor', 'recovery_zip', 'https://cdn.example.com/rom.zip', False),
+    ('oppo', 'recovery_zip', 'https://findmyrom.com/api/refresh/rom.zip', False),
+    ('oppo', 'recovery_zip', 'https://cdn.example.com/rom.zip?token=temporary', False),
+])
+def test_only_supported_complete_static_sources_enter_queue(brand, package, url, expected):
+    from fmr_core.extraction_policy import extraction_eligible
+    assert extraction_eligible(brand, package, url) is expected
+
+
 def test_abort_on_200_full_rom_exceeding_250mb_limit(setup):
     db, server, vault, extractor, tmp = setup
     server.full = True

@@ -27,16 +27,23 @@ from . import vendor_catalogue as job
 ROOT=Path(os.environ.get('FMR_CATALOGUE_STATE_DIR','catalogue-state'))
 PREFIX='catalogue-v3-'
 BASELINE=PREFIX+'baseline'
-MAX_SNAPSHOT=256*1024*1024
+# Xiaomi history plus cached metadata legitimately exceeds the old 256 MiB
+# decoded limit. Keep separate hard caps for the encrypted transfer and SQLite.
+MAX_ENCRYPTED_SNAPSHOT=256*1024*1024
+MAX_SNAPSHOT=1024*1024*1024
 
 
 def seal(data,scope):
+    if len(data)>MAX_SNAPSHOT:raise ValueError('Invalid snapshot size')
     key=hashlib.sha256(b'findmyrom/catalogue-state/v3\0'+bytes.fromhex(os.environ['SIGN_PRIVATE_KEY_HEX'])).digest()
     nonce=os.urandom(12)
-    return b'FMR3'+nonce+AESGCM(key).encrypt(nonce,zlib.compress(data),scope.encode())
+    result=b'FMR3'+nonce+AESGCM(key).encrypt(nonce,zlib.compress(data),scope.encode())
+    if len(result)>MAX_ENCRYPTED_SNAPSHOT:raise ValueError('Oversize snapshot')
+    return result
 
 
 def unseal(data,scope):
+    if len(data)>MAX_ENCRYPTED_SNAPSHOT:raise ValueError('Oversize snapshot')
     if data[:4]!=b'FMR3':raise ValueError('Unknown encrypted snapshot format')
     key=hashlib.sha256(b'findmyrom/catalogue-state/v3\0'+bytes.fromhex(os.environ['SIGN_PRIVATE_KEY_HEX'])).digest()
     compressed=AESGCM(key).decrypt(data[4:16],data[16:],scope.encode())
@@ -125,7 +132,7 @@ class Artifacts:
         with zipfile.ZipFile(io.BytesIO(payload)) as archive:
             name=scope+'.sqlite.enc'
             entry=archive.getinfo(name)
-            if entry.file_size>MAX_SNAPSHOT:raise ValueError('Oversize snapshot')
+            if entry.file_size>MAX_ENCRYPTED_SNAPSHOT:raise ValueError('Oversize snapshot')
             body=unseal(archive.read(name),scope)
         path.parent.mkdir(parents=True,exist_ok=True,mode=0o700)
         with tempfile.NamedTemporaryFile(dir=path.parent,delete=False) as temp:
@@ -155,7 +162,11 @@ def encrypt_file(scope,path):
     with tempfile.TemporaryDirectory(dir=ROOT) as directory:
         copy=Path(directory)/'snapshot.sqlite'
         with closing(sqlite3.connect(Path(path).resolve().as_uri()+'?mode=ro',uri=True,timeout=30)) as source:
-            with closing(sqlite3.connect(copy)) as destination:source.backup(destination)
+            with closing(sqlite3.connect(copy)) as destination:
+                source.backup(destination)
+                # Reclaim free pages from completed history without dropping
+                # checkpoints/cache entries or mutating the live local database.
+                destination.execute('VACUUM')
         target.write_bytes(seal(copy.read_bytes(),scope))
     checkpoint_stamp(path,writer_run_id=os.environ.get('GITHUB_RUN_ID','local'))
 
@@ -237,7 +248,9 @@ def baseline():
 def prepare():
     """Verify operator-disabled old writers; job tokens never need admin access."""
     artifacts=Artifacts()
-    obsolete={'history_sweep.yml','batch_extract.yml','oem_catalogue.yml','quota_resume.yml','sony_bundle.yml'}
+    # The supported cloud extractor is independent of metadata migration. It is
+    # not a legacy collector and must not be disabled/cancelled by bootstrap.
+    obsolete={'history_sweep.yml','oem_catalogue.yml','quota_resume.yml','sony_bundle.yml'}
     targets=obsolete|{'catalogue_'+v+'.yml' for v in job.VENDORS}
     try:
         for workflow in obsolete:

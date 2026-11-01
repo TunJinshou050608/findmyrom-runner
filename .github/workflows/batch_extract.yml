@@ -8,6 +8,10 @@ on:
         description: Only recover stale locks and inspect the queue
         type: boolean
         default: true
+      repair_skipped:
+        description: Requeue complete static ZIPs incorrectly skipped by catalogue publication
+        type: boolean
+        default: false
 permissions:
   contents: read
 concurrency:
@@ -16,7 +20,7 @@ concurrency:
 jobs:
   extract:
     # Enable only after the production secrets and private Vault are verified.
-    if: github.ref == 'refs/heads/main' && (vars.FMR_EXTRACTION_ENABLED == 'true')
+    if: github.ref == 'refs/heads/main' && vars.FMR_EXTRACTION_ENABLED == 'true' && vars.FMR_D1_WRITES_PAUSED != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 25
     environment: production
@@ -37,9 +41,13 @@ jobs:
           GH_VAULT_TOKEN: ${{ secrets.GH_VAULT_TOKEN }}
           GH_VAULT_REPO: ${{ secrets.GH_VAULT_REPO }}
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && 'true' || 'false' }}
+          REPAIR_SKIPPED: ${{ inputs.repair_skipped && 'true' || 'false' }}
+          FMR_D1_WRITES_PAUSED: ${{ vars.FMR_D1_WRITES_PAUSED }}
         run: |
+          args=()
+          if [ "$REPAIR_SKIPPED" = "true" ]; then args+=(--requeue-skipped); fi
           if [ "$DRY_RUN" = "true" ]; then
-            python -m fmr_extractor.cli --dry-run
+            python -u -m fmr_extractor.cli --dry-run "${args[@]}"
           else
-            python -m fmr_extractor.cli --batch-limit 100 --max-workers 4 --max-runtime-sec 900
+            python -u -m fmr_extractor.cli --batch-limit 100 --max-workers 4 --max-runtime-sec 900 "${args[@]}"
           fi
