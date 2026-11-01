@@ -1,9 +1,6 @@
 name: Repair paused Samsung metadata state
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths: ['.github/workflows/repair_samsung_state.yml','fmr_ingest_stock/samsung_repair.py']
 permissions:
   contents: read
   actions: write

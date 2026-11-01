@@ -17,7 +17,7 @@ from .vendor_catalogue import durable_download, problem
 def alternate_probe(row,http):
     """Check a documented public OTA API for an exact-build alternative."""
     from urllib.parse import urlencode
-    model=re.search(r'\b(?:RMX|CPH)[0-9]{4}\b',row.get('version',''))
+    model=re.search(r'(?<![A-Za-z0-9])(?:RMX|CPH)[0-9]{4,5}(?![0-9])',row.get('version',''))
     if not model:return {'state':'no_model_identity'}
     try:
         payload=json.loads(http._get('https://roms.danielspringer.at/api/ota.php?'+urlencode({'model':model[0]})))
@@ -77,11 +77,13 @@ def inspect(vendor):
                     probe['alternate_api']=alternate_probe(row,with_client)
                 probes.append(probe)
             except Exception as exc:
-                probes.append({'error': problem(exc), 'kind': row.get('kind'),
+                probe={'error': problem(exc), 'kind': row.get('kind'),
                     'reason': str(exc) if type(exc) is ValueError else None,
                     'url_issues':getattr(exc,'catalogue_url_issues',None),
                     'trace':[{'file':Path(frame.filename).name,'line':frame.lineno,'function':frame.name}
-                             for frame in traceback.extract_tb(exc.__traceback__)[-5:]]})
+                             for frame in traceback.extract_tb(exc.__traceback__)[-5:]]}
+                if type(exc).__name__=='DeviceAttestationRequired':probe['alternate_api']=alternate_probe(row,with_client)
+                probes.append(probe)
             if len(probes) >= 3:
                 break
     finally:

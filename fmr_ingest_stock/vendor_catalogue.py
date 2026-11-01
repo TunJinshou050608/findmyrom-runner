@@ -267,7 +267,7 @@ def mark_problem(value,code,cycle,blocked=False):
     if value.get('attempt_cycle')!=cycle:value['attempts']=0
     value['attempt_cycle']=cycle;value['attempts']=value.get('attempts',0)+1
     value['error']=code;value['checked_at']=now
-    blocked=blocked or code in ('HTTP_404','HTTP_410')
+    blocked=blocked or code in ('HTTP_404','HTTP_410','DeviceAttestationRequired')
     if blocked or value['attempts']>=3:
         value.update(status='blocked' if blocked else 'failed',next_check=now+FAILURE_TTL,last_cycle=cycle)
     else:value.update(status='retry',next_check=0)

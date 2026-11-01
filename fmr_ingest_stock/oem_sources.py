@@ -42,6 +42,10 @@ METADATA_HOSTS.update(OPLUS_GATES)
 METADATA_HOSTS.add('roms.danielspringer.at')
 
 
+class DeviceAttestationRequired(ValueError):
+    """The vendor requires a genuine device certificate for this file gate."""
+
+
 def text(node):
     return node.get_text(' ', strip=True) if node else ''
 
@@ -72,8 +76,11 @@ def download_origin(vendor, url):
 
 def resolve_oplus_gate(vendor,url,http):
     p=safe_url(url)
-    if vendor not in ('oneplus','oppo','realme') or p.hostname not in OPLUS_GATES or not p.path.endswith('/downloadCheck'):
+    if vendor not in ('oneplus','oppo','realme') or p.hostname not in OPLUS_GATES:
         return url
+    if p.path.endswith('/download'):
+        raise DeviceAttestationRequired('Official download requires a device attestation certificate')
+    if not p.path.endswith('/downloadCheck'):return url
     # Public stock-updater protocol documented by OPlus_firmware_download. Read
     # only a redirect header; never follow it to, or consume, a firmware body.
     with http.client.stream('GET',url,headers={'userId':'oplus-ota|16001011','Accept':'application/json'}) as response:

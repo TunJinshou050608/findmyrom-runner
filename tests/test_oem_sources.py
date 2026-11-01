@@ -369,3 +369,20 @@ def test_samsung_fota_versions_never_become_invented_catalogue_urls():
  assert len(fota)==1 and fota[0]['version'].startswith('PDA.OLD/')
  assert fota[0]['resolution']=='requires_samsung_fus' and 'detail_page' not in fota[0]
  assert len(seen)==2
+
+
+def test_legacy_controller_does_not_send_fota_only_references_to_web_resolver(database):
+ from fmr_ingest_stock.catalogue_job import save,step,task_key
+ db,_=database
+ control={'run':'fota_only','mode':'audit','generation':0,'summary':{'samsung':{'models':1,'release_records':1,'resolved_downloads':0,'published':0,'errors':{}}}}
+ device={'vendor':'samsung','upstream_id':'sample','name':'Sample'}
+ save(db,task_key('fota_only','release','ref'),{'device':device,'done':False,'release':{'vendor':'samsung','version':'PDA/CSC/PHONE','resolution':'requires_samsung_fus'}})
+ with httpx.Client(transport=httpx.MockTransport(lambda req: (_ for _ in ()).throw(AssertionError('Invented URL requested')))) as client:
+  assert step(db,control,MetadataHTTP(client)) is False
+ assert control['summary']['samsung']['errors']=={'requires_samsung_fus':1}
+
+
+def test_attested_download_gate_is_reported_without_attempting_device_impersonation():
+ from fmr_ingest_stock.oem_sources import resolve_oplus_gate,DeviceAttestationRequired
+ with httpx.Client(transport=httpx.MockTransport(lambda req: (_ for _ in ()).throw(AssertionError('Attested gate requested')))) as client:
+  with pytest.raises(DeviceAttestationRequired):resolve_oplus_gate('realme','https://component-ota-sg.allawnos.com/download?g=public',MetadataHTTP(client))
