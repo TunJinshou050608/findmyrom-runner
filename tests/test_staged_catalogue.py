@@ -157,3 +157,37 @@ def test_one_time_migration_reuses_legacy_and_v2_without_any_source_requests(env
     assert store.counts()=={'models':{'ok':1},'releases':{'resolved':1}}
     assert store.rows('release')[0][1]['release']['download_url']==row['download_url'];db.close()
     assert len(remote.query("SELECT * FROM crawler_sources WHERE source_kind='oem_catalogue'"))==1
+
+
+def test_settlement_outage_still_saves_successful_publication_acknowledgements(env,tmp_path,monkeypatch):
+    root=tmp_path/'state';root.mkdir()
+    monkeypatch.setattr(publisher,'ROOT',root);monkeypatch.setattr(staged,'ROOT',root)
+    closed=[]
+    class Artifacts:
+        def restore(self,scope,path,**kwargs):
+            if scope=='publisher':return False
+            path.touch();return True
+        def close(self):closed.append('artifacts')
+    class Local:
+        def close(self):pass
+    class DB:
+        rows_read=1;rows_written=1
+        def __init__(self,**kwargs):pass
+        def acquire(self):return True
+        def settle(self):raise RuntimeError('simulated settlement outage')
+        def close(self):closed.append('database')
+    def synced(db,ledger,vendor,item):
+        ledger.execute('INSERT INTO published(vendor,key,hash) VALUES (?,?,?)',('google','successful-remote-item','hash'))
+        return True
+    monkeypatch.setattr(publisher,'Artifacts',Artifacts);monkeypatch.setattr(publisher,'VENDORS',('google',))
+    monkeypatch.setattr(publisher,'open_local',lambda _:Local())
+    monkeypatch.setattr(publisher,'candidates',lambda *_:iter([('synthetic',)]))
+    monkeypatch.setattr(publisher,'BudgetDB',DB);monkeypatch.setattr(publisher,'sync_one',synced)
+    for name in ('CF_ACCOUNT_ID','CF_API_TOKEN','CF_D1_DATABASE_ID'):monkeypatch.setenv(name,'synthetic')
+    with pytest.raises(RuntimeError,match='settlement outage'):publisher.main()
+    restored=tmp_path/'restored.sqlite'
+    restored.write_bytes(staged.unseal((root/'upload/publisher.sqlite.enc').read_bytes(),'publisher'))
+    ledger=publisher.open_ledger(restored)
+    try:assert ledger.query('SELECT key FROM published')==[{'key':'successful-remote-item'}]
+    finally:ledger.close()
+    assert closed==['database','artifacts']

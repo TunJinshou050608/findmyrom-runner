@@ -104,11 +104,18 @@ def main():
     except D1BudgetReached:
         print('本次 D1 行预算已到；已成功记录保留，剩余下次继续。',flush=True);return 0
     finally:
-        if db:
-            try:db.settle()
-            finally:db.close()
-        if ledger:ledger.close();encrypt_file('publisher',path)
-        artifacts.close()
+        # Successful D1 writes must retain their local acknowledgements even if
+        # budget settlement fails. Otherwise the next runner replays them.
+        try:
+            if db:
+                try:db.settle()
+                finally:db.close()
+        finally:
+            try:
+                if ledger:
+                    try:ledger.close()
+                    finally:encrypt_file('publisher',path)
+            finally:artifacts.close()
 
 
 if __name__=='__main__':raise SystemExit(main())
