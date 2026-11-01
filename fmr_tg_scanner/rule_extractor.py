@@ -111,7 +111,7 @@ def extract_package_by_rules(msg_dict: dict, default_codename=None):
         sender_id=None
     sender_username=handle(m.get('sender_username') or '')
     android=re.search(r'(?i)\bandroid\s*[:：-]?\s*(\d{1,2}(?:\.\d+)?)\b',text)
-    version=re.search(r'(?i)\b(?:v\d+(?:\.[\w-]+)+|R\d+(?:\.[\w-]+)*|\d{8}|\d{4}-\d{2}-\d{2})\b',text)
+    version=re.search(r'(?i)\b(?:OS|V)\d+(?:\.[A-Za-z0-9]+){1,6}\b',text) or re.search(r'(?i)\b(?:v\d+(?:\.[\w-]+)+|R\d+(?:\.[\w-]+)*|\d{8}|\d{4}-\d{2}-\d{2})\b',text)
     confidence=round(.30+(.25 if recognized else 0)+(.25 if code else 0)+(.20 if match or android else 0),2)
     return {'channel_username':channel,'msg_id':m['msg_id'],'tg_post_url':url,'origin_type':origin,
         'is_forwarded':int(origin=='native_forward'),'original_channel_username':original[0] if original else None,

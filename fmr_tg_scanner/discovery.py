@@ -12,7 +12,7 @@ import httpx
 from .html_parser import channel_name
 
 SEARCH_PROVIDERS=[
- ('duckduckgo_lite_v1','https://lite.duckduckgo.com/lite/','q'),
+ ('duckduckgo_lite_v2','https://lite.duckduckgo.com/lite/','q'),
  ('google','https://www.google.com/search','q'),
  ('yandex','https://yandex.com/search/','text'),
  ('brave','https://search.brave.com/search','q'),
@@ -35,6 +35,26 @@ def channel_links(text):
         except ValueError:continue
         channels.setdefault(channel,{'channel':channel,'evidence_url':f'https://t.me/{channel}'+('/'+match[2] if match[2] else '')})
     return list(channels.values())
+
+
+def organic_candidates(payload,device):
+    from .html_parser import DOM
+    dom=DOM();dom.feed(payload);results=[];current=None
+    for node in dom.root.walk():
+        if node.tag=='a' and node.has('result-link'):
+            current={'url':node.attrs.get('href',''),'title':node.text()};results.append(current)
+        elif node.has('result-snippet') and current is not None:current['snippet']=node.text()
+    if not results:return []
+    found={}
+    for item in results:
+        evidence=item['title']+' '+item.get('snippet','')
+        if not re.search(r'(?i)(?<![a-z0-9_])'+re.escape(device)+r'(?![a-z0-9_])',evidence):continue
+        if not re.search(r'(?i)android|firmware|kernel|lineage|hyperos|xiaomi|redmi|poco|recovery|#rom|unofficial',evidence):continue
+        candidates=channel_links(item['url']+' '+evidence)
+        for name in re.findall(r'@([a-zA-Z][a-zA-Z0-9_]{3,31})',evidence):
+            if name.lower() not in RESERVED:candidates.append({'channel':name.lower(),'evidence_url':item['url']})
+        for candidate in candidates:found.setdefault(candidate['channel'],dict(candidate,quality_score=200))
+    return list(found.values())
 
 
 def bounded_get(client,url,**kwargs):
@@ -62,7 +82,7 @@ def discover_channels(device,cache,log,*,client=None,now=None):
             started=time.monotonic()
             log({'event':'discovery_search_started','provider':provider,'device':device})
             try:
-                payload=loader();candidates=channel_links(payload)
+                payload=loader();candidates=organic_candidates(payload,device) if provider.startswith('duckduckgo_lite') else channel_links(payload)
                 cache[key]={'retry_at':now+(86400 if candidates else 1800),'candidates':candidates,'provider':provider,'device':device}
                 log({'event':'discovery_search_finished','provider':provider,'device':device,'candidate_count':len(candidates),'elapsed_ms':round((time.monotonic()-started)*1000)})
             except Exception as exc:
@@ -89,7 +109,7 @@ def discover_channels(device,cache,log,*,client=None,now=None):
                     log({'event':'discovery_telegram_candidate_rejected','channel':name,'device':device,'error_type':type(exc).__name__})
             return '\n'.join(verified)
         lookup('telegram_naming_rules_v1',device,telegram_candidates)
-        queries=[device+' Telegram ROM',f'"{device}" site:t.me']
+        queries=[device+' Telegram ROM',f'"{device}" Android unofficial site:t.me']
         for provider,url,param in SEARCH_PROVIDERS:
             for query in queries:
                 params={param:query}

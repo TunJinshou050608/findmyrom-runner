@@ -391,3 +391,20 @@ def test_public_profile_redirect_cannot_fetch_a_file_or_other_host(monkeypatch):
             with pytest.raises(ChannelUnavailableError):fetch('https://t.me/s/example_profile')
             assert len(urls)==1
         finally:fetch.close()
+
+
+def test_search_discovery_rejects_unrelated_same_name_results():
+    from fmr_tg_scanner.discovery import organic_candidates
+    html='''<a class="result-link" href="https://t.me/music_only">Annibale concert</a><td class="result-snippet">Annibale music in Roma</td><a class="result-link" href="https://t.me/android_updates">annibale PixelOS ROM</a><td class="result-snippet">Android 17 unofficial builds for annibale</td>'''
+    rows=organic_candidates(html,'annibale')
+    assert [r['channel'] for r in rows]==['android_updates']
+    assert rows[0]['quality_score']==200
+
+
+def test_device_directory_links_do_not_count_as_real_packages():
+    from fmr_tg_scanner.trial import qualification,classify
+    row={'package_name':'Phone Name','file_attachment_name':None,'build_version_tag':None,'project_name':'HyperOS','rule_confidence':1.0,'download_links_json':'["https://mirror.example/phones/some-phone"]'}
+    assert qualification(row)=='index_reference'
+    assert classify(row)=='stock_official'
+    row['download_links_json']='["https://mirror.example/ROM-v1.2.zip"]'
+    assert qualification(row)=='package'

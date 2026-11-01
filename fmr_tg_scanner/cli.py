@@ -12,8 +12,9 @@ from .crawler import scan_channel,ChannelUnavailableError
 from .bridge import export_to_custom_resources
 
 
-def export_jsonl(db,channel,path):
+def export_jsonl(db,channel,path,*,predicate=None):
     rows=db.query('SELECT * FROM tg_discovered_packages WHERE channel_username=? ORDER BY msg_id',(channel,))
+    if predicate is not None:rows=[row for row in rows if predicate(row)]
     # SQLite row IDs are storage details; stable archive contains only contract fields.
     data=''.join(json.dumps({k:v for k,v in r.items() if k!='id'},ensure_ascii=False,sort_keys=True)+'\n' for r in rows).encode()
     path=Path(path);path.parent.mkdir(parents=True,exist_ok=True)

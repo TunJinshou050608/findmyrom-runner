@@ -27,8 +27,20 @@ def classify(package,text=''):
     try:links=json.loads(package['download_links_json'])
     except (ValueError,KeyError):links=[]
     if any((urlsplit(u).hostname or '') in ('bigota.d.miui.com','hugeota.d.miui.com','dl.google.com','bkt-sgp-miui-ota-update-alisgp.oss-ap-southeast-1.aliyuncs.com') for u in links):return 'stock_official'
+    if package['project_name'].lower() in ('hyperos','miui'):return 'stock_official'
     if package['project_name'].lower() in MAINSTREAM and re.search(r'(?i)\bofficial\b|#official\b',head):return 'mainstream_official'
     return 'unknown'
+
+
+def qualification(package):
+    links=json.loads(package['download_links_json'])
+    if links and all(re.search(r'/(?:[a-z-]+/)?phones/[^/?]+/?$',urlsplit(url).path) for url in links):return 'index_reference'
+    filename=package.get('file_attachment_name') or package.get('package_name') or ''
+    if re.search(r'(?i)\.(zip|tgz|img(?:\.gz)?|tar(?:\.(gz|xz))?|bin|7z)$',filename):return 'package'
+    if any(re.search(r'(?i)\.(zip|tgz|img(?:\.gz)?|bin|7z)(?:$|[?#])',link) for link in links):return 'package'
+    if package.get('build_version_tag') and package['rule_confidence']>=.8:return 'package'
+    if any((urlsplit(link).hostname or '') in ('mega.nz','drive.google.com','pixeldrain.com','mediafire.com') for link in links) and package['rule_confidence']>=.8:return 'package'
+    return 'unresolved_reference'
 
 
 def atomic_json(path,value):
@@ -39,8 +51,11 @@ def atomic_json(path,value):
 
 def audit(db,targets,classification):
     rows=db.query('SELECT * FROM tg_discovered_packages ORDER BY channel_username,msg_id')
-    errors=[];warnings=[];counts=Counter()
+    errors=[];warnings=[];counts=Counter();accepted=[];references=Counter()
     for row in rows:
+        kind=qualification(row)
+        if kind!='package':references[kind]+=1
+        else:accepted.append(row)
         key=f"{row['channel_username']}/{row['msg_id']}"
         if not row.get('package_name'):errors.append({'resource':key,'reason':'missing_package_name'})
         if targets and row['device_codename'] not in targets:errors.append({'resource':key,'reason':'wrong_target'})
@@ -49,15 +64,16 @@ def audit(db,targets,classification):
         if not isinstance(links,list) or not links or not all(safe_url(u) for u in links):errors.append({'resource':key,'reason':'invalid_download_links'})
         if row['tg_post_url']!=f'https://t.me/{key}':errors.append({'resource':key,'reason':'bad_message_url'})
         if not post_ref(row['original_post_url']):errors.append({'resource':key,'reason':'bad_original_message_url'})
-        counts[classification.get(key,'unknown')]+=1
-    if not rows:warnings.append('No matching packages yet; inspect skip reasons, channel coverage and preview availability.')
+        if kind=='package':counts[classification.get(key,'unknown')]+=1
+    if not accepted:warnings.append('No qualified package records yet; directory links and incomplete references do not count as products.')
+    if references:warnings.append('Unresolved references are preserved under candidates/, excluded from packages/.')
     if rows and all(r['sender_id'] is None for r in rows):warnings.append('Public preview supplied no numeric sender IDs; values remain null, never inferred from maintainer names.')
     duplicates=db.query('SELECT channel_username,msg_id,COUNT(*) AS n FROM tg_discovered_packages GROUP BY channel_username,msg_id HAVING COUNT(*)>1')
     if duplicates:errors.append({'reason':'duplicate_message_rows'})
     integrity=db.query('PRAGMA integrity_check')[0]['integrity_check']
     if integrity!='ok':errors.append({'reason':'sqlite_integrity_failed'})
     cursors=db.query('SELECT channel_username,max_scanned_msg_id,min_scanned_msg_id,history_exhausted,total_packages_found FROM tg_scan_cursors ORDER BY channel_username')
-    return {'ok':not errors,'packages':len(rows),'errors':errors,'warnings':warnings,'classifications':dict(counts),
+    return {'ok':not errors,'packages':len(accepted),'records_stored':len(rows),'references':dict(references),'errors':errors,'warnings':warnings,'classifications':dict(counts),
         'numeric_sender_ids':sum(r['sender_id'] is not None for r in rows),'sender_usernames':sum(bool(r['sender_username']) for r in rows),
         'maintainer_handles':sum(bool(r['maintainer_handle']) for r in rows),'cursors':cursors}
 
@@ -92,6 +108,7 @@ def run(state_dir,*,fetcher=None,discoverer=None):
         for item in (discoverer or discover_channels)(device,discovery_cache,log):
             channel=channel_name(item['channel'])
             registry.setdefault(channel,{'seed':False,'next_scan_at':0,'last_scan_at':0,**item})
+            registry[channel]['quality_score']=max(registry[channel].get('quality_score',0),item.get('quality_score',0))
     atomic_json(discovery_path,discovery_cache)
     class RecordingFetcher:
         def __init__(self):
@@ -102,16 +119,18 @@ def run(state_dir,*,fetcher=None,discoverer=None):
             from .discovery import channel_links
             html=self.inner(url);ch=urlsplit(url).path.rsplit('/',1)[-1]
             registry[ch]['profile_discovery_version']=2
+            phone_context=bool(re.search(r'(?i)\b(android|firmware|kernel|lineageos|hyperos|miui|xiaomi|redmi|poco|twrp|orangefox|magisk|kernelsu|flashable)\b',html))
+            registry[ch]['phone_context']=phone_context
             # An unavailable history can still be a public profile pointing to
             # its author's update channel. Follow metadata links, not files.
-            candidates=channel_links(html) if config.get('discover_linked_channels',True) else []
-            if config.get('discover_linked_channels',True):
+            candidates=channel_links(html) if phone_context and config.get('discover_linked_channels',True) else []
+            if phone_context and config.get('discover_linked_channels',True):
                 for name in re.findall(r'(?i)(?:channel|updates|releases|频道)\s*[:：-]?\s*@([a-z][a-z0-9_]{3,31})',html):
                     candidates.append({'channel':name.lower()})
             for item in candidates:
                 candidate=item['channel']
                 if candidate not in registry and len(registry)<100:
-                    registry[candidate]={'seed':False,'discovered_from':url,'next_scan_at':0,'last_scan_at':0}
+                    registry[candidate]={'seed':False,'discovered_from':url,'next_scan_at':0,'last_scan_at':0,'quality_score':100}
                     log({'event':'source_discovered','channel':candidate,'from_preview':ch})
             self.messages={(m['channel_username'],m['msg_id']):m for m in parse_tg_channel_page(html,ch)['messages']}
             return html
@@ -122,6 +141,8 @@ def run(state_dir,*,fetcher=None,discoverer=None):
         if event['event']=='package_committed':
             package=event['package'];key=package['channel_username']+'/'+str(package['msg_id']);msg=recording.messages.get((package['channel_username'],package['msg_id']),{})
             label=classify(package,msg.get('text',''));classification[key]=label;event['release_classification']=label
+            event['qualification']=qualification(package)
+            registry[package['channel_username']]['quality_score']=300 if qualification(package)=='package' else 150
             candidates=[]
             ref=post_ref(package['original_post_url'])
             if ref:candidates.append(ref[0])
@@ -140,7 +161,7 @@ def run(state_dir,*,fetcher=None,discoverer=None):
         log(event)
     if not db.query('SELECT COUNT(*) AS n FROM tg_discovered_packages')[0]['n']:channel_limit=10
     log({'event':'batch_started','targets':sorted(targets) if targets else 'site_catalogue','max_pages_per_channel':pages,'channel_budget':channel_limit,'llm_enabled':False})
-    selected=sorted((ch for ch,info in registry.items() if info.get('next_scan_at',0)<=now),key=lambda ch:(registry[ch].get('last_scan_at',0),not registry[ch].get('seed',False),ch))[:channel_limit]
+    selected=sorted((ch for ch,info in registry.items() if info.get('next_scan_at',0)<=now),key=lambda ch:(-registry[ch].get('quality_score',0),registry[ch].get('last_scan_at',0),ch))[:channel_limit]
     try:
         for channel in selected:
             try:
@@ -149,6 +170,7 @@ def run(state_dir,*,fetcher=None,discoverer=None):
                 result=scan_channel(db,channel,max_pages=pages,direction='both',enable_llm=False,max_llm_calls=0,page_fetcher=recording,
                     target_codenames=targets,event_sink=event_sink,on_page=lambda s:log({'event':'page_committed',**s}))
                 results.append(result);registry[channel].update(last_scan_at=now,next_scan_at=now+480,last_error=None)
+                if registry[channel].get('phone_context') is False:registry[channel]['next_scan_at']=now+86400
                 log({'event':'channel_finished',**result})
                 print(json.dumps({'event':'channel_progress','pages':result['pages_fetched'],'saved':result['packages_saved'],'complete':result['history_exhausted']}),flush=True)
             except Exception as exc:
@@ -157,7 +179,8 @@ def run(state_dir,*,fetcher=None,discoverer=None):
                 registry[channel].update(last_scan_at=now,next_scan_at=now+delay,last_error=code)
                 log({'event':'channel_failed','channel':channel,'error_type':code,'retry_after_seconds':delay})
         for row in db.query('SELECT DISTINCT channel_username FROM tg_discovered_packages'):
-            export_jsonl(db,row['channel_username'],root/'packages'/f"{row['channel_username']}.jsonl")
+            export_jsonl(db,row['channel_username'],root/'candidates'/f"{row['channel_username']}.jsonl")
+            export_jsonl(db,row['channel_username'],root/'packages'/f"{row['channel_username']}.jsonl",predicate=lambda record:qualification(record)=='package')
         report=audit(db,targets,classification)
         if not report['packages']:
             report['errors'].append({'reason':'no_valid_target_products_yet'})
