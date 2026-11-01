@@ -34,6 +34,8 @@ jobs:
     environment: production
     env:
       GH_WORKFLOW_TOKEN: ${{ github.token }}
+      FMR_CATALOGUE_LOCAL_STATE: ${{ vars.FMR_CATALOGUE_RUNNER != '' && 'true' || 'false' }}
+      FMR_CATALOGUE_STATE_DIR: ${{ vars.FMR_CATALOGUE_STATE_DIR || (vars.FMR_CATALOGUE_RUNNER != '' && format('{0}/../.fmr-catalogue-state-v3', github.workspace) || 'catalogue-state') }}
       SIGN_PRIVATE_KEY_HEX: ${{ secrets.SIGN_PRIVATE_KEY_HEX }}
     steps:
       - uses: actions/checkout@v4
@@ -57,7 +59,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: catalogue-v3-honor
-          path: catalogue-state/upload/honor.sqlite.enc
+          path: ${{ env.FMR_CATALOGUE_STATE_DIR }}/upload/honor.sqlite.enc
           if-no-files-found: error
           retention-days: 90
           compression-level: 0

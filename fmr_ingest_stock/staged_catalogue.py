@@ -4,13 +4,16 @@ Only metadata is stored. Domain-separated AEAD keeps public Actions artifacts
 opaque. A new job restores the last uploaded snapshot before doing any work.
 """
 import argparse
-from contextlib import ExitStack
+from contextlib import ExitStack,contextmanager,closing
 import hashlib
+import fcntl
 import io
 import json
 import os
+import sqlite3
 from pathlib import Path
 import time
+import tempfile
 import zipfile
 import zlib
 
@@ -21,7 +24,7 @@ from .catalogue_store import Store, KIND
 from .device_sync import ensure_base_brands_and_anchor
 from . import vendor_catalogue as job
 
-ROOT=Path('catalogue-state')
+ROOT=Path(os.environ.get('FMR_CATALOGUE_STATE_DIR','catalogue-state'))
 PREFIX='catalogue-v3-'
 BASELINE=PREFIX+'baseline'
 MAX_SNAPSHOT=256*1024*1024
@@ -42,6 +45,28 @@ def unseal(data,scope):
     return body
 
 
+@contextmanager
+def state_lock(path,suffix):
+    path=Path(path);path.parent.mkdir(parents=True,exist_ok=True,mode=0o700)
+    descriptor=os.open(str(path)+suffix,os.O_CREAT|os.O_RDWR,0o600)
+    with os.fdopen(descriptor,'a') as handle:
+        fcntl.flock(handle,fcntl.LOCK_EX)
+        try:yield
+        finally:fcntl.flock(handle,fcntl.LOCK_UN)
+
+
+def checkpoint_stamp(path,*,artifact_id=None,writer_run_id=None):
+    stamp=Path(path).with_suffix('.checkpoint.json')
+    with state_lock(path,'.stamp.lock'):
+        value=json.loads(stamp.read_text()) if stamp.exists() else {}
+        if artifact_id is not None:value['artifact_id']=max(int(value.get('artifact_id',0)),int(artifact_id))
+        if writer_run_id is not None:value['writer_run_id']=str(writer_run_id)
+        with tempfile.NamedTemporaryFile(mode='w',dir=stamp.parent,delete=False) as temp:
+            json.dump(value,temp);name=temp.name
+        Path(name).replace(stamp)
+    return value
+
+
 class Artifacts:
     def __init__(self):
         self.base='https://api.github.com/repos/'+os.environ['GITHUB_REPOSITORY']
@@ -56,6 +81,30 @@ class Artifacts:
         return sorted([a for a in r.json()['artifacts'] if not a['expired']],key=lambda a:a['id'],reverse=True)
 
     def restore(self,scope,path,baseline=True):
+        with state_lock(path,'.restore.lock'):
+            return self._restore(scope,path,baseline)
+
+    def _restore(self,scope,path,baseline=True):
+        path=Path(path)
+        if os.environ.get('FMR_CATALOGUE_LOCAL_STATE')=='true' and path.exists():
+            # The fixed host owns these databases outside checkout cleanup. Do
+            # not replace newer local transactions with an older remote snapshot.
+            with closing(sqlite3.connect(path.resolve().as_uri()+'?mode=ro',uri=True)) as local:
+                table=local.execute("SELECT name FROM sqlite_master WHERE type='table' AND name IN ('crawler_sources','published') LIMIT 1").fetchone()
+                if table is None:raise RuntimeError('InvalidLocalCatalogueState')
+            stamp_path=path.with_suffix('.checkpoint.json')
+            if not stamp_path.exists():raise RuntimeError('UntrackedLocalCatalogueState')
+            stamp=json.loads(stamp_path.read_text());items=self.list(PREFIX+scope)
+            latest=items[0] if items else None
+            remote_run=(latest.get('workflow_run') or {}).get('id') if latest else None
+            unchanged=not latest or latest['id']<=stamp.get('artifact_id',0)
+            own_upload=bool(remote_run) and str(remote_run)==stamp.get('writer_run_id')
+            if unchanged or own_upload:
+                if latest:checkpoint_stamp(path,artifact_id=latest['id'])
+                print(scope+': 接续本机持久状态；仅核对备份版本，不读取 D1 历史或下载整份快照。',flush=True)
+                return 'local'
+            # A previous/other runner produced a newer checkpoint. Fetch only
+            # that changed file, rather than letting a stale local copy win.
         items=self.list(PREFIX+scope);using_baseline=False
         if not items and baseline:items=self.list(BASELINE);using_baseline=bool(items)
         if not items:return False
@@ -78,7 +127,11 @@ class Artifacts:
             entry=archive.getinfo(name)
             if entry.file_size>MAX_SNAPSHOT:raise ValueError('Oversize snapshot')
             body=unseal(archive.read(name),scope)
-        path.parent.mkdir(parents=True,exist_ok=True);path.write_bytes(body)
+        path.parent.mkdir(parents=True,exist_ok=True,mode=0o700)
+        with tempfile.NamedTemporaryFile(dir=path.parent,delete=False) as temp:
+            temp.write(body);name=temp.name
+        Path(name).replace(path)
+        checkpoint_stamp(path,artifact_id=items[0]['id'],writer_run_id=(items[0].get('workflow_run') or {}).get('id',''))
         return items[0]['id']
 
     def prune(self,scope):
@@ -87,20 +140,28 @@ class Artifacts:
             r=self.client.delete(self.base+'/actions/artifacts/'+str(item['id']));r.raise_for_status()
 
 
-def open_local(path):
+def open_local(path,initialize=True):
     db=D1Client(local_sqlite_path=str(path))
-    db.execute_script(Path(__file__).parents[1].joinpath('schema.sql').read_text())
-    ensure_base_brands_and_anchor(db)
+    if initialize:
+        db.execute_script(Path(__file__).parents[1].joinpath('schema.sql').read_text())
+        ensure_base_brands_and_anchor(db)
     return db
 
 
 def encrypt_file(scope,path):
     target=ROOT/'upload'/(scope+'.sqlite.enc');target.parent.mkdir(parents=True,exist_ok=True)
-    target.write_bytes(seal(path.read_bytes(),scope))
+    # Online backup produces a consistent SQLite image while another runner
+    # reads/updates the shared database. Never copy live database bytes directly.
+    with tempfile.TemporaryDirectory(dir=ROOT) as directory:
+        copy=Path(directory)/'snapshot.sqlite'
+        with closing(sqlite3.connect(Path(path).resolve().as_uri()+'?mode=ro',uri=True,timeout=30)) as source:
+            with closing(sqlite3.connect(copy)) as destination:source.backup(destination)
+        target.write_bytes(seal(copy.read_bytes(),scope))
+    checkpoint_stamp(path,writer_run_id=os.environ.get('GITHUB_RUN_ID','local'))
 
 
 def collect(vendor,operation='incremental',seconds=420):
-    ROOT.mkdir(exist_ok=True);path=ROOT/(vendor+'.sqlite')
+    ROOT.mkdir(parents=True,exist_ok=True,mode=0o700);path=ROOT/(vendor+'.sqlite')
     artifacts=Artifacts()
     try:
         if not artifacts.restore(vendor,path):
@@ -137,7 +198,7 @@ def next_batch(vendor):
 def baseline():
     """One indexed, read-only migration of old catalogue state; never delete D1 rows."""
     from .d1_budget import BudgetDB
-    ROOT.mkdir(exist_ok=True)
+    ROOT.mkdir(parents=True,exist_ok=True,mode=0o700)
     db=BudgetDB(cf_account_id=os.environ['CF_ACCOUNT_ID'],cf_api_token=os.environ['CF_API_TOKEN'],cf_database_id=os.environ['CF_D1_DATABASE_ID'])
     locals={}
     with ExitStack() as stack:

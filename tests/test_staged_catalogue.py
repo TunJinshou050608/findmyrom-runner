@@ -190,7 +190,7 @@ def test_settlement_outage_still_saves_successful_publication_acknowledgements(e
         ledger.execute('INSERT INTO published(vendor,key,hash) VALUES (?,?,?)',('google','successful-remote-item','hash'))
         return True
     monkeypatch.setattr(publisher,'Artifacts',Artifacts);monkeypatch.setattr(publisher,'VENDORS',('google',))
-    monkeypatch.setattr(publisher,'open_local',lambda _:Local())
+    monkeypatch.setattr(publisher,'open_local',lambda *a,**kw:Local())
     monkeypatch.setattr(publisher,'candidates',lambda *_:iter([('synthetic',)]))
     monkeypatch.setattr(publisher,'BudgetDB',DB);monkeypatch.setattr(publisher,'sync_one',synced)
     for name in ('CF_ACCOUNT_ID','CF_API_TOKEN','CF_D1_DATABASE_ID'):monkeypatch.setenv(name,'synthetic')
@@ -255,3 +255,87 @@ def test_shared_baseline_is_downloaded_once_for_multiple_vendors(env,tmp_path,mo
             assert path.read_bytes()==vendor.encode()
     finally:artifacts.close()
     assert len(downloads)==1
+
+
+def test_fixed_host_uses_persistent_state_without_remote_checkpoint_reads(env,tmp_path,monkeypatch):
+    path=tmp_path/'vendor.sqlite';db=staged.open_local(path);db.close()
+    staged.checkpoint_stamp(path,artifact_id=9,writer_run_id='test-run')
+    monkeypatch.setenv('FMR_CATALOGUE_LOCAL_STATE','true')
+    artifacts=staged.Artifacts()
+    monkeypatch.setattr(artifacts,'list',lambda *_:[{'id':9,'expired':False}])
+    monkeypatch.setattr(artifacts.client,'get',lambda *_a,**_kw:pytest.fail('Warm restart must not download a snapshot'))
+    try:assert artifacts.restore('google',path)=='local'
+    finally:artifacts.close()
+
+
+def test_corrupt_persistent_state_stops_instead_of_restarting_history(env,tmp_path,monkeypatch):
+    import sqlite3
+    path=tmp_path/'broken.sqlite';path.write_bytes(b'broken state')
+    monkeypatch.setenv('FMR_CATALOGUE_LOCAL_STATE','true');artifacts=staged.Artifacts()
+    monkeypatch.setattr(artifacts,'list',lambda *_:pytest.fail('Do not hide corrupt local state'))
+    try:
+        with pytest.raises(sqlite3.DatabaseError):artifacts.restore('google',path)
+    finally:artifacts.close()
+
+
+def test_persistent_metadata_state_lives_outside_checkout_and_uploads_from_that_path():
+    import yaml
+    root=Path(__file__).parents[1]/'.github/workflows'
+    for path in root.glob('catalogue_*.yml'):
+        for job in yaml.safe_load(path.read_text())['jobs'].values():
+            assert '/../.fmr-catalogue-state-v3' in job['env']['FMR_CATALOGUE_STATE_DIR']
+            assert 'vars.FMR_CATALOGUE_STATE_DIR' in job['env']['FMR_CATALOGUE_STATE_DIR']
+            for step in job['steps']:
+                if step.get('uses')=='actions/upload-artifact@v4':
+                    assert step['with']['path'].startswith('${{ env.FMR_CATALOGUE_STATE_DIR }}/')
+
+
+def test_local_state_accepts_own_uploaded_checkpoint_without_downloading_it(env,tmp_path,monkeypatch):
+    path=tmp_path/'vendor.sqlite';db=staged.open_local(path);db.close()
+    staged.checkpoint_stamp(path,artifact_id=9,writer_run_id='123')
+    monkeypatch.setenv('FMR_CATALOGUE_LOCAL_STATE','true');artifacts=staged.Artifacts()
+    monkeypatch.setattr(artifacts,'list',lambda *_:[{'id':10,'workflow_run':{'id':123}}])
+    monkeypatch.setattr(artifacts.client,'get',lambda *_a,**_kw:pytest.fail('Own upload must not be downloaded again'))
+    try:assert artifacts.restore('google',path)=='local'
+    finally:artifacts.close()
+    assert json.loads(path.with_suffix('.checkpoint.json').read_text())['artifact_id']==10
+
+
+def test_newer_foreign_checkpoint_refreshes_stale_local_state(env,tmp_path,monkeypatch):
+    local=tmp_path/'vendor.sqlite';db=staged.open_local(local);db.close()
+    staged.checkpoint_stamp(local,artifact_id=9,writer_run_id='123')
+    archive=io.BytesIO()
+    with zipfile.ZipFile(archive,'w') as z:z.writestr('google.sqlite.enc',staged.seal(b'newer checkpoint','google'))
+    monkeypatch.setenv('FMR_CATALOGUE_LOCAL_STATE','true');artifacts=staged.Artifacts()
+    monkeypatch.setattr(artifacts,'list',lambda *_:[{'id':10,'workflow_run':{'id':456}}])
+    monkeypatch.setattr(artifacts.client,'get',lambda url:httpx.Response(200,content=archive.getvalue(),request=httpx.Request('GET',url)))
+    try:assert artifacts.restore('google',local)==10
+    finally:artifacts.close()
+    assert local.read_bytes()==b'newer checkpoint'
+
+
+def test_snapshot_uses_sqlite_backup_so_uncheckpointed_wal_rows_are_saved(env,tmp_path,monkeypatch):
+    import sqlite3
+    root=tmp_path/'state';root.mkdir();monkeypatch.setattr(staged,'ROOT',root)
+    source=root/'wal.sqlite';writer=sqlite3.connect(source)
+    writer.execute('PRAGMA journal_mode=WAL');writer.execute('CREATE TABLE proof(value TEXT)')
+    writer.execute("INSERT INTO proof VALUES ('committed but still in WAL')");writer.commit()
+    try:staged.encrypt_file('google',source)
+    finally:writer.close()
+    restored=tmp_path/'restored.sqlite';restored.write_bytes(staged.unseal((root/'upload/google.sqlite.enc').read_bytes(),'google'))
+    with sqlite3.connect(restored) as db:assert db.execute('SELECT value FROM proof').fetchone()[0]=='committed but still in WAL'
+
+
+def test_completed_migration_marker_prevents_reimport_when_baseline_expires(env,tmp_path,monkeypatch):
+    import yaml
+    workflow=yaml.safe_load((Path(__file__).parents[1]/'.github/workflows/catalogue_bootstrap.yml').read_text())
+    step=next(item for item in workflow['jobs']['restore']['steps'] if item.get('id')=='baseline')
+    code='\n'.join(step['run'].splitlines()[1:-1])
+    class Artifacts:
+        def list(self,_name):return []
+        def close(self):pass
+    monkeypatch.setattr(staged,'Artifacts',Artifacts)
+    monkeypatch.setenv('FMR_CATALOGUE_MIGRATED','true')
+    output=tmp_path/'output';monkeypatch.setenv('GITHUB_OUTPUT',str(output))
+    exec(compile(code,'bootstrap-check','exec'),{})
+    assert output.read_text()=='needed=false\n'

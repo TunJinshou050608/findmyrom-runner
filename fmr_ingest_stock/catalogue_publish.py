@@ -45,7 +45,7 @@ def sync_one(db,ledger,vendor,candidate):
 
 
 def main():
-    ROOT.mkdir(exist_ok=True);path=ROOT/'publisher.sqlite';artifacts=Artifacts();ledger=None;db=None
+    ROOT.mkdir(parents=True,exist_ok=True,mode=0o700);path=ROOT/'publisher.sqlite';artifacts=Artifacts();ledger=None;db=None
     completed=failed=0
     try:
         artifacts.restore('publisher',path,baseline=False)
@@ -61,7 +61,7 @@ def main():
             print(vendor+': 正在接续最新采集快照。',flush=True)
             local_path=ROOT/(vendor+'.sqlite')
             if not artifacts.restore(vendor,local_path):continue
-            local=open_local(local_path)
+            local=open_local(local_path,initialize=False)
             try:work[vendor]=iter(list(candidates(local,ledger,vendor)))
             finally:local.close()
         # Peek without losing the first record.

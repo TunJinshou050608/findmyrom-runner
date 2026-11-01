@@ -12,11 +12,13 @@ concurrency:
 jobs:
   publish:
     if: github.ref == 'refs/heads/main'
-    runs-on: ${{ fromJSON(vars.FMR_CATALOGUE_RUNNER || '"ubuntu-latest"') }}
+    runs-on: ${{ fromJSON(vars.FMR_PUBLISH_RUNNER || vars.FMR_CATALOGUE_RUNNER || '"ubuntu-latest"') }}
     timeout-minutes: 9
     environment: production
     env:
       GH_WORKFLOW_TOKEN: ${{ github.token }}
+      FMR_CATALOGUE_LOCAL_STATE: ${{ vars.FMR_CATALOGUE_RUNNER != '' && 'true' || 'false' }}
+      FMR_CATALOGUE_STATE_DIR: ${{ vars.FMR_CATALOGUE_STATE_DIR || (vars.FMR_CATALOGUE_RUNNER != '' && format('{0}/../.fmr-catalogue-state-v3', github.workspace) || 'catalogue-state') }}
       SIGN_PRIVATE_KEY_HEX: ${{ secrets.SIGN_PRIVATE_KEY_HEX }}
     steps:
       - uses: actions/checkout@v4
@@ -40,7 +42,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: catalogue-v3-publisher
-          path: catalogue-state/upload/publisher.sqlite.enc
+          path: ${{ env.FMR_CATALOGUE_STATE_DIR }}/upload/publisher.sqlite.enc
           if-no-files-found: error
           retention-days: 90
           compression-level: 0
