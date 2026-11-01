@@ -170,3 +170,29 @@ def test_mainstream_status_unknown_is_candidate_until_evidence():
     assert reason=='mainstream_release_status_unproved' and not result['accepted']
     msg['text']='#alioth LineageOS Community Android 16'
     assert analyse(msg,'alioth',[],{'alioth':[]})[1]=='accepted'
+
+
+def test_official_rom_scope_and_port_kind():
+    msg=parse_tg_channel_page(page(text='#alioth HyperOS Android 15<br>ported from another Xiaomi model'),'testchannel')['messages'][0]
+    result,reason=analyse(msg,'alioth',[],{'alioth':[]})
+    assert reason=='accepted' and result['package']['resource_kind']=='rom'
+    msg['text']='#alioth UnlistedROM Official Android 15 ROM'
+    assert analyse(msg,'alioth',[],{'alioth':[]})[1]=='official_rom_scope_unproved'
+    msg['text']='#alioth Bliss ROM 16 Android 13\nFollow Bliss Official Channel'
+    assert analyse(msg,'alioth',[],{'alioth':[]})[1]=='excluded_mainstream_official_rom'
+
+
+def test_resident_reuses_discovered_sources_without_importing_products(tmp_path,monkeypatch):
+    from fmr_tg_scanner import search_watch
+    from fmr_tg_scanner.trial import atomic_json
+    path=tmp_path/'experiments/search-v3/123/query_first/products.json'
+    atomic_json(path,{'products':[{'package':{'device_codename':'annibale','channel_username':'autofoundupdates','tg_post_url':'https://t.me/autofoundupdates/12'}}]})
+    def run(root,targets,**_):
+        db=SearchStore(root/'search.sqlite')
+        assert not db.query('SELECT * FROM tg_search_records')
+        task=db.query('SELECT * FROM tg_search_tasks')[0]
+        assert task['kind']=='admit' and json.loads(task['payload'])=={'channel':'autofoundupdates','depth':0}
+        assert db.meta('prior_lab_source_evidence')[0]['evidence_post']=='https://t.me/autofoundupdates/12'
+        db.close();return {'ok':True,'packages':0}
+    monkeypatch.setattr(search_watch,'run',run)
+    assert search_watch.produce(tmp_path)['packages']==0

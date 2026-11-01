@@ -2,6 +2,7 @@
 from collections import Counter
 from datetime import datetime,timezone
 import json
+import hashlib
 import os
 from pathlib import Path
 import re
@@ -112,7 +113,7 @@ def run(root,targets,*,max_requests=180,max_seconds=480,http_factory=SearchHTTP,
             if task is None:break
             code,kind,payload=task['device'],task['kind'],task['payload'];depth=payload.get('depth',0)
             try:
-                count=0;delay=3600
+                count=0;delay=3600;products_at_start=new_products
                 if kind=='index':
                     # A random negative control is shared, not repeated per model.
                     if store.meta('lyzem_control_checked',{}).get('checked',0)+86400<time.time():
@@ -181,6 +182,11 @@ def run(root,targets,*,max_requests=180,max_seconds=480,http_factory=SearchHTTP,
                             payload['state']={'before':lo,'anchor':anchor,'highest':highest};delay=0
                         else:payload['state']={'anchor':highest,'highest':highest}
                 else:raise ValueError('Unknown search task')
+                if kind in ('head','query') and delay in (600,1800):
+                    idle_key='idle:'+task['key']
+                    idle=0 if new_products>products_at_start else store.meta(idle_key,0)+1
+                    store.set_meta(idle_key,idle)
+                    delay=min(3600 if kind=='head' else 21600,delay*(2**min(idle,4)))
                 store.finish(task,delay=delay,payload=payload);processed+=1
                 emit({'event':'task_finished','kind':kind,'device':code,'count':count,'next_in_seconds':delay})
             except WorkBudgetReached:
@@ -203,6 +209,7 @@ def run(root,targets,*,max_requests=180,max_seconds=480,http_factory=SearchHTTP,
         todo=store.query("SELECT kind,status,COUNT(*) AS count FROM tg_search_tasks GROUP BY kind,status")
         counts=Counter(v['package']['device_codename'] for v in products)
         report={'engine':'query_first_v3','mode':mode,'ok':not failures or len(failures)<processed,'has_products':bool(products),'activity':'new_products' if new_products else 'no_new_products','outcome':outcome,'targets':targets,
+            'policy_version':hashlib.sha256(Path(__file__).with_name('search_policy.py').read_bytes()).hexdigest()[:16],
             'new_qualified_products':new_products,'packages':len(products),'stored_observations':len(rows),'per_device':dict(counts),
             'http_requests':http.requests,'cache_hits':http.cache_hits,'response_bytes':http.bytes,'http_errors':http.errors,
             'first_product_seconds':first_product,'elapsed_seconds':round(time.monotonic()-started,3),'tasks_processed':processed,

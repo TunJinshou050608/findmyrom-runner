@@ -5,6 +5,7 @@ from pathlib import Path
 from .search_engine import run
 from .trial import atomic_json
 from .search_validation import validate
+from .watch import publish_private
 
 
 def main():
@@ -16,8 +17,11 @@ def main():
     targets=list(dict.fromkeys(v.strip().lower() for v in args.targets.split(',') if v.strip()))
     root=Path(args.state_dir)/'experiments'/'search-v3'/os.environ.get('GITHUB_RUN_ID','local')
     modes=['query_first'] if args.mode=='batch' else ['query_first','latest_first']
-    reports={mode:run(root/mode,targets,max_requests=180,max_seconds=480,mode=mode) for mode in modes}
-    for mode,report in reports.items():atomic_json(root/mode/'cold_report.json',report)
+    reports={}
+    for mode in modes:
+        reports[mode]=run(root/mode,targets,max_requests=180,max_seconds=480,mode=mode)
+        atomic_json(root/mode/'cold_report.json',reports[mode])
+        publish_private(Path(args.state_dir).resolve())
     resume=run(root/'query_first',targets,max_requests=90,max_seconds=240)
     atomic_json(root/'resume.json',{'report':resume,'restored_existing_frontier':True,'manual_channel_seeds':[],
         'same_state_as':'query_first','excluded_from_ordering_comparison':True})

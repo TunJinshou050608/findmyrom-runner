@@ -52,6 +52,7 @@ def primary_release(package,message):
     if project:package['project_name']=project
     elif kind!=package['resource_kind']:package['project_name']={'rom':'Custom ROM','kernel':'Kernel','recovery':'Recovery','boot_image':'Boot image'}.get(kind,package['project_name'])
     if project and project not in ('TWRP','OrangeFox','HyperOS','MIUI'):kind='rom'
+    if project in ('HyperOS','MIUI') and re.search(r'(?i)\bport(?:ed)?\b|\bcustom\b',heading):kind='rom'
     package['resource_kind']=kind
     return heading
 
@@ -75,6 +76,7 @@ def analyse(message,target,names,all_names,profile=''):
     elif re.search(r'(?i)\bport(?:ed)?\b|\bcustom\b',heading):label='custom_or_port'
     elif package['project_name'].lower() in ('hyperos','miui'):label='stock_official'
     elif package['resource_kind']=='rom' and package['project_name'].lower() in MAINSTREAM_ROMS and official:label='mainstream_official'
+    elif package['resource_kind']=='rom' and official:label='official_project_unclassified'
     else:label='unknown'
     # A credited developer is not automatically the account that published the
     # post. Missing forward/signature evidence remains unknown in the new path.
@@ -88,9 +90,11 @@ def analyse(message,target,names,all_names,profile=''):
         package['origin_type']='unknown'
     reason='accepted'
     if generic_image:reason='generic_image_donor_is_not_target'
+    elif re.search(r'(?i)\bengineering\s+ROM\b',heading):reason='excluded_engineering_firmware'
     elif re.search(r'(?i)security warning|scam alert|malware|phishing',heading) and not re.search(r'(?i)\b(?:release|build|version)\b',heading):reason='not_a_release'
     elif qualification(package)!='package':reason='unresolved_download_reference'
     elif label=='stock_official':reason='excluded_stock_firmware'
     elif label=='mainstream_official':reason='excluded_mainstream_official_rom'
+    elif label=='official_project_unclassified':reason='official_rom_scope_unproved'
     elif label=='unknown' and package['resource_kind']=='rom' and package['project_name'].lower() in MAINSTREAM_ROMS:reason='mainstream_release_status_unproved'
     return {'package':package,'evidence':evidence,'classification':label,'accepted':reason=='accepted'},reason
