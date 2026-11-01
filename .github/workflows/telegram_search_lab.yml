@@ -1,0 +1,59 @@
+name: TG search lab · private evidence and autonomous retrieval
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Capability probe or finite autonomous search batch
+        type: choice
+        options: [probe, batch, compare]
+        default: probe
+      targets:
+        description: Device codenames only; never channel seeds
+        default: annibale,ishtar,liuqin,alioth
+permissions:
+  contents: read
+concurrency:
+  group: tg01-annibale-private-trial
+  cancel-in-progress: false
+jobs:
+  lab:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: runner
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: TunJinshou050608/findmyrom-tg01-test
+          path: state
+          ssh-key: ${{ secrets.GH_TG_TEST_SSH_KEY }}
+          persist-credentials: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r runner/requirements.txt
+      - name: Read TG metadata; never access D1 or download firmware
+        working-directory: runner
+        env:
+          LAB_MODE: ${{ inputs.mode }}
+          LAB_TARGETS: ${{ inputs.targets }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          if [ "$LAB_MODE" = probe ]; then
+            python -u -m fmr_tg_scanner.search_probe --state-dir ../state --targets "$LAB_TARGETS"
+          else
+            python -u -m fmr_tg_scanner.search_lab --state-dir ../state --targets "$LAB_TARGETS" --mode "$LAB_MODE"
+          fi
+      - name: Persist private test products and detailed logs
+        if: always()
+        working-directory: runner
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from fmr_tg_scanner.watch import publish_private
+          publish_private(Path('../state').resolve())
+          PY
