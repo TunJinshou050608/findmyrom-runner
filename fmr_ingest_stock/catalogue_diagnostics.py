@@ -5,9 +5,10 @@ import os
 from pathlib import Path
 import sqlite3
 import traceback
+import httpx
 from urllib.parse import urlsplit, parse_qs
 
-from .oem_sources import MetadataHTTP, resolve_atlas
+from .oem_sources import MetadataHTTP, resolve_atlas, download_origin
 from .download_refresh import expiring
 from .vendor_catalogue import durable_download, problem
 
@@ -21,7 +22,7 @@ def inspect(vendor):
         records = [(key, json.loads(body)) for key, body in db.execute(
             "SELECT source_target,last_cursor_val FROM crawler_sources WHERE source_kind=? AND source_target GLOB ?",
             ('oem_incremental_v2', 'v2:' + vendor + ':*'))]
-    counts, errors, kinds, samples = Counter(), Counter(), Counter(), []
+    counts, errors, kinds, samples, ready = Counter(), Counter(), Counter(), [], {}
     for key, value in records:
         stage = key.split(':')[2]
         if stage not in ('model', 'release'):
@@ -29,6 +30,8 @@ def inspect(vendor):
         counts[stage + ':' + value.get('status', 'pending')] += 1
         if stage == 'release':
             kinds[value['release'].get('kind', 'unknown')] += 1
+            if value.get('status')=='resolved' and durable_download(vendor,value['release']):
+                ready.setdefault(value['release'].get('kind','unknown'),value['release'])
         if value.get('error'):
             errors[stage + ':' + value['error']] += 1
         if stage == 'release' and (value.get('status') in ('blocked', 'failed', 'retry') or expiring(value['release'].get('download_url',''))):
@@ -60,7 +63,19 @@ def inspect(vendor):
                 break
     finally:
         with_client.close()
-    return {'vendor': vendor, 'counts': dict(counts), 'errors': dict(errors), 'kinds': dict(kinds), 'probes': probes}
+    smoke=[]
+    with httpx.Client(timeout=15,follow_redirects=False) as client:
+        for kind,row in list(ready.items())[:2]:
+            url=row['download_url'];renewable=bool(row.get('refresh_source'))
+            try:
+                if not renewable and not download_origin(vendor,url):continue
+                # GET only our tiny redirect handler; HEAD for an official file.
+                # Neither request follows redirects or consumes firmware bytes.
+                with client.stream('GET' if renewable else 'HEAD',url) as response:
+                    target=urlsplit(response.headers.get('Location','')).hostname
+                    smoke.append({'kind':kind,'refresh':renewable,'http_status':response.status_code,'redirect_host':target})
+            except Exception as exc:smoke.append({'kind':kind,'error':problem(exc)})
+    return {'vendor': vendor, 'counts': dict(counts), 'errors': dict(errors), 'kinds': dict(kinds), 'probes': probes,'download_smoke':smoke}
 
 
 def main():
