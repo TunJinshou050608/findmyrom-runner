@@ -16,7 +16,7 @@ concurrency:
 jobs:
   extract:
     # Enable only after the production secrets and private Vault are verified.
-    if: vars.FMR_EXTRACTION_ENABLED == 'true'
+    if: github.ref == 'refs/heads/main' && (vars.FMR_EXTRACTION_ENABLED == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 25
     environment: production

@@ -10,7 +10,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   publish:
-    if: vars.FMR_JUMPER_ENABLED == 'true'
+    if: github.ref == 'refs/heads/main' && (vars.FMR_JUMPER_ENABLED == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment: production

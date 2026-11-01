@@ -8,6 +8,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   verify:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 25
     environment: production

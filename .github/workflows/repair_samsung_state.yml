@@ -9,6 +9,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   repair:
+    if: github.ref == 'refs/heads/main'
     runs-on: [self-hosted, findmyrom-metadata]
     timeout-minutes: 8
     environment: production

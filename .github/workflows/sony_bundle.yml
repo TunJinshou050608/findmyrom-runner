@@ -10,6 +10,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   bundle:
+    if: github.ref == 'refs/heads/main'
     name: "按需下载并打包成一个 ZIP（不提取镜像）"
     runs-on: ubuntu-latest
     timeout-minutes: 120
