@@ -17,6 +17,7 @@ jobs:
     timeout-minutes: 10
     env:
       FMR_CATALOGUE_STATE_DIR: ${{ vars.FMR_CATALOGUE_STATE_DIR }}
+      FMR_D1_WRITES_PAUSED: ${{ vars.FMR_D1_WRITES_PAUSED }}
     steps:
       - uses: actions/checkout@v4
         with:

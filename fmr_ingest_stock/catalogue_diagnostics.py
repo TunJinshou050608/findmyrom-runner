@@ -94,6 +94,9 @@ def inspect(vendor):
     with httpx.Client(timeout=15,follow_redirects=False) as client:
         for kind,row in list(ready.items())[:2]:
             url=row['download_url'];renewable=bool(row.get('refresh_source'))
+            if renewable and os.environ.get('FMR_D1_WRITES_PAUSED')=='true':
+                smoke.append({'kind':kind,'refresh':True,'state':'not_probed_d1_paused'})
+                continue
             try:
                 if not renewable and not download_origin(vendor,url):continue
                 # GET only our tiny redirect handler; HEAD for an official file.
