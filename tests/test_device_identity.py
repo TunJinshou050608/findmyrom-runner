@@ -17,6 +17,10 @@ from fmr_ingest_stock import staged_catalogue,vendor_catalogue
  ('oppo','OPPO Find X8 CPH2651 (China)','','OPPO Find X8'),
  ('xiaomi','Redmi Note 13 Pro+ 5G NFC','','Redmi Note 13 Pro+ 5G NFC'),
  ('google','Galaxy Nexus "maguro" (GSM/HSPA+) (with Google Wallet)','','Galaxy Nexus (GSM/HSPA+)'),
+ ('vivo','Vivo X100 Pro PD2324 China','','vivo X100 Pro'),
+ ('realme','Realme GT 6 RMX3851 EU','','realme GT 6'),
+ ('motorola','Moto G54 5G India','','Motorola Moto G54 5G'),
+ ('asus','Zenfone 9 AI2202 Global','','ASUS Zenfone 9'),
 ])
 def test_source_statistics_and_model_codes_are_not_product_names(vendor,name,models,expected):
  assert marketing_name({'vendor':vendor,'name':name,'models':models,'upstream_id':'unused'})==expected

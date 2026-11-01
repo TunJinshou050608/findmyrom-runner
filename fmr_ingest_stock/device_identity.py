@@ -1,7 +1,7 @@
 """Display names contain product identities, never catalogue counts or dates."""
 import re
 
-MARKETS=r'(?:China|Global|EEA|Europe|India|Indonesia|Russia|Turkey|Taiwan|Japan|Singapore|Hong Kong|South Korea|Korea|Thailand|Vietnam|Malaysia)'
+MARKETS=r'(?:China|Global|EEA|Europe|India|Indonesia|Russia|Turkey|Taiwan|Japan|Singapore|Hong Kong|South Korea|Korea|Thailand|Vietnam|Malaysia|CN|EU|US|UK|IN|ID|RU|TR|TW|JP|KR|ROW)'
 MARKET_SUFFIX=re.compile(r'(?:\s*[(\[]\s*|\s+|\s*[·,–—]\s*)'+MARKETS+r'(?:\s*[/,]\s*'+MARKETS+r')*(?:\s+(?:ROM|Version|Edition))?\s*[)\]]?$',re.I)
 HARDWARE_CODE=re.compile(r'\b(?:CPH\d{4,5}|RMX\d{4,5}|SM-[A-Z0-9]+|PD\d{4}[A-Z]*|P[A-Z]{2}\d{3}|AI\d{4}[A-Z]?|ZS\d{3}[A-Z]{2})\b',re.I)
 
