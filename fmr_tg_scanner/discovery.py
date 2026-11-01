@@ -131,6 +131,24 @@ def discover_channels(device,cache,log,*,client=None,now=None):
                 except Exception:pass
             return '\n'.join(texts)
         if len(found)<8:lookup('github_public_metadata_v2',device,github)
+        def github_code():
+            texts=[]
+            for query in [device+' "t.me"',device+' telegram']:
+                try:
+                    result=json.loads(bounded_get(client,'https://api.github.com/search/code',params={'q':query,'per_page':10},headers=headers))
+                    items=result.get('items',[])
+                    log({'event':'discovery_code_index','device':device,'file_count':len(items)})
+                    for item in items:
+                        url=item.get('url','')
+                        if not url.startswith('https://api.github.com/repos/'):continue
+                        try:
+                            content=json.loads(bounded_get(client,url,headers=headers))
+                            if content.get('encoding')=='base64':texts.append(base64.b64decode(content['content']).decode('utf-8',errors='replace'))
+                        except Exception:pass
+                except Exception as exc:
+                    log({'event':'discovery_code_index_failed','device':device,'error_type':type(exc).__name__})
+            return '\n'.join(texts)
+        if len(found)<8:lookup('github_code_index_v1',device,github_code)
         def searx():
             from .rule_extractor import safe_url
             data=json.loads(bounded_get(client,'https://searx.space/data/instances.json'))
