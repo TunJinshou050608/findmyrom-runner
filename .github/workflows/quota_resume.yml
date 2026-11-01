@@ -1,7 +1,5 @@
 name: "D1 额度重置后 · 恢复增量发布"
 on:
-  schedule:
-    - cron: '7 0 1 11 *'
   workflow_dispatch:
 permissions:
   contents: read
@@ -34,3 +32,4 @@ jobs:
         run: |
           if [ "${{ github.event_name }}" != 'workflow_dispatch' ] && [ "$(date -u +%Y-%m-%d)" != '2026-11-01' ]; then exit 0; fi
           python -u -m fmr_ingest_stock.quota_resume
+

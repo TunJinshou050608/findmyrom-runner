@@ -317,7 +317,7 @@ def dispatch(control,vendor):
         if response.status_code not in (200,204):raise RuntimeError('ContinuationRejected')
 
 
-def run(db,vendor,mode='audit',operation='incremental',cycle='',sequence=1,client=None):
+def run(db,vendor,mode='audit',operation='incremental',cycle='',sequence=1,client=None,dispatch_next=True,time_budget=2700):
     store=Store(db,vendor);key=store.key('control');control=store.get(key)
     with Status(vendor) as status:
         if int(os.environ.get('GITHUB_RUN_ATTEMPT','1'))>1 and control and control['state']=='completed_with_gaps':
@@ -345,6 +345,7 @@ def run(db,vendor,mode='audit',operation='incremental',cycle='',sequence=1,clien
         status.batch=control['batch'];status.update(counts=store.counts())
         status.log(f"第 {control['batch']} 批；运行方式 {control['mode']} / {control['operation']}。")
         cache=CachedClient(store,client,force=control['operation'] in ('refresh_sources','retry_failed'))
+        cache.deadline=time.monotonic()+time_budget
         status.update(stats=cache.stats)
         http=MetadataHTTP(cache);http.history_workers=1
         try:
@@ -365,11 +366,12 @@ def run(db,vendor,mode='audit',operation='incremental',cycle='',sequence=1,clien
             status.update('本批完成，自动接着处理下一批' if more else '本轮完成，仍有来源缺口' if gaps else '本轮增量检查完成',
                 counts=counts,stats=cache.stats,checkpoint=True)
             status.log(f"本批保存 {changed} 个任务检查点；网络 {cache.stats['network']} 次，缓存复用 {cache.stats['cache_hits']} 次，304 未变化 {cache.stats['not_modified']} 次。")
-            if more:
+            if more and dispatch_next:
                 control['continuation_pending']=True;store.put(key,control)
                 dispatch(control,vendor)
                 control['continuation_pending']=False;store.put(key,control)
                 status.log('下一批已交给本厂商工作流，结束本批。')
+            elif more:status.log('本批检查点已保存到任务侧；上传加密快照后再续跑。D1 由统一同步任务处理。')
             else:status.log('本轮结束。下次运行仍使用已有检查点，只检查到期和新增内容。')
             return 0 if more or not gaps else 1
         except D1BudgetReached:
@@ -378,6 +380,12 @@ def run(db,vendor,mode='audit',operation='incremental',cycle='',sequence=1,clien
             status.update('本批 D1 预算已到，检查点已保留')
             status.log(f'本批 D1 读取 {db.rows_read} 行、写入 {db.rows_written} 行；下一批仍受每日总预算控制。')
             dispatch(control,vendor)
+            return 0
+        except CatalogueDeadline:
+            control.update(state='working',batch=max(control['batch'],initial_batch+1),cursors=store.cursors)
+            store.put(key,control)
+            status.log('本批时间已到，已保存检查点；上传后由下一批续接。')
+            if dispatch_next:dispatch(control,vendor)
             return 0
         except Exception as exc:
             control.update(state='paused',error=problem(exc),cursors=store.cursors);store.put(key,control)
@@ -415,3 +423,4 @@ def main(argv=None):
 
 
 if __name__=='__main__':raise SystemExit(main())
+

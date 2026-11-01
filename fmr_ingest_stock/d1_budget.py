@@ -34,6 +34,7 @@ class BudgetDB(D1Client):
         self.execute('''CREATE TABLE IF NOT EXISTS fmr_catalogue_budget(
             utc_day TEXT PRIMARY KEY,reads_reserved INTEGER NOT NULL,writes_reserved INTEGER NOT NULL)''')
         day=datetime.now(timezone.utc).strftime('%Y-%m-%d')
+        self.reservation_day=day
         row=self.execute('''INSERT INTO fmr_catalogue_budget(utc_day,reads_reserved,writes_reserved) VALUES (?,?,?)
             ON CONFLICT(utc_day) DO UPDATE SET reads_reserved=reads_reserved+excluded.reads_reserved,
             writes_reserved=writes_reserved+excluded.writes_reserved
@@ -47,3 +48,18 @@ class BudgetDB(D1Client):
         self.checkpointing=True
         try:yield
         finally:self.checkpointing=False
+
+    def settle(self):
+        """Release unused reservation after a sole, serialized publisher finishes.
+
+        Include a conservative allowance for budget-control/index writes. A crash
+        retains the full reservation, which is safe and resets on the next UTC day.
+        """
+        if not self.metering:return
+        self.metering=False
+        day=getattr(self,'reservation_day',datetime.now(timezone.utc).strftime('%Y-%m-%d'))
+        unused_reads=max(0,JOB_READ_RESERVATION-self.rows_read-100)
+        unused_writes=max(0,JOB_WRITE_RESERVATION-self.rows_written-20)
+        self.execute('UPDATE fmr_catalogue_budget SET reads_reserved=MAX(0,reads_reserved-?),writes_reserved=MAX(0,writes_reserved-?) WHERE utc_day=?',
+            (unused_reads,unused_writes,day))
+

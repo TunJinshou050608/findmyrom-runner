@@ -75,8 +75,9 @@ def test_independent_workflows_are_single_vendor_named_and_no_mixed_dispatch():
         assert label in data['name'] and '增量更新' in data['run-name']
         assert data['concurrency']['group']=='catalogue-v2-'+vendor
         assert data['concurrency']['cancel-in-progress'] is False
-        step=data['jobs']['catalogue']['steps'][-1]
+        step=next(s for s in data['jobs']['catalogue']['steps'] if s.get('id')=='collect')
         assert '--vendor '+vendor+' ' in step['run'] and '--brands' not in step['run']
+        assert 'CF_API_TOKEN' not in str(data) and 'CF_D1_DATABASE_ID' not in str(data)
         assert '30' in step['name'] and 'GH_VAULT_TOKEN' not in step['env']
         triggers=data.get('on') or data[True]
         if vendor in ('huawei','honor'):assert 'schedule' not in triggers
@@ -304,3 +305,4 @@ def test_corrupt_page_cache_is_rebuilt_without_erasing_catalogue_tasks(env):
         with cache.stream('GET',url) as response:assert response.read()==b'rebuilt'
     assert store.counts()['models']=={'pending':1}
     assert CachedClient.unpack(store.get(key))==b'rebuilt'
+
