@@ -12,6 +12,7 @@ import httpx
 from .html_parser import channel_name
 
 SEARCH_PROVIDERS=[
+ ('duckduckgo_lite_v1','https://lite.duckduckgo.com/lite/','q'),
  ('google','https://www.google.com/search','q'),
  ('yandex','https://yandex.com/search/','text'),
  ('brave','https://search.brave.com/search','q'),
@@ -88,7 +89,7 @@ def discover_channels(device,cache,log,*,client=None,now=None):
                     log({'event':'discovery_telegram_candidate_rejected','channel':name,'device':device,'error_type':type(exc).__name__})
             return '\n'.join(verified)
         lookup('telegram_naming_rules_v1',device,telegram_candidates)
-        queries=[f'"{device}" Telegram ROM unofficial',f'"{device}" site:t.me']
+        queries=[device+' Telegram ROM',f'"{device}" site:t.me']
         for provider,url,param in SEARCH_PROVIDERS:
             for query in queries:
                 params={param:query}
