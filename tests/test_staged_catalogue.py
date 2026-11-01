@@ -121,6 +121,16 @@ def test_workflow_single_writer_and_upload_before_handoff():
     root=Path(__file__).parents[1]/'.github/workflows'
     for path in root.glob('catalogue_*.yml'):
         data=yaml.safe_load(path.read_text())
+        if path.name=='catalogue_bootstrap.yml':
+            assert data['concurrency']['group']=='catalogue-bootstrap'
+            assert data['concurrency']['cancel-in-progress'] is False
+            steps=data['jobs']['restore']['steps']
+            credential_steps=[step for step in steps if 'CF_API_TOKEN' in step.get('env',{})]
+            assert len(credential_steps)==1 and 'staged_catalogue baseline' in credential_steps[0]['run']
+            upload=next(i for i,step in enumerate(steps) if step.get('uses')=='actions/upload-artifact@v4')
+            resume=next(i for i,step in enumerate(steps) if 'fmr_ingest_stock.quota_resume' in step.get('run',''))
+            assert upload<resume
+            continue
         if path.name=='catalogue_publish.yml':
             assert data[True]['schedule'][0]['cron']=='*/10 * * * *'
             assert data['concurrency']['group']=='catalogue-d1-publisher'
@@ -191,3 +201,14 @@ def test_settlement_outage_still_saves_successful_publication_acknowledgements(e
     try:assert ledger.query('SELECT key FROM published')==[{'key':'successful-remote-item'}]
     finally:ledger.close()
     assert closed==['database','artifacts']
+
+
+def test_metadata_runner_routing_keeps_binary_and_pr_jobs_off_local_host():
+    import yaml
+    root=Path(__file__).parents[1]/'.github/workflows'
+    for path in root.glob('catalogue_*.yml'):
+        for job in yaml.safe_load(path.read_text())['jobs'].values():
+            assert 'FMR_CATALOGUE_RUNNER' in job['runs-on']
+            assert job['if']=="github.ref == 'refs/heads/main'"
+    for name in ('batch_extract.yml','history_sweep.yml','sony_bundle.yml','ci.yml','telegram_trial.yml'):
+        assert 'FMR_CATALOGUE_RUNNER' not in (root/name).read_text()
