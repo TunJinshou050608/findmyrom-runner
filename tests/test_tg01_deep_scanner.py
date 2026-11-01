@@ -448,3 +448,37 @@ def test_sourceforge_download_page_preserves_actual_package_name():
     row=extract_package_by_rules(message)
     assert row['package_name']=='Android-ROM-v2.0.zip'
     assert qualification(row)=='package'
+
+
+def test_rom_heading_wins_over_companion_recovery_and_non_download_links():
+    html='''<section class="tgme_widget_history"><div class="tgme_widget_message" data-post="TestChannel/5"><div class="tgme_widget_message_text">AxionOS v2.8 Unofficial ROM for #marble Android 16<br>By @dev_name<br><a href="https://github.com/AxionAOSP/axion_features">Features</a><a href="https://telegra.ph/guide">Installation</a><a href="https://sourceforge.net/projects/test/files/OrangeFox-R11.3.img/download">Recovery</a><a href="https://pixeldrain.com/u/romfile">ROM</a><a href="https://pixeldrain.com/u/bootfile">Boot images</a><a href="https://linktr.ee/author">Support</a></div></div></section>'''
+    row=extract_package_by_rules(parse_tg_channel_page(html,'testchannel')['messages'][0])
+    assert row['project_name']=='AxionOS' and row['resource_kind']=='rom'
+    assert row['build_version_tag']=='v2.8'
+    assert 'OrangeFox' not in row['package_name']
+    assert json.loads(row['download_links_json'])==['https://pixeldrain.com/u/romfile']
+
+
+def test_versioned_metadata_repair_does_not_reset_or_repeat_history(db):
+    from fmr_tg_scanner.trial import repair_existing,RULE_REVISION
+    scan_channel(db,'marbleupdates','marble',max_pages=1,page_fetcher=pages,enable_llm=False)
+    before=db.query('SELECT * FROM tg_scan_cursors')
+    registry={};calls=[]
+    def fetch(url):calls.append(url);return LATEST
+    repair_existing(db,registry,fetch,{'marble'},lambda *_:None)
+    assert len(calls)==1
+    assert db.query('SELECT * FROM tg_scan_cursors')==before
+    assert registry['marbleupdates']['rule_revision']==RULE_REVISION
+    repair_existing(db,registry,fetch,{'marble'},lambda *_:None)
+    assert len(calls)==1
+
+
+def test_metadata_repair_failure_is_not_marked_complete_and_has_retry_cooldown(db):
+    from fmr_tg_scanner.trial import repair_existing
+    scan_channel(db,'marbleupdates','marble',max_pages=1,page_fetcher=pages,enable_llm=False)
+    registry={};calls=[]
+    def failed(url):calls.append(url);raise ScanHTTPError('temporary metadata error')
+    repair_existing(db,registry,failed,{'marble'},lambda *_:None)
+    assert 'rule_revision' not in registry['marbleupdates']
+    repair_existing(db,registry,failed,{'marble'},lambda *_:None)
+    assert len(calls)==1

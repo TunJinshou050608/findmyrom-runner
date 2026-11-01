@@ -10,14 +10,59 @@ import signal
 import time
 from urllib.parse import urlsplit
 
-from .crawler import scan_channel
+from .crawler import scan_channel,upsert
 from .storage import SQLiteDB
 from .schema import initialize
 from .cli import export_jsonl
 from .html_parser import channel_name,ChannelUnavailableError
-from .rule_extractor import safe_url,post_ref
+from .rule_extractor import safe_url,post_ref,extract_package_by_rules
 
 MAINSTREAM={'lineageos','pixelos','crdroid','evolution x','orangefox','twrp'}
+
+class IrrelevantSourceError(ChannelUnavailableError):pass
+
+RULE_REVISION=3
+
+def repair_existing(db,registry,fetch,targets,emit,max_pages=5):
+    """One versioned pass over existing records, not a reset of scan cursors."""
+    from .html_parser import parse_tg_channel_page
+    used=0
+    for item in db.query('SELECT DISTINCT channel_username FROM tg_discovered_packages ORDER BY channel_username'):
+        if used>=max_pages:break
+        channel=item['channel_username'];info=registry.setdefault(channel,{'next_scan_at':0,'last_scan_at':0})
+        if info.get('rule_revision')==RULE_REVISION or info.get('repair_retry_after',0)>time.time():continue
+        before=info.get('repair_before_id',2**53)
+        rows=db.query('SELECT msg_id FROM tg_discovered_packages WHERE channel_username=? AND msg_id<? ORDER BY msg_id DESC LIMIT 20',(channel,before))
+        requested={r['msg_id'] for r in rows};seen=set();failed=False
+        for row in rows:
+            if row['msg_id'] in seen:continue
+            if used>=max_pages:break
+            used+=1;seen.add(row['msg_id'])
+            emit({'event':'rules_repair_started','channel':channel,'msg_id':row['msg_id'],'revision':RULE_REVISION})
+            try:
+                page=parse_tg_channel_page(fetch(f'https://t.me/s/{channel}?before={row["msg_id"]+1}'),channel)
+                updates=[];packages=[]
+                for msg in page['messages']:
+                    if msg['msg_id'] not in requested:continue
+                    seen.add(msg['msg_id']);package=extract_package_by_rules(msg)
+                    if package is None:continue
+                    if targets and package['device_codename'] not in targets:
+                        matched=[code for code in targets if re.search(r'(?<![a-z0-9_])'+re.escape(code)+r'(?![a-z0-9_])',msg['text'],re.I)]
+                        if len(matched)!=1:continue
+                        package['device_codename']=matched[0]
+                    updates.append(upsert(package));packages.append(package)
+                db.execute_batch(updates)
+                for package in packages:emit({'event':'package_committed','package':package,'reason':'versioned_metadata_repair'})
+            except Exception as exc:
+                emit({'event':'rules_repair_failed','channel':channel,'msg_id':row['msg_id'],'error_type':type(exc).__name__})
+                info['repair_retry_after']=time.time()+3600;failed=True;break
+        if failed:continue
+        info.pop('repair_retry_after',None)
+        if seen:info['repair_before_id']=min(seen)
+        remaining=db.query('SELECT 1 AS found FROM tg_discovered_packages WHERE channel_username=? AND msg_id<? LIMIT 1',(channel,info.get('repair_before_id',before)))
+        if not remaining:info['rule_revision']=RULE_REVISION;info.pop('repair_before_id',None)
+        if used>=max_pages:break
+    return used
 
 
 def classify(package,text=''):
@@ -123,7 +168,7 @@ def run(state_dir,*,fetcher=None,discoverer=None):
             context_parts=[n.text() for n in context_dom.root.walk() if any(n.has(name) for name in ('tgme_channel_info_description','tgme_page_description','tgme_widget_message_text','tgme_widget_message_document_title'))]
             # Telegram's own footer says "Android" on every channel. It must
             # never turn a music/account landing page into an Android source.
-            phone_context=bool(re.search(r'(?i)\b(android|firmware|kernel|lineageos|hyperos|miui|xiaomi|redmi|poco|twrp|orangefox|magisk|kernelsu|flashable)\b',' '.join(context_parts)))
+            phone_context=bool(re.search(r'(?i)\b(android|rom|firmware|kernel|lineageos|hyperos|miui|xiaomi|redmi|poco|twrp|orangefox|magisk|kernelsu|flashable|(?:init_|vendor_)?boot|vbmeta)\b',' '.join(context_parts)))
             registry[ch]['phone_context']=phone_context
             # An unavailable history can still be a public profile pointing to
             # its author's update channel. Follow metadata links, not files.
@@ -136,6 +181,8 @@ def run(state_dir,*,fetcher=None,discoverer=None):
                 if candidate not in registry and len(registry)<100:
                     registry[candidate]={'seed':False,'discovered_from':url,'next_scan_at':0,'last_scan_at':0,'quality_score':100}
                     log({'event':'source_discovered','channel':candidate,'from_preview':ch})
+            if not phone_context and any(n.has('tgme_widget_message') for n in context_dom.root.walk()):
+                raise IrrelevantSourceError('Public history lacks Android resource context')
             self.messages={(m['channel_username'],m['msg_id']):m for m in parse_tg_channel_page(html,ch)['messages']}
             return html
         def close(self):
@@ -163,6 +210,7 @@ def run(state_dir,*,fetcher=None,discoverer=None):
                         registry[candidate]={'seed':False,'discovered_from':key,'next_scan_at':0,'last_scan_at':0}
                         log({'event':'source_discovered','channel':candidate,'from_post':key})
         log(event)
+    repair_existing(db,registry,recording,targets,event_sink)
     if not db.query('SELECT COUNT(*) AS n FROM tg_discovered_packages')[0]['n']:channel_limit=10
     log({'event':'batch_started','targets':sorted(targets) if targets else 'site_catalogue','max_pages_per_channel':pages,'channel_budget':channel_limit,'llm_enabled':False})
     selected=sorted((ch for ch,info in registry.items() if info.get('next_scan_at',0)<=now),key=lambda ch:(-registry[ch].get('quality_score',0),registry[ch].get('last_scan_at',0),ch))[:channel_limit]
@@ -171,6 +219,8 @@ def run(state_dir,*,fetcher=None,discoverer=None):
             try:
                 log({'event':'channel_started','channel':channel})
                 registry[channel]['profile_discovery_version']=2
+                if not db.query('SELECT 1 AS found FROM tg_discovered_packages WHERE channel_username=? LIMIT 1',(channel,)):
+                    registry[channel]['rule_revision']=RULE_REVISION
                 result=scan_channel(db,channel,max_pages=pages,direction='both',enable_llm=False,max_llm_calls=0,page_fetcher=recording,
                     target_codenames=targets,event_sink=event_sink,on_page=lambda s:log({'event':'page_committed',**s}))
                 results.append(result);registry[channel].update(last_scan_at=now,next_scan_at=now+480,last_error=None)

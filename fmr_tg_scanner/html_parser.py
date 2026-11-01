@@ -70,6 +70,7 @@ def parse_tg_channel_page(html_text: str, channel_username: str) -> dict:
                 except ValueError:pass
             title=next((n.text().strip() for n in children if n.has('tgme_widget_message_document_title')),None)
             links=[n.attrs['href'] for n in children if n.tag=='a' and 'href' in n.attrs and not n.has('tgme_widget_message_date')]
+            link_items=[{'url':n.attrs['href'],'label':n.text().strip()} for n in children if n.tag=='a' and 'href' in n.attrs]
             stamp=None
             try:
                 date=next((n.attrs.get('datetime') for n in children if n.tag=='time'),None)
@@ -77,7 +78,7 @@ def parse_tg_channel_page(html_text: str, channel_username: str) -> dict:
             except (ValueError,OverflowError):pass
             mid=int(match[2])
             messages[mid]={'channel_username':channel,'msg_id':mid,'tg_post_url':f'https://t.me/{channel}/{mid}',
-                'text':text,'links':links,'forwarded_from_url':forward.attrs.get('href') if forward else None,
+                'text':text,'links':links,'link_items':link_items,'forwarded_from_url':forward.attrs.get('href') if forward else None,
                 'has_forward_header':forward is not None,'sender_author_signature':author,
                 'sender_id':None,'sender_username':sender_username,
                 'preview_unavailable':not text and any(n.has('text_not_supported_wrap') for n in children),
