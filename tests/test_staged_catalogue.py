@@ -212,3 +212,25 @@ def test_metadata_runner_routing_keeps_binary_and_pr_jobs_off_local_host():
             assert job['if']=="github.ref == 'refs/heads/main'"
     for name in ('batch_extract.yml','history_sweep.yml','sony_bundle.yml','ci.yml','telegram_trial.yml'):
         assert 'FMR_CATALOGUE_RUNNER' not in (root/name).read_text()
+
+
+def test_job_tokens_only_verify_workflow_state_and_dispatch(env,monkeypatch):
+    from fmr_ingest_stock import quota_resume
+    requests=[]
+    def handler(req):
+        requests.append(req)
+        assert req.method not in ('PUT','DELETE')
+        if req.url.path.endswith('/actions/runs'):return httpx.Response(200,json={'workflow_runs':[]})
+        if req.method=='GET':return httpx.Response(200,json={'state':'disabled_manually'})
+        return httpx.Response(204)
+    real=httpx.Client
+    monkeypatch.setattr(staged.httpx,'Client',lambda *a,**kw:real(*a,**kw,transport=httpx.MockTransport(handler)))
+    staged.prepare()
+    def resume_handler(req):
+        requests.append(req);assert req.method not in ('PUT','DELETE')
+        return httpx.Response(200,json={'state':'active'}) if req.method=='GET' else httpx.Response(204)
+    monkeypatch.setattr(staged.httpx,'Client',lambda *a,**kw:real(*a,**kw,transport=httpx.MockTransport(resume_handler)))
+    assert quota_resume.main()==0
+    dispatches=[str(req.url) for req in requests if req.method=='POST']
+    assert dispatches[0].endswith('/catalogue_publish.yml/dispatches')
+    assert len(dispatches)==len(quota_resume.VENDORS)+1

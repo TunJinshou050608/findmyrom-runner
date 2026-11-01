@@ -164,14 +164,16 @@ def baseline():
 
 
 def prepare():
-    """Stop old D1 writers once before migrating; no waiting/status polling."""
+    """Verify operator-disabled old writers; job tokens never need admin access."""
     artifacts=Artifacts()
     obsolete={'history_sweep.yml','batch_extract.yml','oem_catalogue.yml','quota_resume.yml','sony_bundle.yml'}
     targets=obsolete|{'catalogue_'+v+'.yml' for v in job.VENDORS}
     try:
         for workflow in obsolete:
-            r=artifacts.client.put(artifacts.base+'/actions/workflows/'+workflow+'/disable')
+            r=artifacts.client.get(artifacts.base+'/actions/workflows/'+workflow)
             r.raise_for_status()
+            if not r.json().get('state','').startswith('disabled'):
+                raise RuntimeError('OperatorMustDisableLegacyWorkflow:'+workflow)
         for state in ('in_progress','queued'):
             r=artifacts.client.get(artifacts.base+'/actions/runs',params={'status':state,'per_page':100});r.raise_for_status()
             for run in r.json()['workflow_runs']:
