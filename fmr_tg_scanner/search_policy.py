@@ -2,7 +2,7 @@
 import json
 import re
 from urllib.parse import urlsplit,unquote
-from .rule_extractor import extract_package_by_rules
+from .rule_extractor import extract_package_by_rules,PROJECTS
 from .trial import qualification,MAINSTREAM
 
 
@@ -28,9 +28,29 @@ def target_evidence(message,target,names,all_names,profile=''):
     # exactly this model, without another known target/alias in its description.
     if profile and (token(profile,target) or any(token(profile,name) for name in names)):
         other=[code for code,aliases in all_names.items() if code!=target and
-               (re.search(r'#'+re.escape(code)+r'\b',profile,re.I) or any(len(a)>7 and token(profile,a) for a in aliases))]
+               (token(profile,code) or any(len(a)>7 and token(profile,a) for a in aliases))]
         if not other:return {'kind':'dedicated_channel_profile','value':profile[:300]}
     return None
+
+
+def primary_release(package,message):
+    """Determine the main release before examining companion recovery/kernel links."""
+    lines=[line.strip() for line in message.get('text','').splitlines() if line.strip()]
+    heading='\n'.join(lines[:3]);name=package.get('file_attachment_name') or package.get('package_name') or ''
+    release=heading+'\n'+name
+    if re.search(r'(?i)\b(?:ROM|GSI)\b|(?:Bootleggers|PixelExperience|PixelPlusUI|Pixel\s*Plus\s*UI|AOSPA|OxygenOS|ColorOS|OriginOS)',release):kind='rom'
+    elif re.search(r'(?i)\b(?:TWRP|OrangeFox|OFRP|recovery)\b',heading):kind='recovery'
+    elif re.search(r'(?i)\bkernel\b|AnyKernel',release):kind='kernel'
+    elif re.search(r'(?i)(?:^|[/_ -])(?:init_|vendor_)?boot\.img(?:\.gz)?$',name):kind='boot_image'
+    else:kind=package['resource_kind']
+    projects=[*PROJECTS,('PixelExperience',r'Pixel\s*Experience|#PEX\b'),('PixelPlusUI',r'Pixel\s*Plus\s*UI'),('AOSPA',r'\bAOSPA\b'),('OxygenOS',r'OxygenOS'),('ColorOS',r'ColorOS'),('OriginOS',r'OriginOS')]
+    project=next((p for line in lines[:3] for p,pattern in projects if re.search(pattern,line,re.I)),None)
+    if project is None:project=next((p for p,pattern in projects if re.search(pattern,name,re.I)),None)
+    if project:package['project_name']=project
+    elif kind!=package['resource_kind']:package['project_name']={'rom':'Custom ROM','kernel':'Kernel','recovery':'Recovery','boot_image':'Boot image'}.get(kind,package['project_name'])
+    if project and project not in ('TWRP','OrangeFox','HyperOS','MIUI'):kind='rom'
+    package['resource_kind']=kind
+    return heading
 
 
 def analyse(message,target,names,all_names,profile=''):
@@ -39,14 +59,17 @@ def analyse(message,target,names,all_names,profile=''):
     package=extract_package_by_rules(message)
     if package is None:return None,'not_a_resource'
     package['device_codename']=target
-    text=message.get('text','');heading='\n'.join(text.splitlines()[:4])
-    # Keep the declared primary resource type separate from companion links.
-    if re.search(r'(?i)\b(?:kernel)\b',heading) and not re.search(r'(?i)\bROM\b',heading):package['resource_kind']='kernel'
-    elif re.search(r'(?i)\b(?:recovery|TWRP|OrangeFox)\b',heading) and not re.search(r'(?i)\bROM\b',heading):package['resource_kind']='recovery'
-    if re.search(r'(?i)\bunofficial\b|#unofficial|^\s*(?:status|build type)\s*[:：-]\s*unofficial',heading):label='unofficial'
+    text=message.get('text','');heading=primary_release(package,message)
+    links=json.loads(package['download_links_json'])
+    paths=' '.join(unquote(urlsplit(u).path) for u in links)
+    stock_filename=bool(re.search(r'(?i)(?:miui_[A-Z0-9]+_|[a-z0-9]+_images_(?:OS\d|V\d))',paths))
+    generic_image=bool(re.search(r'(?i)\bGSI\b',heading) or re.search(r'(?i)(?:ErfanGSI|NipponGSI|/Generic[ /%-]|[-_]AB[-_]\d)',paths))
+    oem_link=any((urlsplit(u).hostname or '') in ('bigota.d.miui.com','hugeota.d.miui.com','dl.google.com','bkt-sgp-miui-ota-update-alisgp.oss-ap-southeast-1.aliyuncs.com') for u in links)
+    if stock_filename or oem_link:label='stock_official'
+    elif re.search(r'(?i)\bunofficial\b|#unofficial|^\s*(?:status|build type)\s*[:：-]\s*unofficial',heading):label='unofficial'
     elif re.search(r'(?i)\bport(?:ed)?\b|\bcustom\b',heading):label='custom_or_port'
-    elif package['project_name'].lower() in ('hyperos','miui') or any((urlsplit(u).hostname or '') in ('bigota.d.miui.com','hugeota.d.miui.com','dl.google.com','bkt-sgp-miui-ota-update-alisgp.oss-ap-southeast-1.aliyuncs.com') for u in json.loads(package['download_links_json'])):label='stock_official'
-    elif package['resource_kind']=='rom' and package['project_name'].lower() in MAINSTREAM and re.search(r'(?i)\bofficial\b',heading):label='mainstream_official'
+    elif package['project_name'].lower() in ('hyperos','miui'):label='stock_official'
+    elif package['resource_kind']=='rom' and package['project_name'].lower() in (MAINSTREAM|{'pixelexperience','pixelplusui'}) and re.search(r'(?i)\bofficial\b',heading):label='mainstream_official'
     else:label='unknown'
     # A credited developer is not automatically the account that published the
     # post. Missing forward/signature evidence remains unknown in the new path.
@@ -59,7 +82,9 @@ def analyse(message,target,names,all_names,profile=''):
     if package['origin_type']=='repost_aggregator' and package['original_post_url']==package['tg_post_url']:
         package['origin_type']='unknown'
     reason='accepted'
-    if qualification(package)!='package':reason='unresolved_download_reference'
+    if generic_image:reason='generic_image_donor_is_not_target'
+    elif re.search(r'(?i)security warning|scam alert|malware|phishing',heading) and not re.search(r'(?i)\b(?:release|build|version)\b',heading):reason='not_a_release'
+    elif qualification(package)!='package':reason='unresolved_download_reference'
     elif label=='stock_official':reason='excluded_stock_firmware'
     elif label=='mainstream_official':reason='excluded_mainstream_official_rom'
     return {'package':package,'evidence':evidence,'classification':label,'accepted':reason=='accepted'},reason

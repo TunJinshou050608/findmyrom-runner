@@ -44,6 +44,8 @@ def run(root,targets,*,max_requests=180,max_seconds=480,http_factory=SearchHTTP,
         except Exception as exc:emit({'event':'alias_catalogue_unavailable','error_type':type(exc).__name__})
         for code in targets:
             store.enqueue('index',code,{'provider':'lyzem','query':code},40)
+            store.enqueue('index',code,{'provider':'lyzem','query':code+' ROM'},46)
+            if all_names.get(code):store.enqueue('index',code,{'provider':'lyzem','query':all_names[code][0]},47)
             # Index discovery and direct channel candidates interleave with
             # retrieval; they cannot consume the whole batch before any scan.
             for index,channel in enumerate(name_candidates(code,all_names.get(code,[]))):
@@ -58,7 +60,9 @@ def run(root,targets,*,max_requests=180,max_seconds=480,http_factory=SearchHTTP,
                     emit({'event':'public_profile_links_observed','channel':channel,'device':code})
                 return False
             actual='\n'.join(m['text'] for m in page['messages'])
-            if not re.search(r'(?i)\b(android|rom|firmware|kernel|lineageos|hyperos|miui|xiaomi|redmi|poco|twrp|orangefox|magisk|kernelsu)\b',context+'\n'+actual):return False
+            if not re.search(r'(?i)\b(android|rom|firmware|kernel|lineageos|hyperos|miui|xiaomi|redmi|poco|twrp|orangefox|magisk|kernelsu)\b',context+'\n'+actual):
+                emit({'event':'source_rejected','device':code,'channel':channel,'context':context[:1200]})
+                return False
             store.set_meta('profile:'+channel,context)
             sources=store.meta('sources',{})
             entry=sources.setdefault(channel,{'targets':[],'depth':depth})
@@ -97,7 +101,7 @@ def run(root,targets,*,max_requests=180,max_seconds=480,http_factory=SearchHTTP,
                     for channel in sorted(channels)[:8]:
                         if channel!=msg['channel_username']:store.enqueue('admit',code,{'channel':channel,'depth':depth+1},35)
             emit({'event':'resource_decision','device':code,'channel':msg['channel_username'],'msg_id':msg['msg_id'],
-                  'accepted':result['accepted'],'new':changed,'reason':reason,'classification':result['classification'],'package':package,'evidence':evidence})
+                  'accepted':result['accepted'],'new':changed,'reason':reason,'classification':result['classification'],'package':package,'evidence':evidence,'observed_text':msg['text'][:16000]})
             return result['accepted']
         last_heartbeat=time.monotonic();task=None
         while time.monotonic()-started<max_seconds:

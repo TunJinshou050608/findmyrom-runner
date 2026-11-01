@@ -30,6 +30,7 @@ def validate(root,limit=24):
                 actual=set(msg['links'])
                 if msg.get('has_tg_attachment') and msg.get('file_attachment_name')==p.get('file_attachment_name'):actual.add(msg['tg_post_url'])
                 checks.append({'post_url':p['tg_post_url'],'device':p['device_codename'],
+                    'observed_text':msg['text'][:12000],
                     'exact_floor_present':True,'download_links_still_in_post':wanted.issubset(actual),
                     'text_unchanged':__import__('hashlib').sha256(msg['text'].encode()).hexdigest()==p['raw_text_hash'],
                     'author_verified':False,'binary_verified':False})

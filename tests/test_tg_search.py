@@ -138,3 +138,26 @@ def test_cold_discovery_produces_resource_and_restart_reuses_state(tmp_path,monk
     db=SearchStore(tmp_path/'search.sqlite')
     state=json.loads(db.query("SELECT payload FROM tg_search_tasks WHERE kind='head'")[0]['payload'])['state']
     assert state['anchor']==30 and 'before' not in state;db.close()
+
+
+@pytest.mark.parametrize('text,url,reason',[
+    ('#liuqin New OS Fastboot Update Available for Xiaomi Pad 6 Pro','https://cdn-ota.azureedge.net/OS1.0/liuqin_images_OS1.0.4.0.UMYCNXM.tgz','excluded_stock_firmware'),
+    ('#liuqin New OS Recovery Update','https://cdn-ota.azureedge.net/miui_LIUQIN_OS1.0.9.0.UMYCNXM.zip','excluded_stock_firmware'),
+    ('#liuqin HentaiOS GSI port Android 12 from Xiaomi Pad 6 Pro','https://sourceforge.net/files/HentaiOS-AB-12-ErfanGSI.img.gz','generic_image_donor_is_not_target'),
+    ('#liuqin SECURITY WARNING Android scam package','https://download.example.com/suspicious.zip','not_a_release')])
+def test_live_trial_false_positives_become_regressions(text,url,reason):
+    msg=parse_tg_channel_page(page(text=text).replace('https://sourceforge.net/project/files/alioth-12.zip',url),'testchannel')['messages'][0]
+    result,actual=analyse(msg,'liuqin',[],{'liuqin':[]})
+    assert actual==reason and not result['accepted']
+
+
+def test_multi_device_profile_does_not_prove_target():
+    msg=parse_tg_channel_page(page(text='Android custom ROM release').replace('alioth-12.zip','build-12.zip'),'testchannel')['messages'][0]
+    assert analyse(msg,'alioth',[],{'alioth':[],'umi':[]},'Alioth (DEAD) Umi (Discontinued)')[0] is None
+
+
+def test_rom_heading_wins_over_companion_instructions():
+    text='#A16 #OxygenOS #Alioth #Port<br>OxygenOS v16 Android 16<br>Install with TWRP recovery and kernel'
+    msg=parse_tg_channel_page(page(text=text),'testchannel')['messages'][0]
+    result,reason=analyse(msg,'alioth',[],{'alioth':[]})
+    assert reason=='accepted' and result['package']['resource_kind']=='rom' and result['package']['project_name']=='OxygenOS'
