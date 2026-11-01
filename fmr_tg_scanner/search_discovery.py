@@ -1,5 +1,8 @@
 """TG-specific message indexes and evidence-derived channel names; no web search engines."""
 import json
+import base64
+import html as html_module
+import os
 import re
 from urllib.parse import urlencode,urlsplit,urljoin
 import yaml
@@ -75,3 +78,21 @@ def linked_channels(html):
     _,channels=indexed_messages(html)
     messages,_=indexed_messages(html)
     return sorted({v['channel'] for v in channels+messages})
+
+
+def project_repositories(http,code):
+    """Optional project metadata fallback; never infer compatibility from a repo name."""
+    token=os.environ.get('GITHUB_TOKEN')
+    headers={'Authorization':'Bearer '+token} if token else None
+    url='https://api.github.com/search/repositories?'+urlencode({'q':code+' android in:name,description','per_page':5})
+    data=json.loads(http.get(url,ttl=86400,headers=headers))
+    return [r['full_name'] for r in data.get('items',[]) if re.fullmatch(r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+',r.get('full_name',''))][:5]
+
+
+def project_links(http,repository):
+    token=os.environ.get('GITHUB_TOKEN');headers={'Authorization':'Bearer '+token} if token else None
+    data=json.loads(http.get('https://api.github.com/repos/'+repository+'/readme',ttl=86400,headers=headers))
+    if data.get('encoding')!='base64':return [],[]
+    text=base64.b64decode(data.get('content','')).decode('utf-8',errors='replace')[:150000]
+    urls=re.findall(r'https://(?:t\.me|telegram\.me)/[A-Za-z0-9_/]+',text)
+    return indexed_messages(''.join('<a href="'+html_module.escape(url,quote=True)+'">TG</a>' for url in urls))

@@ -5,6 +5,9 @@ from urllib.parse import urlsplit,unquote
 from .rule_extractor import extract_package_by_rules,PROJECTS
 from .trial import qualification,MAINSTREAM
 
+EXTRA_PROJECTS=[('BlissROM',r'\bBliss\s*ROM\b|#BlissROM'),('Project Elixir',r'Project\s*Elixir'),('Xtended',r'\bXtended\b'),('AlphaDroid',r'AlphaDroid'),('ColtOS',r'ColtOS'),('Bootleggers',r'Bootleggers'),('PixelExperience',r'Pixel\s*Experience|#PEX\b'),('PixelPlusUI',r'Pixel\s*Plus\s*UI'),('AOSPA',r'\bAOSPA\b'),('OxygenOS',r'OxygenOS'),('ColorOS',r'ColorOS'),('OriginOS',r'OriginOS')]
+MAINSTREAM_ROMS=MAINSTREAM|{'pixelexperience','pixelplusui','blissrom','project elixir','xtended','alphadroid','coltos','aospa'}
+
 
 def token(text,value):return bool(re.search(r'(?<![a-z0-9_])'+re.escape(value)+r'(?![a-z0-9_])',text,re.I))
 
@@ -43,7 +46,7 @@ def primary_release(package,message):
     elif re.search(r'(?i)\bkernel\b|AnyKernel',release):kind='kernel'
     elif re.search(r'(?i)(?:^|[/_ -])(?:init_|vendor_)?boot\.img(?:\.gz)?$',name):kind='boot_image'
     else:kind=package['resource_kind']
-    projects=[*PROJECTS,('PixelExperience',r'Pixel\s*Experience|#PEX\b'),('PixelPlusUI',r'Pixel\s*Plus\s*UI'),('AOSPA',r'\bAOSPA\b'),('OxygenOS',r'OxygenOS'),('ColorOS',r'ColorOS'),('OriginOS',r'OriginOS')]
+    projects=[*PROJECTS,*EXTRA_PROJECTS]
     project=next((p for line in lines[:3] for p,pattern in projects if re.search(pattern,line,re.I)),None)
     if project is None:project=next((p for p,pattern in projects if re.search(pattern,name,re.I)),None)
     if project:package['project_name']=project
@@ -65,11 +68,13 @@ def analyse(message,target,names,all_names,profile=''):
     stock_filename=bool(re.search(r'(?i)(?:miui_[A-Z0-9]+_|[a-z0-9]+_images_(?:OS\d|V\d))',paths))
     generic_image=bool(re.search(r'(?i)\bGSI\b',heading) or re.search(r'(?i)(?:ErfanGSI|NipponGSI|/Generic[ /%-]|[-_]AB[-_]\d)',paths))
     oem_link=any((urlsplit(u).hostname or '') in ('bigota.d.miui.com','hugeota.d.miui.com','dl.google.com','bkt-sgp-miui-ota-update-alisgp.oss-ap-southeast-1.aliyuncs.com') for u in links)
+    project_base=re.sub(r'(?i)(?:rom|os)$','',package['project_name']).strip()
+    official=bool(re.search(r'(?i)\bofficial\b',heading) or (len(project_base)>3 and re.search(r'(?i)\b'+re.escape(project_base)+r'\s*(?:ROM|OS)?\s+Official\s+Channel\b',text)))
     if stock_filename or oem_link:label='stock_official'
-    elif re.search(r'(?i)\bunofficial\b|#unofficial|^\s*(?:status|build type)\s*[:：-]\s*unofficial',heading):label='unofficial'
+    elif re.search(r'(?i)\bunofficial\b|#unofficial|\bcommunity\b|^\s*(?:status|build type)\s*[:：-]\s*unofficial',heading):label='unofficial'
     elif re.search(r'(?i)\bport(?:ed)?\b|\bcustom\b',heading):label='custom_or_port'
     elif package['project_name'].lower() in ('hyperos','miui'):label='stock_official'
-    elif package['resource_kind']=='rom' and package['project_name'].lower() in (MAINSTREAM|{'pixelexperience','pixelplusui'}) and re.search(r'(?i)\bofficial\b',heading):label='mainstream_official'
+    elif package['resource_kind']=='rom' and package['project_name'].lower() in MAINSTREAM_ROMS and official:label='mainstream_official'
     else:label='unknown'
     # A credited developer is not automatically the account that published the
     # post. Missing forward/signature evidence remains unknown in the new path.
@@ -87,4 +92,5 @@ def analyse(message,target,names,all_names,profile=''):
     elif qualification(package)!='package':reason='unresolved_download_reference'
     elif label=='stock_official':reason='excluded_stock_firmware'
     elif label=='mainstream_official':reason='excluded_mainstream_official_rom'
+    elif label=='unknown' and package['resource_kind']=='rom' and package['project_name'].lower() in MAINSTREAM_ROMS:reason='mainstream_release_status_unproved'
     return {'package':package,'evidence':evidence,'classification':label,'accepted':reason=='accepted'},reason

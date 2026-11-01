@@ -113,6 +113,7 @@ def test_cold_discovery_produces_resource_and_restart_reuses_state(tmp_path,monk
     def response(req):
         requests.append(str(req.url))
         if req.url.host=='raw.githubusercontent.com':body='alioth: ["POCO F3"]'
+        elif req.url.host=='api.github.com':body='{"items":[]}'
         elif req.url.host=='lyzem.com':body='<html></html>'
         elif req.url.path=='/s/aliothupdates':
             ids=(28,12) if req.url.params.get('before')=='29' else (30,29) if phase[0] else (12,11)
@@ -161,3 +162,11 @@ def test_rom_heading_wins_over_companion_instructions():
     msg=parse_tg_channel_page(page(text=text),'testchannel')['messages'][0]
     result,reason=analyse(msg,'alioth',[],{'alioth':[]})
     assert reason=='accepted' and result['package']['resource_kind']=='rom' and result['package']['project_name']=='OxygenOS'
+
+
+def test_mainstream_status_unknown_is_candidate_until_evidence():
+    msg=parse_tg_channel_page(page(text='#alioth LineageOS Android 16'),'testchannel')['messages'][0]
+    result,reason=analyse(msg,'alioth',[],{'alioth':[]})
+    assert reason=='mainstream_release_status_unproved' and not result['accepted']
+    msg['text']='#alioth LineageOS Community Android 16'
+    assert analyse(msg,'alioth',[],{'alioth':[]})[1]=='accepted'

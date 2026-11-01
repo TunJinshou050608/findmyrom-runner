@@ -17,6 +17,10 @@ def main():
     root=Path(args.state_dir)/'experiments'/'search-v3'/os.environ.get('GITHUB_RUN_ID','local')
     modes=['query_first'] if args.mode=='batch' else ['query_first','latest_first']
     reports={mode:run(root/mode,targets,max_requests=180,max_seconds=480,mode=mode) for mode in modes}
+    for mode,report in reports.items():atomic_json(root/mode/'cold_report.json',report)
+    resume=run(root/'query_first',targets,max_requests=90,max_seconds=240)
+    atomic_json(root/'resume.json',{'report':resume,'restored_existing_frontier':True,'manual_channel_seeds':[],
+        'same_state_as':'query_first','excluded_from_ordering_comparison':True})
     for mode in modes:validate(root/mode)
     atomic_json(root/'comparison.json',{'reports':reports,'same_request_budget':180,
         'same_time_budget_seconds':480,'channel_seeds':[],

@@ -12,7 +12,7 @@ from urllib.parse import urlsplit
 from .channel_search import search_page
 from .html_parser import parse_tg_channel_page,ChannelUnavailableError
 from .message_reader import read_message
-from .search_discovery import aliases,index_search,name_candidates,profile_context,linked_channels
+from .search_discovery import aliases,index_search,name_candidates,profile_context,linked_channels,project_repositories,project_links
 from .search_http import SearchHTTP,WorkBudgetReached
 from .search_policy import analyse
 from .search_store import SearchStore
@@ -46,6 +46,7 @@ def run(root,targets,*,max_requests=180,max_seconds=480,http_factory=SearchHTTP,
             store.enqueue('index',code,{'provider':'lyzem','query':code},40)
             store.enqueue('index',code,{'provider':'lyzem','query':code+' ROM'},46)
             if all_names.get(code):store.enqueue('index',code,{'provider':'lyzem','query':all_names[code][0]},47)
+            store.enqueue('project',code,{'query':code},49)
             # Index discovery and direct channel candidates interleave with
             # retrieval; they cannot consume the whole batch before any scan.
             for index,channel in enumerate(name_candidates(code,all_names.get(code,[]))):
@@ -72,7 +73,7 @@ def run(root,targets,*,max_requests=180,max_seconds=480,http_factory=SearchHTTP,
             else:
                 store.enqueue('query',code,{'channel':channel,'query':code,'depth':depth,'state':{}},10)
                 for alias in all_names.get(code,[])[:2]:store.enqueue('query',code,{'channel':channel,'query':alias,'depth':depth,'state':{}},12)
-                store.enqueue('head',code,{'channel':channel,'depth':depth},25)
+                store.enqueue('head',code,{'channel':channel,'depth':depth},8)
             emit({'event':'source_admitted','channel':channel,'device':code})
             return True
         def message(code,msg,source,depth=0):
@@ -120,15 +121,26 @@ def run(root,targets,*,max_requests=180,max_seconds=480,http_factory=SearchHTTP,
                     control=store.meta('lyzem_control_checked')
                     if not control['ok']:raise ValueError('Index ignores query; provider disabled')
                     results=index_search(http,payload['provider'],payload['query']);count=len(results['messages'])
-                    for item in results['messages'][:20]:store.enqueue('post',code,{**item,'depth':0},5)
+                    for item in results['messages'][:12]:
+                        priority=5 if re.search(r'(?i)android|rom|gsi|miui|kernel|recovery|updates',item['channel']) else 58
+                        store.enqueue('post',code,{**item,'depth':0},priority)
                     # Bare channels are evidence candidates, never products.
-                    for item in results['channels'][:6]:store.enqueue('admit',code,{**item,'depth':0},45)
+                    for item in results['channels'][:6]:store.enqueue('admit',code,{**item,'depth':0},65)
                     emit({'event':'index_funnel','device':code,'candidate_messages':count,'status':results['status']})
                 elif kind=='post':
                     msg,url=read_message(lambda url:http.get(url,ttl=86400),payload['channel'],payload['msg_id'])
                     count=int(message(code,msg,url,depth))
                     if count:store.enqueue('admit',code,{'channel':payload['channel'],'depth':depth},15)
                     delay=7*86400
+                elif kind=='project':
+                    for repository in project_repositories(http,code):store.enqueue('readme',code,{'repository':repository},55)
+                    delay=86400
+                elif kind=='readme':
+                    posts,channels=project_links(http,payload['repository'])
+                    for item in posts[:10]:store.enqueue('post',code,{**item,'depth':0},5)
+                    for item in channels[:8]:store.enqueue('admit',code,{**item,'depth':0},35)
+                    count=len(posts)+len(channels);delay=86400
+                    emit({'event':'project_metadata_links','device':code,'repository':payload['repository'],'candidate_links':count})
                 elif kind=='admit':
                     url='https://t.me/s/'+payload['channel'];html=http.get(url,ttl=300)
                     admitted=admit(code,payload['channel'],html,depth)
@@ -176,7 +188,8 @@ def run(root,targets,*,max_requests=180,max_seconds=480,http_factory=SearchHTTP,
             except Exception as exc:
                 reason=type(exc).__name__;failures.append({'kind':kind,'device':code,'error_type':reason})
                 if kind=='query':store.enqueue('history',code,{'channel':payload['channel'],'depth':depth,'state':{}},30)
-                store.finish(task,delay=min(86400,900*(2**min(task['attempts'],5))),error=reason,payload=payload)
+                retry=86400 if reason=='MessageIdentityError' else min(86400,900*(2**min(task['attempts'],5)))
+                store.finish(task,delay=retry,error=reason,payload=payload)
                 emit({'event':'task_failed','kind':kind,'device':code,'error_type':reason})
             task=None
         else:outcome='time_budget_reached'

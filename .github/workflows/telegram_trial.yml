@@ -1,4 +1,4 @@
-name: TG01 · annibale live trial and audit
+name: TG search · autonomous private trial and checkpoints
 on:
   schedule:
     - cron: '*/10 * * * *'
@@ -37,7 +37,7 @@ jobs:
         working-directory: runner
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        run: python -u -m fmr_tg_scanner.watch --state-dir ../state
+        run: python -u -m fmr_tg_scanner.search_watch --state-dir ../state
       - name: Save private logs, packages and checkpoints even on failure
         if: always()
         shell: bash

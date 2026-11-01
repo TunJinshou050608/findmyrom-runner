@@ -47,11 +47,15 @@ class SearchStore(SQLiteDB):
             index=ordered.index(last)+1;ordered=ordered[index:]+ordered[:index]
         rows=[]
         for device in ordered:
-            rows=self.query("SELECT * FROM tg_search_tasks WHERE status='ready' AND next_at<=? AND device=? ORDER BY CASE WHEN updated=0 THEN 0 ELSE 1 END,priority,updated,key LIMIT 1",(time.time(),device))
+            turn=self.meta('scheduler_turn:'+device,0)
+            preferred='updated>0' if turn%3==2 else 'updated=0'
+            rows=self.query("SELECT * FROM tg_search_tasks WHERE status='ready' AND next_at<=? AND device=? AND "+preferred+" ORDER BY priority,updated,key LIMIT 1",(time.time(),device))
+            if not rows:rows=self.query("SELECT * FROM tg_search_tasks WHERE status='ready' AND next_at<=? AND device=? ORDER BY priority,updated,key LIMIT 1",(time.time(),device))
             if rows:break
         if not rows:return None
         task=rows[0];task['payload']=json.loads(task['payload'])
         self.set_meta('last_scheduled_device',task['device'])
+        self.set_meta('scheduler_turn:'+task['device'],turn+1)
         self.execute("UPDATE tg_search_tasks SET status='working' WHERE key=?",(task['key'],))
         return task
     def finish(self,task,*,delay=0,error=None,payload=None):
