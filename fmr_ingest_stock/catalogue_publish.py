@@ -9,7 +9,7 @@ from .catalogue_store import Store,digest
 from .catalogue_sync import publish_device,publish_release
 from .d1_budget import BudgetDB,D1BudgetReached
 from .staged_catalogue import Artifacts,ROOT,encrypt_file,open_local
-from .vendor_catalogue import VENDORS
+from .vendor_catalogue import VENDORS,SUPPRESSED_VENDORS
 
 MAX_RECORDS=180
 
@@ -59,6 +59,7 @@ def main():
         offset=slot%len(VENDORS);vendors=VENDORS[offset:]+VENDORS[:offset]
         work={}
         for vendor in vendors:
+            if vendor in SUPPRESSED_VENDORS:continue
             print(vendor+': 正在接续最新采集快照。',flush=True)
             local_path=ROOT/(vendor+'.sqlite')
             if not artifacts.restore(vendor,local_path):continue

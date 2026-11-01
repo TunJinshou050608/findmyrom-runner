@@ -24,6 +24,12 @@ BRANDS = [
     ("google", "Google Pixel", "easy", 40, ("google", "pixel")),
     ("samsung", "Samsung", "easy", 50, ("samsung", "galaxy")),
     ("motorola", "Motorola", "code_required", 60, ("motorola", "moto", "lenovo")),
+    ("oppo", "OPPO", "unverified", 65, ("oppo",)),
+    ("vivo", "vivo", "unverified", 66, ("vivo", "iqoo")),
+    ("realme", "realme", "unverified", 67, ("realme",)),
+    ("rog", "ROG", "unverified", 68, ("rog", "asus rog")),
+    ("asus", "ASUS", "unverified", 69, ("asus", "zenfone")),
+    ("nothing", "Nothing", "unverified", 70, ("nothing", "cmf")),
     ("other", "Other Brands", "code_required", 99, ()),
 ]
 
@@ -68,6 +74,9 @@ def sync_devices(db_client, source_path_or_url: str, batch_size: int = 200) -> d
         if not isinstance(row, dict):
             rejected += 1
             continue
+        if text(row.get("brand") or row.get("oem")).lower() in {'huawei','honor'}:
+            rejected += 1
+            continue
         code = text(row.get("codename")).lower()
         if code == "__global__" or not re.fullmatch("[a-z0-9_-]{2,32}", code):
             rejected += 1
@@ -88,10 +97,15 @@ def sync_devices(db_client, source_path_or_url: str, batch_size: int = 200) -> d
                 )
             except (ValueError, TypeError):
                 boot = "init_boot"
+        from .device_identity import marketing_name
+        bid=brand_id(row.get("brand") or row.get("oem"))
+        label=marketing_name({'vendor':bid,'upstream_id':code,'codename':code,
+            'name':text(row.get("name") or row.get("model")) or code,'models':','.join(models)})
+        if bid=='asus' and re.search(r'\bROG\b',label,re.I):bid='rog'
         devices[code] = (
             code,
-            brand_id(row.get("brand") or row.get("oem")),
-            (text(row.get("name") or row.get("model")) or code)[:128],
+            bid,
+            label[:128],
             json.dumps(models),
             text(row.get("soc")) or None,
             boot,
@@ -105,7 +119,7 @@ def sync_devices(db_client, source_path_or_url: str, batch_size: int = 200) -> d
         )
     save_cursor(db_client, "stock_devices", source_path_or_url, digest)
     return {
-        "brands_upserted": 7,
+        "brands_upserted": len(BRANDS),
         "devices_upserted": len(devices),
         "devices_rejected": rejected,
     }

@@ -60,7 +60,7 @@ def main():
         first = json.loads(run(args, env).splitlines()[-1])
         for key, value in dict(
             mode="all",
-            brands_upserted=7,
+            brands_upserted=13,
             devices_upserted=4,
             devices_rejected=1,
             inserted_or_updated=5,

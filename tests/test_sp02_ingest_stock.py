@@ -89,13 +89,13 @@ def test_cdn_rewriter_positive_and_ssrf_negative_cases():
 
 def test_device_sync_fixture_and_brand_mapping(db, tmp_path):
     assert sync_devices(db, DEVICES) == dict(
-        brands_upserted=7, devices_upserted=4, devices_rejected=1
+        brands_upserted=13, devices_upserted=4, devices_rejected=1
     )
     rows = {r["codename"]: r for r in db.query("SELECT * FROM devices")}
-    assert len(db.query("SELECT * FROM brands")) == 7
+    assert len(db.query("SELECT * FROM brands")) == 13
     assert rows["marble"]["marketing_name"] == "Redmi Note 12 Turbo CN"
     assert rows["pdx234"]["brand_id"] == "sony"
-    assert rows["phone2"]["brand_id"] == "other"
+    assert rows["phone2"]["brand_id"] == "nothing"
     assert rows["alioth"]["boot_partition_type"] == "boot"
     assert rows["__global__"]["brand_id"] == "other"
     db.execute(

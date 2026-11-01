@@ -161,6 +161,8 @@ def encrypt_file(scope,path):
 
 
 def collect(vendor,operation='incremental',seconds=420):
+    if vendor in job.SUPPRESSED_VENDORS:
+        print(vendor+': paused by user; no network or D1 requests.',flush=True);return 0
     ROOT.mkdir(parents=True,exist_ok=True,mode=0o700);path=ROOT/(vendor+'.sqlite')
     artifacts=Artifacts()
     try:

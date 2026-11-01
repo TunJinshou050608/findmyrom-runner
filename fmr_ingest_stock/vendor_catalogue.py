@@ -24,6 +24,7 @@ LABELS={'sony':'Sony Xperia','xiaomi':'小米 / Redmi / POCO','google':'Google P
     'samsung':'三星','motorola':'摩托罗拉','oppo':'OPPO','realme':'realme','vivo':'vivo',
     'asus':'ASUS','nothing':'Nothing','huawei':'华为','honor':'荣耀'}
 VENDORS=tuple(LABELS)
+SUPPRESSED_VENDORS={'huawei','honor'}
 MODEL_TTL=6*3600
 RELEASE_TTL=30*86400
 FAILURE_TTL=86400
@@ -376,6 +377,7 @@ def dispatch(control,vendor):
 
 
 def run(db,vendor,mode='audit',operation='incremental',cycle='',sequence=1,client=None,dispatch_next=True,time_budget=2700):
+    if vendor in SUPPRESSED_VENDORS:return 0
     store=Store(db,vendor);key=store.key('control');control=store.get(key)
     with Status(vendor) as status:
         upgrade_adapters(store,status)
@@ -463,6 +465,8 @@ def main(argv=None):
     parser.add_argument('--cycle',default='');parser.add_argument('--batch',type=int,default=1)
     args=parser.parse_args(argv)
     if os.environ.get('GITHUB_ACTIONS')!='true':raise ValueError('Requires a GitHub cloud runner')
+    if args.vendor in SUPPRESSED_VENDORS:
+        print('该品牌已按用户要求暂停，不访问网络或 D1。',flush=True);return 0
     if args.cycle and not re.fullmatch(r'c[0-9]{1,22}(?:a[0-9]{1,6})?',args.cycle):raise ValueError('Invalid cycle')
     if not 1<=args.batch<=50000:raise ValueError('Invalid batch')
     if time.time()<NOT_BEFORE:

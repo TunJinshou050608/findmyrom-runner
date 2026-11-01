@@ -14,7 +14,7 @@ from .device_sync import ensure_base_brands_and_anchor
 from .cdn_rewriter import rewrite_to_fast_cdn
 from .oem_sources import canonical_code,download_origin
 
-DIRECT_BRANDS={'xiaomi','google','samsung','oneplus','motorola','sony'}
+DIRECT_BRANDS={'xiaomi','google','samsung','oneplus','motorola','sony','oppo','vivo','realme','asus','nothing'}
 
 
 def build_version(value):
@@ -48,12 +48,12 @@ def package_kind(vendor,release):
 def publish_device(db,device):
     vendor=device['vendor']
     code=device.get('canonical_code') or canonical_code(vendor,device.get('codename') or device['upstream_id'])
-    brand=vendor if vendor in DIRECT_BRANDS else 'other'
-    notes='Partition information is provisional until matching validated standalone images are available.'
-    if vendor=='samsung':notes='OEM packages can require FUS authentication/decryption and separate AP/TAR handling. No standalone image compatibility is implied by this listing.'
-    if vendor=='motorola':notes='Source provenance distinguishes manufacturer downloads from public archives of stock packages. A listing does not imply a successful device flash.'
+    from .device_identity import marketing_name
+    name=marketing_name(device)
+    brand='rog' if vendor=='asus' and re.search(r'\bROG\b',name,re.I) else vendor if vendor in DIRECT_BRANDS else 'other'
+    notes=None
     db.execute('''INSERT OR IGNORE INTO devices(codename,brand_id,marketing_name,model_numbers_json,flashing_notes_md,boot_partition_type)
-        VALUES (?,?,?,?,?,?)''',(code,brand,device.get('name') or device['upstream_id'],
+        VALUES (?,?,?,?,?,?)''',(code,brand,name,
         json.dumps([v.strip() for v in str(device.get('models') or '').split(',') if v.strip()]),notes or None,
         'boot' if int(device.get('android_release') or 13)<13 else 'init_boot'))
     return code

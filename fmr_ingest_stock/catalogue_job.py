@@ -23,7 +23,7 @@ from .history import discover_device
 from .catalogue_sync import publish_device,publish_release
 
 KIND='oem_catalogue'
-ALL=tuple(ATLAS_BRANDS)+tuple(RESTRICTED)+tuple(DEFERRED)
+ALL=tuple(ATLAS_BRANDS)+tuple(DEFERRED)
 
 
 def progress(event, **counts):
