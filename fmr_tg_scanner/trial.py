@@ -71,6 +71,9 @@ def run(state_dir,*,fetcher=None,discoverer=None):
     log_path=root/'logs'/f'{run_id}.jsonl';log_path.parent.mkdir(parents=True,exist_ok=True)
     registry_path=root/'source_registry.json';registry=json.loads(registry_path.read_text()) if registry_path.exists() else {}
     if config.get('seed_channels'):raise ValueError('Manual channel seeds are forbidden in the autonomous trial')
+    for info in registry.values():
+        if info.get('last_error')=='ChannelUnavailableError' and info.get('profile_discovery_version',0)<2:
+            info['next_scan_at']=0
     classification_path=root/'classifications.json';classification=json.loads(classification_path.read_text()) if classification_path.exists() else {}
     counters=Counter();now=time.time()
     def log(event):
@@ -96,7 +99,20 @@ def run(state_dir,*,fetcher=None,discoverer=None):
             self.inner=fetcher or PageFetcher();self.messages={}
         def __call__(self,url):
             from .html_parser import parse_tg_channel_page
+            from .discovery import channel_links
             html=self.inner(url);ch=urlsplit(url).path.rsplit('/',1)[-1]
+            registry[ch]['profile_discovery_version']=2
+            # An unavailable history can still be a public profile pointing to
+            # its author's update channel. Follow metadata links, not files.
+            candidates=channel_links(html) if config.get('discover_linked_channels',True) else []
+            if config.get('discover_linked_channels',True):
+                for name in re.findall(r'(?i)(?:channel|updates|releases|频道)\s*[:：-]?\s*@([a-z][a-z0-9_]{3,31})',html):
+                    candidates.append({'channel':name.lower()})
+            for item in candidates:
+                candidate=item['channel']
+                if candidate not in registry and len(registry)<100:
+                    registry[candidate]={'seed':False,'discovered_from':url,'next_scan_at':0,'last_scan_at':0}
+                    log({'event':'source_discovered','channel':candidate,'from_preview':ch})
             self.messages={(m['channel_username'],m['msg_id']):m for m in parse_tg_channel_page(html,ch)['messages']}
             return html
         def close(self):
@@ -122,12 +138,14 @@ def run(state_dir,*,fetcher=None,discoverer=None):
                         registry[candidate]={'seed':False,'discovered_from':key,'next_scan_at':0,'last_scan_at':0}
                         log({'event':'source_discovered','channel':candidate,'from_post':key})
         log(event)
+    if not db.query('SELECT COUNT(*) AS n FROM tg_discovered_packages')[0]['n']:channel_limit=10
     log({'event':'batch_started','targets':sorted(targets) if targets else 'site_catalogue','max_pages_per_channel':pages,'channel_budget':channel_limit,'llm_enabled':False})
     selected=sorted((ch for ch,info in registry.items() if info.get('next_scan_at',0)<=now),key=lambda ch:(registry[ch].get('last_scan_at',0),not registry[ch].get('seed',False),ch))[:channel_limit]
     try:
         for channel in selected:
             try:
                 log({'event':'channel_started','channel':channel})
+                registry[channel]['profile_discovery_version']=2
                 result=scan_channel(db,channel,max_pages=pages,direction='both',enable_llm=False,max_llm_calls=0,page_fetcher=recording,
                     target_codenames=targets,event_sink=event_sink,on_page=lambda s:log({'event':'page_committed',**s}))
                 results.append(result);registry[channel].update(last_scan_at=now,next_scan_at=now+480,last_error=None)

@@ -4,7 +4,7 @@ import os
 import random
 import time
 import re
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit,urljoin
 
 import httpx
 from .html_parser import parse_tg_channel_page, channel_name, ChannelUnavailableError
@@ -30,6 +30,23 @@ class PageFetcher:
             pause()
             try:
                 with self.client.stream('GET',url) as response:
+                    if response.status_code in (301,302,307,308):
+                        destination=urljoin(url,response.headers.get('Location',''))
+                        expected='https://t.me/'+parsed.path.rsplit('/',1)[-1]
+                        if destination.rstrip('/')!=expected:
+                            raise ChannelUnavailableError('Preview redirected away from the requested public profile')
+                        # Read only the same account's public landing HTML. This
+                        # discovers profile-to-channel links, never an attachment.
+                        with self.client.stream('GET',destination) as profile:
+                            if profile.status_code==429 or profile.status_code>=500:
+                                if attempt==2:raise ScanHTTPError('Profile preview rate/server error')
+                                pause(2**attempt);continue
+                            if profile.status_code!=200:raise ChannelUnavailableError('Public profile unavailable')
+                            body=bytearray()
+                            for chunk in profile.iter_bytes():
+                                body.extend(chunk)
+                                if len(body)>4*1024*1024:raise ScanHTTPError('Profile body exceeds limit')
+                            return body.decode('utf-8',errors='replace')
                     if response.status_code==429 or response.status_code>=500:
                         if attempt==2:raise ScanHTTPError('Preview rate/server error')
                         try:delay=float(response.headers.get('Retry-After',2**attempt))

@@ -24,7 +24,7 @@ MAX_BODY=2*1024*1024
 
 
 def channel_links(text):
-    text=unescape(text)
+    text=unescape(text).replace('\\/','/')
     for _ in range(2):text=unquote(text)
     channels={}
     for match in re.finditer(r'(?:https?://)?(?:t\.me|telegram\.me)/(?:s/)?([A-Za-z][A-Za-z0-9_]{3,31})(?:/([1-9][0-9]*))?(?![A-Za-z0-9_])',text):
@@ -131,6 +131,26 @@ def discover_channels(device,cache,log,*,client=None,now=None):
                 except Exception:pass
             return '\n'.join(texts)
         if len(found)<8:lookup('github_public_metadata_v2',device,github)
+        def searx():
+            from .rule_extractor import safe_url
+            data=json.loads(bounded_get(client,'https://searx.space/data/instances.json'))
+            instances=[]
+            for url,info in data.get('instances',{}).items():
+                if not url.startswith('https://') or not safe_url(url) or info.get('network_type') not in (None,'normal'):continue
+                if info.get('http',{}).get('status_code')!=200:continue
+                if info.get('error') or info.get('private'):continue
+                instances.append(url)
+            texts=[]
+            for url in sorted(instances)[:4]:
+                try:
+                    payload=bounded_get(client,url.rstrip('/')+'/search',params={'q':device+' Telegram ROM','format':'json'})
+                    result=json.loads(payload)
+                    for row in result.get('results',[]):texts.append(str(row.get('url',''))+' '+str(row.get('content','')))
+                    log({'event':'discovery_metasearch_finished','device':device,'result_count':len(result.get('results',[]))})
+                    if channel_links('\n'.join(texts)):break
+                except Exception as exc:log({'event':'discovery_metasearch_failed','device':device,'error_type':type(exc).__name__})
+            return '\n'.join(texts)
+        if len(found)<8:lookup('searx_public_registry_v1',device,searx)
     finally:
         if owned:client.close()
     return list(found.values())[:50]

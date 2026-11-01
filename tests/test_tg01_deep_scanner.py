@@ -365,3 +365,29 @@ def test_no_sources_is_a_failed_trial_not_a_success(tmp_path,monkeypatch):
     report=run(tmp_path,fetcher=lambda _:EMPTY,discoverer=lambda *_:[])
     assert not report['ok'] and report['source_count']==0
     assert {'reason':'autonomous_discovery_found_no_sources'} in report['errors']
+
+
+def test_public_profile_redirect_reads_only_same_account_metadata(monkeypatch):
+    monkeypatch.setenv('FMR_TEST_NO_SLEEP','1');urls=[]
+    def handler(req):
+        urls.append(str(req.url))
+        if req.url.path.startswith('/s/'):
+            return httpx.Response(302,headers={'Location':'https://t.me/example_profile'})
+        return httpx.Response(200,text='<div>Channel: @auto_updates</div>')
+    fetch=PageFetcher();fetch.client.close();fetch.client=httpx.Client(transport=httpx.MockTransport(handler))
+    try:
+        assert 'auto_updates' in fetch('https://t.me/s/example_profile')
+        assert urls==['https://t.me/s/example_profile','https://t.me/example_profile']
+    finally:fetch.close()
+
+
+def test_public_profile_redirect_cannot_fetch_a_file_or_other_host(monkeypatch):
+    monkeypatch.setenv('FMR_TEST_NO_SLEEP','1')
+    for destination in ['http://127.0.0.1/file','https://t.me/example_profile/17','https://evil.example/rom.zip','https://t.me/']:
+        urls=[]
+        def handler(req):urls.append(str(req.url));return httpx.Response(302,headers={'Location':destination})
+        fetch=PageFetcher();fetch.client.close();fetch.client=httpx.Client(transport=httpx.MockTransport(handler))
+        try:
+            with pytest.raises(ChannelUnavailableError):fetch('https://t.me/s/example_profile')
+            assert len(urls)==1
+        finally:fetch.close()
