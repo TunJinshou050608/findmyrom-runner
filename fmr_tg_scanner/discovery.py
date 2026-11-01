@@ -12,6 +12,8 @@ import httpx
 from .html_parser import channel_name
 
 SEARCH_PROVIDERS=[
+ ('google','https://www.google.com/search','q'),
+ ('yandex','https://yandex.com/search/','text'),
  ('brave','https://search.brave.com/search','q'),
  ('bing','https://www.bing.com/search','q'),
  ('yahoo','https://search.yahoo.com/search','p'),
@@ -25,7 +27,7 @@ def channel_links(text):
     text=unescape(text)
     for _ in range(2):text=unquote(text)
     channels={}
-    for match in re.finditer(r'https?://(?:t\.me|telegram\.me)/(?:s/)?([A-Za-z][A-Za-z0-9_]{3,31})(?:/([1-9][0-9]*))?(?![A-Za-z0-9_])',text):
+    for match in re.finditer(r'(?:https?://)?(?:t\.me|telegram\.me)/(?:s/)?([A-Za-z][A-Za-z0-9_]{3,31})(?:/([1-9][0-9]*))?(?![A-Za-z0-9_])',text):
         channel=match[1].lower()
         if channel in RESERVED:continue
         try:channel_name(channel)
@@ -67,6 +69,25 @@ def discover_channels(device,cache,log,*,client=None,now=None):
                 log({'event':'discovery_provider_failed','provider':provider,'device':device,'error_type':type(exc).__name__})
         for item in candidates:found.setdefault(item['channel'],dict(item,discovered_for=device,provider=provider))
     try:
+        def telegram_candidates():
+            from .html_parser import parse_tg_channel_page
+            from .crawler import pause
+            verified=[]
+            # These are generic naming rules, derived from the input only.
+            # No device-specific channel, author, or model alias is embedded.
+            names=[device,device+'updates',device+'_updates',device+'roms',device+'_roms',device+'_official',device+'_global',device+'_community']
+            for name in names:
+                if len(name)>32:continue
+                pause()
+                try:
+                    page=parse_tg_channel_page(bounded_get(client,'https://t.me/s/'+name),name)
+                    if page['messages']:
+                        verified.append('https://t.me/'+name)
+                        log({'event':'discovery_telegram_candidate_verified','channel':name,'device':device,'floors':len(page['messages'])})
+                except Exception as exc:
+                    log({'event':'discovery_telegram_candidate_rejected','channel':name,'device':device,'error_type':type(exc).__name__})
+            return '\n'.join(verified)
+        lookup('telegram_naming_rules_v1',device,telegram_candidates)
         queries=[f'"{device}" Telegram ROM unofficial',f'"{device}" site:t.me']
         for provider,url,param in SEARCH_PROVIDERS:
             for query in queries:
@@ -80,9 +101,15 @@ def discover_channels(device,cache,log,*,client=None,now=None):
         if os.environ.get('GITHUB_TOKEN'):headers['Authorization']='Bearer '+os.environ['GITHUB_TOKEN']
         def github():
             texts=[]
-            try:repos=json.loads(bounded_get(client,'https://api.github.com/search/repositories',params={'q':device+' android','per_page':10},headers=headers)).get('items',[])
-            except Exception:repos=[]
-            try:issues=json.loads(bounded_get(client,'https://api.github.com/search/issues',params={'q':device+' telegram in:body','per_page':10},headers=headers)).get('items',[])
+            repos=[];seen_repos=set()
+            for query in [device+' t.me in:readme',device+' telegram in:readme',device+' android']:
+                try:
+                    batch=json.loads(bounded_get(client,'https://api.github.com/search/repositories',params={'q':query,'per_page':10},headers=headers)).get('items',[])
+                    for repo in batch:
+                        if repo['full_name'] not in seen_repos:repos.append(repo);seen_repos.add(repo['full_name'])
+                except Exception:pass
+            repos=repos[:20]
+            try:issues=json.loads(bounded_get(client,'https://api.github.com/search/issues',params={'q':device+' t.me','per_page':10},headers=headers)).get('items',[])
             except Exception:issues=[]
             log({'event':'discovery_github_candidates','repository_count':len(repos),'issue_count':len(issues),'device':device})
             texts.extend((r.get('body') or '') for r in issues)
@@ -103,7 +130,7 @@ def discover_channels(device,cache,log,*,client=None,now=None):
                     if profile.get('encoding')=='base64':texts.append(base64.b64decode(profile['content']).decode('utf-8',errors='replace'))
                 except Exception:pass
             return '\n'.join(texts)
-        if len(found)<8:lookup('github_public_metadata',device,github)
+        if len(found)<8:lookup('github_public_metadata_v2',device,github)
     finally:
         if owned:client.close()
     return list(found.values())[:50]

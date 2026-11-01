@@ -340,6 +340,7 @@ def test_autonomous_discovery_only_needs_codename_and_caches_search(monkeypatch)
             assert 'annibale' in request.url.params['q']
             return httpx.Response(200,text='<a href="https://t.me/AutoFoundChannel/73">annibale ROM</a>')
         if request.url.host=='api.github.com':return httpx.Response(200,json={'items':[]})
+        if request.url.host=='t.me':return httpx.Response(200,text='<html>Not a public preview</html>')
         raise AssertionError(str(request.url))
     cache={}
     with httpx.Client(transport=httpx.MockTransport(handler)) as client:
