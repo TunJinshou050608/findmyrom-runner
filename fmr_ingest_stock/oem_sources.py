@@ -45,7 +45,11 @@ def text(node):
 def safe_url(url):
     p = urlsplit(url)
     if p.scheme != 'https' or not p.hostname or p.username or p.password or p.port or any(ord(c)<33 for c in url):
-        raise ValueError('Unsafe catalogue URL')
+        exc=ValueError('Unsafe catalogue URL')
+        exc.catalogue_url_issues=[name for name,condition in (
+            ('scheme',p.scheme!='https'),('host',not p.hostname),('credentials',bool(p.username or p.password)),
+            ('port',bool(p.port)),('whitespace',any(ord(c)<33 for c in url))) if condition]
+        raise exc
     return p
 
 
