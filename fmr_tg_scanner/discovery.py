@@ -143,14 +143,21 @@ def discover_channels(device,cache,log,*,client=None,now=None):
             texts=[]
             for url in sorted(instances)[:4]:
                 try:
-                    payload=bounded_get(client,url.rstrip('/')+'/search',params={'q':device+' Telegram ROM','format':'json'})
-                    result=json.loads(payload)
-                    for row in result.get('results',[]):texts.append(str(row.get('url',''))+' '+str(row.get('content','')))
-                    log({'event':'discovery_metasearch_finished','device':device,'result_count':len(result.get('results',[]))})
+                    try:
+                        payload=bounded_get(client,url.rstrip('/')+'/search',params={'q':device+' Telegram ROM','format':'json'})
+                        result=json.loads(payload)
+                        for row in result.get('results',[]):texts.append(str(row.get('url',''))+' '+str(row.get('content','')))
+                        count=len(result.get('results',[]))
+                    except Exception:
+                        # Many public instances expose ordinary HTML search but
+                        # disable JSON format. Use the normal public search page.
+                        payload=bounded_get(client,url.rstrip('/')+'/search',params={'q':device+' Telegram ROM'})
+                        texts.append(payload);count=len(channel_links(payload))
+                    log({'event':'discovery_metasearch_finished','device':device,'result_count':count})
                     if channel_links('\n'.join(texts)):break
                 except Exception as exc:log({'event':'discovery_metasearch_failed','device':device,'error_type':type(exc).__name__})
             return '\n'.join(texts)
-        if len(found)<8:lookup('searx_public_registry_v1',device,searx)
+        if len(found)<8:lookup('searx_public_registry_v2_html',device,searx)
     finally:
         if owned:client.close()
     return list(found.values())[:50]
