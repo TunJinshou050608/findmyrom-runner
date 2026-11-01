@@ -45,6 +45,7 @@ def unseal(data,scope):
 class Artifacts:
     def __init__(self):
         self.base='https://api.github.com/repos/'+os.environ['GITHUB_REPOSITORY']
+        self._baseline_archive=None
         self.client=httpx.Client(timeout=120,headers={'Authorization':'Bearer '+os.environ['GH_WORKFLOW_TOKEN'],'Accept':'application/vnd.github+json'})
 
     def close(self):self.client.close()
@@ -55,17 +56,24 @@ class Artifacts:
         return sorted([a for a in r.json()['artifacts'] if not a['expired']],key=lambda a:a['id'],reverse=True)
 
     def restore(self,scope,path,baseline=True):
-        items=self.list(PREFIX+scope)
-        if not items and baseline:items=self.list(BASELINE)
+        items=self.list(PREFIX+scope);using_baseline=False
+        if not items and baseline:items=self.list(BASELINE);using_baseline=bool(items)
         if not items:return False
-        # Never silently fall back after authentication/corruption errors.
-        response=self.client.get(self.base+'/actions/artifacts/'+str(items[0]['id'])+'/zip')
-        if response.status_code in (301,302,303,307,308):
-            # Artifact object storage receives no GitHub bearer token.
-            with httpx.Client(timeout=120,follow_redirects=True) as download:
-                response=download.get(response.headers['Location']);response.raise_for_status()
-        response.raise_for_status()
-        with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
+        # The common migration archive contains every vendor. Download it only
+        # once per publishing job instead of once for each vendor.
+        cached=self._baseline_archive
+        if using_baseline and cached and cached[0]==items[0]['id']:
+            payload=cached[1]
+        else:
+            # Never silently fall back after authentication/corruption errors.
+            response=self.client.get(self.base+'/actions/artifacts/'+str(items[0]['id'])+'/zip')
+            if response.status_code in (301,302,303,307,308):
+                # Artifact object storage receives no GitHub bearer token.
+                with httpx.Client(timeout=120,follow_redirects=True) as download:
+                    response=download.get(response.headers['Location']);response.raise_for_status()
+            response.raise_for_status();payload=response.content
+            if using_baseline:self._baseline_archive=(items[0]['id'],payload)
+        with zipfile.ZipFile(io.BytesIO(payload)) as archive:
             name=scope+'.sqlite.enc'
             entry=archive.getinfo(name)
             if entry.file_size>MAX_SNAPSHOT:raise ValueError('Oversize snapshot')

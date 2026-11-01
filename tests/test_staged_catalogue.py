@@ -234,3 +234,24 @@ def test_job_tokens_only_verify_workflow_state_and_dispatch(env,monkeypatch):
     dispatches=[str(req.url) for req in requests if req.method=='POST']
     assert dispatches[0].endswith('/catalogue_publish.yml/dispatches')
     assert len(dispatches)==len(quota_resume.VENDORS)+1
+
+
+def test_shared_baseline_is_downloaded_once_for_multiple_vendors(env,tmp_path,monkeypatch):
+    archive=io.BytesIO()
+    with zipfile.ZipFile(archive,'w') as z:
+        for vendor in ('google','xiaomi'):z.writestr(vendor+'.sqlite.enc',staged.seal(vendor.encode(),vendor))
+    downloads=[]
+    def handler(req):
+        if req.url.path.endswith('/artifacts'):
+            items=[{'id':9,'expired':False}] if req.url.params['name']==staged.BASELINE else []
+            return httpx.Response(200,json={'artifacts':items})
+        downloads.append(str(req.url));return httpx.Response(200,content=archive.getvalue())
+    real=httpx.Client
+    monkeypatch.setattr(staged.httpx,'Client',lambda *a,**kw:real(*a,**kw,transport=httpx.MockTransport(handler)))
+    artifacts=staged.Artifacts()
+    try:
+        for vendor in ('google','xiaomi'):
+            path=tmp_path/(vendor+'.sqlite');assert artifacts.restore(vendor,path)==9
+            assert path.read_bytes()==vendor.encode()
+    finally:artifacts.close()
+    assert len(downloads)==1
