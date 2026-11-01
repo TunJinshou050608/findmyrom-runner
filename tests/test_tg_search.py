@@ -117,7 +117,7 @@ def test_cold_discovery_produces_resource_and_restart_reuses_state(tmp_path,monk
         elif req.url.host=='lyzem.com':body='<html></html>'
         elif req.url.path=='/s/aliothupdates':
             ids=(28,12) if req.url.params.get('before')=='29' else (30,29) if phase[0] else (12,11)
-            body=page(ids).replace('testchannel/','aliothupdates/')
+            body='<h1 class="tgme_channel_info_header_title">POCO F3 Updates</h1>'+page(ids).replace('testchannel/','aliothupdates/')
         else:body='<html><div class="tgme_page_title">Contact</div></html>'
         return httpx.Response(200,headers={'content-type':'text/html'},text=body)
     def factory(*args,**kwargs):return SearchHTTP(*args,**kwargs,client=httpx.Client(transport=httpx.MockTransport(response)))
@@ -125,6 +125,9 @@ def test_cold_discovery_produces_resource_and_restart_reuses_state(tmp_path,monk
     assert first['new_qualified_products']==2 and first['packages']==2
     assert first['D1_requests']==0 and first['llm_calls']==0
     assert all('sourceforge.net' not in url for url in requests)
+    db=SearchStore(tmp_path/'search.sqlite')
+    assert db.query("SELECT kind FROM tg_search_tasks WHERE kind='history'")
+    assert not db.query("SELECT kind FROM tg_search_tasks WHERE kind='query'");db.close()
     before=len(requests)
     second=run(tmp_path,['alioth'],max_requests=40,max_seconds=30,http_factory=factory)
     assert second['new_qualified_products']==0 and second['packages']==2

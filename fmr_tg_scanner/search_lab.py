@@ -22,7 +22,7 @@ def main():
         reports[mode]=run(root/mode,targets,max_requests=180,max_seconds=480,mode=mode)
         atomic_json(root/mode/'cold_report.json',reports[mode])
         publish_private(Path(args.state_dir).resolve())
-    resume=run(root/'query_first',targets,max_requests=90,max_seconds=240)
+    resume=run(root/'query_first',targets,max_requests=90,max_seconds=240,mode='query_first')
     atomic_json(root/'resume.json',{'report':resume,'restored_existing_frontier':True,'manual_channel_seeds':[],
         'same_state_as':'query_first','excluded_from_ordering_comparison':True})
     for mode in modes:validate(root/mode)

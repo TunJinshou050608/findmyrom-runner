@@ -1,6 +1,6 @@
 # Autonomous Telegram metadata search
 
-The private trial now has a separate query-first search engine. It accepts device codenames, not channel lists. Its products, rejected candidates, SQLite checkpoints and detailed logs belong in the private `findmyrom-tg01-test` repository. It never downloads firmware or writes D1.
+The private trial now has a separate adaptive search engine. It accepts device codenames, not channel lists. Its products, rejected candidates, SQLite checkpoints and detailed logs belong in the private `findmyrom-tg01-test` repository. It never downloads firmware or writes D1.
 
 ## Discovery and evidence
 
@@ -15,6 +15,8 @@ Stock OTA filenames remain stock when a mirror hostname changes. GSI donor match
 ## Autonomous progress
 
 The SQLite frontier alternates devices and reserves work for both new discovery and continued pagination. Query cursors are separate from the legacy channel cursors. An incremental head watermark advances only after the old watermark is reached, including when a gap spans runs. Query pagination failures enqueue a bounded historical fallback. Repeated/empty pages never establish complete Telegram coverage.
+
+Resident retrieval is adaptive: a profile independently identifying exactly one device uses historical pages plus incremental head checks; aggregator or ambiguous channels use keyword queries plus head checks. The finite ordering experiment found that neither ordering dominated on every device. Fixed-order lab arms remain available for comparisons.
 
 Requests share a host limiter and persistent compressed cache. Each batch has request/time limits, response-size and MIME checks, retry limits and cooldowns. The frontier has a per-device ceiling reported explicitly. Exact-message failures receive a longer cooldown than transient transport failures. No CAPTCHA bypass, personal account login, paid search or LLM assistance is attempted.
 

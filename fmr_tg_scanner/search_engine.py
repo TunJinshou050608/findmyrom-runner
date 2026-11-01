@@ -15,15 +15,16 @@ from .html_parser import parse_tg_channel_page,ChannelUnavailableError
 from .message_reader import read_message
 from .search_discovery import aliases,index_search,name_candidates,profile_context,linked_channels,project_repositories,project_links
 from .search_http import SearchHTTP,WorkBudgetReached
-from .search_policy import analyse
+from .search_policy import analyse,target_evidence
 from .search_store import SearchStore
 from .trial import atomic_json
 
 
-def run(root,targets,*,max_requests=180,max_seconds=480,http_factory=SearchHTTP,mode='query_first'):
+def run(root,targets,*,max_requests=180,max_seconds=480,http_factory=SearchHTTP,mode='adaptive'):
     root=Path(root);root.mkdir(parents=True,exist_ok=True)
     if not 1<=len(targets)<=500 or not all(re.fullmatch('[a-z0-9_-]{3,24}',v) for v in targets):raise ValueError('Invalid target codenames')
     if not 1<=max_requests<=2000 or not 10<=max_seconds<=1800:raise ValueError('Invalid batch budget')
+    if mode not in ('adaptive','query_first','latest_first'):raise ValueError('Unknown retrieval mode')
     run_id=os.environ.get('GITHUB_RUN_ID','local')+'-'+os.environ.get('FMR_TG_CYCLE',str(time.time_ns()))
     logs=root/'logs';logs.mkdir(exist_ok=True);log_path=logs/(run_id+'.jsonl')
     started=time.monotonic();events=Counter();new_products=0;first_product=None;per_device=Counter();failures=[]
@@ -43,6 +44,13 @@ def run(root,targets,*,max_requests=180,max_seconds=480,http_factory=SearchHTTP,
         try:all_names=aliases(http,store,targets)
         except WorkBudgetReached:outcome='budget_reached'
         except Exception as exc:emit({'event':'alias_catalogue_unavailable','error_type':type(exc).__name__})
+        if store.meta('retrieval_mode')!=mode:
+            for channel,info in store.meta('sources',{}).items():
+                for code in info.get('targets',[]):
+                    if code in targets:
+                        key=store.enqueue('admit',code,{'channel':channel,'depth':info.get('depth',0)},15)
+                        store.execute("UPDATE tg_search_tasks SET status='ready',next_at=0 WHERE key=?",(key,))
+            store.set_meta('retrieval_mode',mode)
         for code in targets:
             store.enqueue('index',code,{'provider':'lyzem','query':code},40)
             store.enqueue('index',code,{'provider':'lyzem','query':code+' ROM'},46)
@@ -69,13 +77,20 @@ def run(root,targets,*,max_requests=180,max_seconds=480,http_factory=SearchHTTP,
             sources=store.meta('sources',{})
             entry=sources.setdefault(channel,{'targets':[],'depth':depth})
             if code not in entry['targets']:entry['targets'].append(code)
+            dedicated=target_evidence({'text':''},code,all_names.get(code,[]),all_names,context)
+            strategy='history' if mode=='latest_first' or (mode=='adaptive' and dedicated and dedicated['kind']=='dedicated_channel_profile') else 'query'
+            entry.setdefault('strategy_by_device',{})[code]=strategy
             store.set_meta('sources',sources)
-            if mode=='latest_first':store.enqueue('history',code,{'channel':channel,'depth':depth,'state':{}},10)
+            if strategy=='history':
+                store.execute("UPDATE tg_search_tasks SET status='dormant' WHERE device=? AND kind='query' AND json_extract(payload,'$.channel')=?",(code,channel))
+                store.enqueue('history',code,{'channel':channel,'depth':depth,'state':{}},10)
+                if mode=='adaptive':store.enqueue('head',code,{'channel':channel,'depth':depth},8)
             else:
-                store.enqueue('query',code,{'channel':channel,'query':code,'depth':depth,'state':{}},10)
+                key=store.enqueue('query',code,{'channel':channel,'query':code,'depth':depth,'state':{}},10)
+                store.execute("UPDATE tg_search_tasks SET status='ready' WHERE key=?",(key,))
                 for alias in all_names.get(code,[])[:2]:store.enqueue('query',code,{'channel':channel,'query':alias,'depth':depth,'state':{}},12)
                 store.enqueue('head',code,{'channel':channel,'depth':depth},8)
-            emit({'event':'source_admitted','channel':channel,'device':code})
+            emit({'event':'source_admitted','channel':channel,'device':code,'strategy':strategy})
             return True
         def message(code,msg,source,depth=0):
             nonlocal new_products,first_product
@@ -208,7 +223,7 @@ def run(root,targets,*,max_requests=180,max_seconds=480,http_factory=SearchHTTP,
         atomic_json(root/'candidates.json',{'candidates':[{'package':json.loads(r['payload']),'evidence':json.loads(r['evidence']),'reason':r['reason']} for r in rows if not r['accepted']]})
         todo=store.query("SELECT kind,status,COUNT(*) AS count FROM tg_search_tasks GROUP BY kind,status")
         counts=Counter(v['package']['device_codename'] for v in products)
-        report={'engine':'query_first_v3','mode':mode,'ok':not failures or len(failures)<processed,'has_products':bool(products),'activity':'new_products' if new_products else 'no_new_products','outcome':outcome,'targets':targets,
+        report={'engine':'tg_search_v3','mode':mode,'ok':not failures or len(failures)<processed,'has_products':bool(products),'activity':'new_products' if new_products else 'no_new_products','outcome':outcome,'targets':targets,
             'policy_version':hashlib.sha256(Path(__file__).with_name('search_policy.py').read_bytes()).hexdigest()[:16],
             'new_qualified_products':new_products,'packages':len(products),'stored_observations':len(rows),'per_device':dict(counts),
             'http_requests':http.requests,'cache_hits':http.cache_hits,'response_bytes':http.bytes,'http_errors':http.errors,
