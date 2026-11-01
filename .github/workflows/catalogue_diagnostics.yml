@@ -1,0 +1,30 @@
+name: Catalogue source diagnostics
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/catalogue_diagnostics.yml'
+      - 'fmr_ingest_stock/catalogue_diagnostics.py'
+permissions:
+  contents: read
+concurrency:
+  group: catalogue-source-diagnostics
+  cancel-in-progress: false
+jobs:
+  diagnose:
+    runs-on: [self-hosted, findmyrom-metadata]
+    timeout-minutes: 10
+    env:
+      FMR_CATALOGUE_STATE_DIR: ${{ vars.FMR_CATALOGUE_STATE_DIR }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Prepare isolated Python environment
+        run: |
+          python3 -m venv "$RUNNER_TEMP/fmr-python"
+          printf '%s\n' "$RUNNER_TEMP/fmr-python/bin" >> "$GITHUB_PATH"
+      - run: python -m pip install -r requirements.txt
+      - name: Aggregate checkpoint errors and probe metadata only
+        run: python -u -m fmr_ingest_stock.catalogue_diagnostics
