@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import sqlite3
+import traceback
 from urllib.parse import urlsplit, parse_qs
 
 from .oem_sources import MetadataHTTP, resolve_atlas
@@ -51,7 +52,10 @@ def inspect(vendor):
                     'durable': durable_download(vendor, resolved)})
             except Exception as exc:
                 probes.append({'error': problem(exc), 'kind': row.get('kind'),
-                    'reason': str(exc) if type(exc) is ValueError else None})
+                    'reason': str(exc) if type(exc) is ValueError else None,
+                    'url_issues':getattr(exc,'catalogue_url_issues',None),
+                    'trace':[{'file':Path(frame.filename).name,'line':frame.lineno,'function':frame.name}
+                             for frame in traceback.extract_tb(exc.__traceback__)[-5:]]})
             if len(probes) >= 3:
                 break
     finally:
