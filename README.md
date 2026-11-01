@@ -472,8 +472,13 @@ precedence over companion recovery links; feature, support and installation link
 are excluded. Unofficial builds are retained. Stock and mainstream official
 releases are labelled for later list-based policy rather than silently discarded.
 
-The workflow requests a bounded scan and product audit every ten minutes; GitHub
-queue delays are possible. Reports include skip reasons, cursors, duplicate and
+A bounded resident session scans and audits every ten minutes, committing each
+cycle privately before waiting. Its persisted next-check timestamp survives the
+55-minute session handoff; cron is a fallback. GitHub queue delays are possible.
+To stop the experiment, set Runner variable `FMR_TG_TRIAL_ENABLED=false` and cancel
+the active run; to resume, set it to `true` and dispatch this workflow.
+`monitor_state.json` records the last audit result and next due time separately
+from process heartbeats. Reports include skip reasons, cursors, duplicate and
 integrity checks, source failures, missing sender IDs and unsupported previews.
 This is a scripted audit, not a claim that an AI independently rewrites code every
 ten minutes after this chat closes. Public referral and production D1 remain off.

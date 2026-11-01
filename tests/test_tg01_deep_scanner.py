@@ -492,3 +492,28 @@ def test_empty_bottom_page_keeps_verified_android_source_on_frequent_updates(tmp
     registry=json.loads((tmp_path/'source_registry.json').read_text())
     assert report['ok'] and registry['marbleupdates']['phone_context'] is True
     assert registry['marbleupdates']['next_scan_at']-registry['marbleupdates']['last_scan_at']<600
+
+
+def test_resident_checks_run_on_persisted_ten_minute_cadence(tmp_path,monkeypatch):
+    from fmr_tg_scanner.watch import watch
+    monkeypatch.setenv('GITHUB_RUN_ID','resident-test')
+    now=[0.0];calls=[];published=[]
+    def clock():return now[0]
+    def sleep(seconds):assert seconds<=30;now[0]+=seconds
+    def producer(root):calls.append(now[0]);return {'ok':True,'packages':2}
+    result=watch(tmp_path,duration=650,period=600,producer=producer,publisher=lambda root:published.append(now[0]),clock=clock,sleeper=sleep)
+    assert calls==[0,600] and result['cycles']==2 and result['handoff_ready']
+    state=json.loads((tmp_path/'monitor_state.json').read_text())
+    assert state['next_check_at']==1200 and state['last_data_ok']
+    calls.clear()
+    watch(tmp_path,duration=600,period=600,producer=producer,publisher=lambda *_:None,clock=clock,sleeper=sleep)
+    assert calls==[1200]
+
+
+def test_resident_cancellation_saves_state_without_starting_handoff(tmp_path,monkeypatch):
+    from fmr_tg_scanner.watch import watch
+    monkeypatch.setenv('GITHUB_RUN_ID','resident-cancel');saved=[]
+    def cancelled(_root):raise KeyboardInterrupt()
+    with pytest.raises(KeyboardInterrupt):watch(tmp_path,producer=cancelled,publisher=lambda root:saved.append(True),clock=lambda:0,sleeper=lambda *_:None)
+    assert json.loads((tmp_path/'monitor_state.json').read_text())['handoff_ready'] is False
+    assert len(saved)>=2

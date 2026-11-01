@@ -129,6 +129,7 @@ def run(state_dir,*,fetcher=None,discoverer=None):
     pages=int(config.get('pages_per_channel',5));channel_limit=int(config.get('channels_per_batch',3))
     if not 1<=pages<=20 or not 1<=channel_limit<=10:raise ValueError('Trial work budget exceeds safety limit')
     run_id=os.environ.get('GITHUB_RUN_ID',datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S'))+'-'+os.environ.get('GITHUB_RUN_ATTEMPT','1')
+    if os.environ.get('FMR_TG_CYCLE'):run_id+='-cycle'+os.environ['FMR_TG_CYCLE']
     log_path=root/'logs'/f'{run_id}.jsonl';log_path.parent.mkdir(parents=True,exist_ok=True)
     registry_path=root/'source_registry.json';registry=json.loads(registry_path.read_text()) if registry_path.exists() else {}
     if config.get('seed_channels'):raise ValueError('Manual channel seeds are forbidden in the autonomous trial')

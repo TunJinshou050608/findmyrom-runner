@@ -5,6 +5,7 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+  actions: write
 concurrency:
   group: tg01-annibale-private-trial
   cancel-in-progress: false
@@ -12,7 +13,7 @@ jobs:
   trial:
     if: vars.FMR_TG_TRIAL_ENABLED == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 75
     environment: production
     steps:
       - uses: actions/checkout@v4
@@ -36,7 +37,7 @@ jobs:
         working-directory: runner
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        run: python -u -m fmr_tg_scanner.trial --state-dir ../state
+        run: python -u -m fmr_tg_scanner.watch --state-dir ../state
       - name: Save private logs, packages and checkpoints even on failure
         if: always()
         shell: bash
@@ -53,6 +54,25 @@ jobs:
           if git diff --cached --quiet; then exit 0; fi
           git -c user.name=FindMyROM -c user.email=automation@findmyrom.com commit --quiet -m 'TG01 trial: metadata, checkpoint and audit'
           git push --quiet origin HEAD:main
+      - name: Hand off a completed resident session
+        if: always() && !cancelled()
+        env:
+          GH_WORKFLOW_TOKEN: ${{ github.token }}
+        run: |
+          python - <<'PY'
+          import json,os
+          from pathlib import Path
+          import httpx
+          path=Path('state/monitor_state.json')
+          if not path.exists():raise SystemExit(0)
+          status=json.loads(path.read_text())
+          if not status.get('handoff_ready') or status.get('session_run_id')!=os.environ['GITHUB_RUN_ID']:raise SystemExit(0)
+          repo=os.environ['GITHUB_REPOSITORY']
+          with httpx.Client(timeout=30,follow_redirects=False) as client:
+              response=client.post('https://api.github.com/repos/'+repo+'/actions/workflows/telegram_trial.yml/dispatches',headers={'Authorization':'Bearer '+os.environ['GH_WORKFLOW_TOKEN'],'Accept':'application/vnd.github+json'},json={'ref':'main'})
+          if response.status_code!=204:raise SystemExit('Resident-session handoff was not accepted; cron remains the fallback.')
+          print('Next bounded session accepted; the private cadence timestamp is retained.')
+          PY
       - name: Public status summary
         if: always()
-        run: echo 'Detailed per-page and per-message logs, source coverage, cursors, package records and the latest integrity audit are in the dedicated PRIVATE test repository. No D1 queries, ROM downloads or LLM calls. GitHub cron requests an audit every 10 minutes; queue delays are possible.' >> "$GITHUB_STEP_SUMMARY"
+        run: echo 'Detailed per-page and per-message logs, source coverage, cursors, package records and the latest integrity audit are in the dedicated PRIVATE test repository. No D1 queries, ROM downloads or LLM calls. The resident process checks every 10 minutes, commits each result privately, and hands off after a bounded session; GitHub queue delays can affect handoffs. Cron is a fallback.' >> "$GITHUB_STEP_SUMMARY"
