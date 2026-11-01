@@ -52,6 +52,7 @@ def inspect(vendor):
                     'origin_host': urlsplit(resolved.get('download_url', '')).hostname,
                     'query_keys': sorted(parse_qs(urlsplit(resolved.get('download_url', '')).query)),
                     'kind': row.get('kind'),
+                    'resolver_observation':resolved.get('resolver_observation'),
                     'durable': durable_download(vendor, resolved)})
             except Exception as exc:
                 probes.append({'error': problem(exc), 'kind': row.get('kind'),
