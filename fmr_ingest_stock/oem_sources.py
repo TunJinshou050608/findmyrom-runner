@@ -193,6 +193,7 @@ def atlas_devices(vendor, http):
 
 
 def xiaomi_devices(http):
+    from .device_identity import clean_model_name
     source='https://raw.githubusercontent.com/XiaomiFirmwareUpdater/miui-updates-tracker/master/data/devices.yml'
     rows=yaml.safe_load(http.get(source))
     if not isinstance(rows,dict):raise ValueError('Invalid upstream Xiaomi device dictionary')
@@ -200,11 +201,15 @@ def xiaomi_devices(http):
     for variant,labels in rows.items():
         code=str(variant).lower().split('_',1)[0]
         if not re.fullmatch('[a-z0-9-]{2,32}',code):continue
-        name=labels[0] if isinstance(labels,list) and labels else code
+        name=clean_model_name(labels[0] if isinstance(labels,list) and labels else code)
         route=str(variant).split('_',1)[0]
-        devices.setdefault(code,{'vendor':'xiaomi','upstream_id':code,'name':str(name)[:128],
+        item=devices.setdefault(code,{'vendor':'xiaomi','upstream_id':code,'name':str(name)[:128],'aliases':[],
             'codename':code,'route_code':route,'page':'https://xmfirmwareupdater.com/archive/miui/'+route+'/',
             'source_kind':'community_index','catalogue_source':source})
+        if name not in item['aliases']:item['aliases'].append(name)
+        # Prefer the explicitly global product label, retaining other names for
+        # the same codename instead of forcing the first (usually China) label.
+        if str(variant).lower()==code+'_global':item['name']=name[:128]
     if not devices:raise ValueError('No Xiaomi device catalogue discovered')
     return sorted(devices.values(),key=lambda d:d['upstream_id']),[]
 
@@ -229,8 +234,10 @@ def google_catalogue(http):
                         match=re.search(r'\b[0-9a-fA-F]{64}\b',text(tr));digest=match[0] if match else None
                     if not digest:continue
                     version=text(cells[0]);found+=1
+                    hardware=re.search(r'["“]([a-z0-9_-]{2,32})["”]',text(heading),re.I)
                     devices.setdefault(code,{'vendor':'google','upstream_id':code,'codename':code,
-                        'name':text(heading),'page':'https://developers.google.com/android/'+page+'?hl=en','source_kind':'oem'})
+                        'name':text(heading),'models':hardware[1] if hardware else '',
+                        'page':'https://developers.google.com/android/'+page+'?hl=en','source_kind':'oem'})
                     all_releases.setdefault(code,[]).append({'vendor':'google','device_id':code,'version':version,
                         'region':'Global','android_version':version.split(',')[0],'kind':role,'download_url':a['href'],
                         'sha256':digest.lower(),'origin_kind':'oem','metadata_source':'https://developers.google.com/android/'+page})

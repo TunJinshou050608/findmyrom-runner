@@ -55,8 +55,12 @@ def publish_device(db,device):
     models=str(device.get('models') or '')
     if not models and vendor=='asus':models=','.join(re.findall(r'\b(?:AI\d{4}[A-Z]?|ZS\d{3}[A-Z]{2})\b',str(device.get('name') or ''),re.I))
     notes=None
-    db.execute('''INSERT OR IGNORE INTO devices(codename,brand_id,marketing_name,model_numbers_json,flashing_notes_md,boot_partition_type)
-        VALUES (?,?,?,?,?,?)''',(code,brand,name,
+    db.execute('''INSERT INTO devices(codename,brand_id,marketing_name,model_numbers_json,flashing_notes_md,boot_partition_type)
+        VALUES (?,?,?,?,?,?) ON CONFLICT(codename) DO UPDATE SET
+        brand_id=excluded.brand_id,marketing_name=excluded.marketing_name,
+        model_numbers_json=CASE WHEN excluded.model_numbers_json='[]' THEN devices.model_numbers_json ELSE excluded.model_numbers_json END
+        WHERE devices.brand_id!=excluded.brand_id OR devices.marketing_name!=excluded.marketing_name
+        OR (excluded.model_numbers_json!='[]' AND devices.model_numbers_json!=excluded.model_numbers_json)''',(code,brand,name,
         json.dumps([v.strip() for v in models.split(',') if v.strip()]),notes or None,
         'boot' if int(device.get('android_release') or 13)<13 else 'init_boot'))
     return code

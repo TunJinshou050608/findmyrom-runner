@@ -386,3 +386,13 @@ def test_attested_download_gate_is_reported_without_attempting_device_impersonat
  from fmr_ingest_stock.oem_sources import resolve_oplus_gate,DeviceAttestationRequired
  with httpx.Client(transport=httpx.MockTransport(lambda req: (_ for _ in ()).throw(AssertionError('Attested gate requested')))) as client:
   with pytest.raises(DeviceAttestationRequired):resolve_oplus_gate('realme','https://component-ota-sg.allawnos.com/download?g=public',MetadataHTTP(client))
+
+
+def test_google_keeps_firmware_target_distinct_from_quoted_hardware_codename():
+ sha='a'*64
+ html='<h2 id="takju">Galaxy Nexus "maguro" (GSM/HSPA+) (with Google Wallet)</h2><table><tr><td>4.3 (JWR66Y)</td><td><a href="https://dl.google.com/android/aosp/takju.zip">Link</a></td><td>'+sha+'</td></tr></table>'
+ with httpx.Client(transport=httpx.MockTransport(lambda request:response(html))) as client:
+  devices,rows,errors=google_catalogue(MetadataHTTP(client))
+ assert devices[0]['upstream_id']=='takju' and devices[0]['codename']=='takju'
+ assert devices[0]['models']=='maguro'
+ assert rows['takju'] and not errors

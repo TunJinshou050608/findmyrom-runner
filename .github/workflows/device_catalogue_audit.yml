@@ -1,0 +1,22 @@
+name: Device names and Google official coverage audit
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  audit:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ${{ fromJSON(vars.FMR_CATALOGUE_RUNNER || '"ubuntu-latest"') }}
+    timeout-minutes: 10
+    env:
+      FMR_CATALOGUE_STATE_DIR: ${{ vars.FMR_CATALOGUE_STATE_DIR }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Prepare Python
+        run: |
+          python3 -m venv "$RUNNER_TEMP/fmr-python"
+          printf '%s\n' "$RUNNER_TEMP/fmr-python/bin" >> "$GITHUB_PATH"
+      - run: python -m pip install -r requirements.txt
+      - run: python -u -m fmr_ingest_stock.device_catalogue_audit
