@@ -451,3 +451,33 @@ Limitations: Telegram public previews may omit deleted/private/unavailable posts
 no scraper can guarantee recovery of those. `author_direct` describes observed
 post provenance, not cryptographic verification of the developer's identity.
 No production channel scan has been launched without a channel source list.
+
+### Autonomous private annibale trial
+
+`telegram_trial.yml` runs on the public Runner, while its data, detailed logs,
+SQLite checkpoint, JSONL records and integrity reports go exclusively to the
+private `TunJinshou050608/findmyrom-tg01-test` repository through a dedicated
+SSH deploy key. Its `config.json` input is only `{"target_codenames":["annibale"]}`.
+Manual channel seeds are rejected. Public Actions output shows phase names and
+counts; private commit file lists are suppressed.
+
+Source discovery automatically resolves model aliases from public metadata,
+searches public indexes, validates public Telegram previews, and follows related
+Android sources. Search/discovery results and errors have persistent caches and
+cooldowns. No operator provides a channel, author or marketing model name.
+A source being found or a process exiting successfully does not by itself pass
+acceptance: directory references go under `candidates/`, while `packages/`
+contains records with concrete package/build evidence. Main release titles take
+precedence over companion recovery links; feature, support and installation links
+are excluded. Unofficial builds are retained. Stock and mainstream official
+releases are labelled for later list-based policy rather than silently discarded.
+
+The workflow requests a bounded scan and product audit every ten minutes; GitHub
+queue delays are possible. Reports include skip reasons, cursors, duplicate and
+integrity checks, source failures, missing sender IDs and unsupported previews.
+This is a scripted audit, not a claim that an AI independently rewrites code every
+ten minutes after this chat closes. Public referral and production D1 remain off.
+A versioned metadata repair visits only existing records, once per rule revision;
+it does not reset channel history, and failures receive a retry cooldown.
+This experiment validates the annibale path, not exhaustive all-Telegram coverage
+or production readiness across every manufacturer.
