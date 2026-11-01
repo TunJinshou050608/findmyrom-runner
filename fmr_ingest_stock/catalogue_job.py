@@ -123,16 +123,16 @@ def collect_model(device,embedded,http):
         return device,releases,provenance
     device,rows=atlas_releases(device,http)
     if vendor=='samsung':
-        observed={r['version'].split('/')[0].upper() for r in rows}
+        observed={(r['version'].split('/')[0].upper(),r['region']) for r in rows}
         regions=sorted({r['region'] for r in rows if re.fullmatch('[A-Z0-9]{3}',r['region'])})
         full=[];errors=[]
         for region in regions:
             try:
                 for version in samsung_history(device['codename'],region,http):
-                    if version.split('/')[0].upper() in observed:continue
+                    if (version.split('/')[0].upper(),region) in observed:continue
                     full.append({'vendor':vendor,'device_id':device['upstream_id'],'version':version,
                         'region':region,'kind':'samsung_firmware','android_version':'unknown',
-                        'detail_page':device['page']+'/'+version.split('/')[0].lower(),
+                        'resolution':'requires_samsung_fus','source_reference':'https://fota-cloud-dn.ospserver.net/firmware/'+region+'/'+device['codename']+'/version.xml',
                         'origin_kind':'unresolved','metadata_source':'samsung_fota_version_xml'})
             except Exception as exc:
                 if getattr(exc,'fmr_batch_deadline',False):raise
@@ -175,7 +175,7 @@ def step(db,control,http):
         progress('task_start',vendor=vendor,attempt=value.get('attempts',0)+1,processed=processed)
         try:
             row=value['release']
-            if not row.get('download_url'):row=resolve_atlas(row,http)
+            if not row.get('download_url') and row.get('detail_page'):row=resolve_atlas(row,http)
             value['release']=row
             if row.get('download_url'):
                 summary['resolved_downloads']+=1

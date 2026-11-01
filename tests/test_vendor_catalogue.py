@@ -327,3 +327,23 @@ def test_adapter_revision_retries_only_affected_records_once_and_excludes_chrome
  ledger=open_ledger(Path(path).with_suffix('.publisher'))
  try:assert all(v['device']['upstream_id']!='chromebook' for _,_,v,_ in candidates(db,ledger,'asus'))
  finally:ledger.close()
+
+
+def test_404_is_terminal_for_current_cycle_and_cannot_immediately_retry_three_times(env):
+ db,_=env;row={'status':'pending'}
+ job.mark_problem(row,'HTTP_404','cycle')
+ assert row['status']=='blocked' and row['attempts']==1 and row['last_cycle']=='cycle'
+ assert row['next_check']>job.time.time()
+
+
+def test_existing_samsung_fota_queue_is_repaired_without_any_network(env):
+ db,_=env;store=Store(db,'samsung')
+ device={'vendor':'samsung','upstream_id':'sample','name':'Sample'}
+ key=store.key('release','fota')
+ store.put(key,{'device':device,'release':{'vendor':'samsung','version':'PDA/CSC/PHONE',
+  'metadata_source':'samsung_fota_version_xml','detail_page':'https://fwatlas.com/samsung/sample/guessed'},'status':'retry','attempts':1})
+ with job.Status('samsung',interval=100) as status:job.upgrade_adapters(store,status)
+ value=store.get(key)
+ assert value['status']=='blocked' and value['error']=='SamsungFotaNeedsDownloadResolver'
+ assert 'detail_page' not in value['release']
+ assert not store.due('release','new',1)

@@ -39,6 +39,7 @@ METADATA_HOSTS = {'raw.githubusercontent.com','fwatlas.com','developers.google.c
 OPLUS_GATES={f'component-ota{pc}-{region}.{root}' for pc in ('','pc')
     for region in ('cn','sg','in','eu','us') for root in ('allawnos.com','allawntech.com')}
 METADATA_HOSTS.update(OPLUS_GATES)
+METADATA_HOSTS.add('roms.danielspringer.at')
 
 
 def text(node):
@@ -306,6 +307,7 @@ def resolve_atlas(release,http):
                     target=urlsplit(url)
                     if target.hostname!='fwatlas.com':
                         result['resolver_observation']={'host':target.hostname,
+                            'endpoint':target.path.rsplit('/',1)[-1] if re.fullmatch('[A-Za-z]{1,30}',target.path.rsplit('/',1)[-1]) else 'file_or_opaque',
                             'suffix':target.path.rsplit('.',1)[-1].lower()[-12:] if '.' in target.path.rsplit('/',1)[-1] else 'none'}
                     if download_origin(release['vendor'],url):
                         candidates.append(url)

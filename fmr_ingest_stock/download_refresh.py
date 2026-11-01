@@ -18,12 +18,13 @@ def expiring(url):
 def validate(source):
     if set(source) != {'schema', 'vendor', 'version', 'landing_page', 'filename'}:
         raise ValueError('Invalid refresh descriptor fields')
-    if source['schema'] != 1 or source['vendor'] not in VENDORS:
+    if type(source['schema']) is not int or source['schema'] != 1 or source['vendor'] not in VENDORS:
         raise ValueError('Unsupported refresh descriptor')
     landing = source['landing_page']
     if not isinstance(landing, str) or not re.fullmatch(r'https://fwatlas\.com/download/[1-9][0-9]*/[a-z0-9-]+', landing):
         raise ValueError('Invalid refresh landing')
-    if not isinstance(source['version'], str) or not re.fullmatch(r'[\x21-\x7e]{1,256}', source['version']):
+    if (not isinstance(source['version'], str) or not source['version'].strip() or len(source['version'])>256
+            or re.search(r'[\x00-\x1f\x7f]',source['version'])):
         raise ValueError('Invalid refresh version')
     if not isinstance(source['filename'], str) or not re.fullmatch(r'[A-Za-z0-9_.()+-]{1,240}\.zip', source['filename'], re.I):
         raise ValueError('Invalid refresh filename')
@@ -32,7 +33,7 @@ def validate(source):
 
 def fingerprint(source):
     validate(source)
-    return hashlib.sha256(json.dumps(source, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+    return hashlib.sha256(json.dumps(source, sort_keys=True, ensure_ascii=False,separators=(',', ':')).encode()).hexdigest()
 
 
 def valid_release(vendor, release):

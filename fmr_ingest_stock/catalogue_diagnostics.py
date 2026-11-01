@@ -2,6 +2,7 @@
 from collections import Counter
 import json
 import os
+import re
 from pathlib import Path
 import sqlite3
 import traceback
@@ -11,6 +12,21 @@ from urllib.parse import urlsplit, parse_qs
 from .oem_sources import MetadataHTTP, resolve_atlas, download_origin
 from .download_refresh import expiring
 from .vendor_catalogue import durable_download, problem
+
+
+def alternate_probe(row,http):
+    """Check a documented public OTA API for an exact-build alternative."""
+    from urllib.parse import urlencode
+    model=re.search(r'\b(?:RMX|CPH)[0-9]{4}\b',row.get('version',''))
+    if not model:return {'state':'no_model_identity'}
+    try:
+        payload=json.loads(http._get('https://roms.danielspringer.at/api/ota.php?'+urlencode({'model':model[0]})))
+        matches=[entry for entry in payload.get('releases',[]) if entry.get('version','').strip()==row['version'].strip()]
+        kinds=Counter('static' if re.search(r'\.(?:zip|ozip)$',urlsplit(entry.get('source_url','')).path,re.I)
+            else urlsplit(entry.get('source_url','')).path.rsplit('/',1)[-1] if re.fullmatch('[A-Za-z]{1,30}',urlsplit(entry.get('source_url','')).path.rsplit('/',1)[-1]) else 'other'
+            for entry in matches)
+        return {'matches':len(matches),'endpoint_types':dict(kinds)}
+    except Exception as exc:return {'error':problem(exc)}
 
 
 def inspect(vendor):
@@ -49,12 +65,17 @@ def inspect(vendor):
             families.add(family)
             try:
                 resolved = resolve_atlas(row, with_client) if row.get('detail_page') else row
-                probes.append({'resolution': resolved.get('resolution'),
+                probe={'resolution': resolved.get('resolution'),
                     'origin_host': urlsplit(resolved.get('download_url', '')).hostname,
                     'query_keys': sorted(parse_qs(urlsplit(resolved.get('download_url', '')).query)),
                     'kind': row.get('kind'),
                     'resolver_observation':resolved.get('resolver_observation'),
-                    'durable': durable_download(vendor, resolved)})
+                    'version_shape':{'length':len(row.get('version','')),'space':' ' in row.get('version',''),
+                                     'non_ascii':not row.get('version','').isascii()},
+                    'durable': durable_download(vendor, resolved)}
+                if not probe['durable'] and resolved.get('resolver_observation',{}).get('host','').endswith(('allawnos.com','allawntech.com')):
+                    probe['alternate_api']=alternate_probe(row,with_client)
+                probes.append(probe)
             except Exception as exc:
                 probes.append({'error': problem(exc), 'kind': row.get('kind'),
                     'reason': str(exc) if type(exc) is ValueError else None,

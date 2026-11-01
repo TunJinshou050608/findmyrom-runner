@@ -340,3 +340,32 @@ def test_oplus_gate_never_reads_an_unexpected_binary_body():
  def handler(req):return httpx.Response(200,headers={'Content-Type':'application/zip'},stream=Forbidden())
  with httpx.Client(transport=httpx.MockTransport(handler)) as client:
   with pytest.raises(ValueError):resolve_oplus_gate('realme','https://component-ota-sg.allawnos.com/downloadCheck?token=public',MetadataHTTP(client))
+
+
+def test_display_version_can_contain_spaces_without_losing_identity():
+ from fmr_ingest_stock.download_refresh import renewable,valid_release
+ row=renewable({'vendor':'oneplus','version':'BUILD.123 (EX01)','kind':'full','download_url':'https://gauss.allawnfs.com/firmware.zip'},'https://fwatlas.com/download/123/build-cn')
+ assert valid_release('oneplus',row) and row['refresh_source']['version']=='BUILD.123 (EX01)'
+
+
+def test_unicode_display_version_hash_matches_web_protocol_vector():
+ from fmr_ingest_stock.download_refresh import fingerprint
+ source={'schema':1,'vendor':'oneplus','version':'BUILD.123\u00a0(EX01)','landing_page':'https://fwatlas.com/download/123/build-cn','filename':'firmware.zip'}
+ assert fingerprint(source)=='a677aaa0f6366c4881af9ea76e700329ff173065d107de2cd0640e85940914da'
+
+
+def test_samsung_fota_versions_never_become_invented_catalogue_urls():
+ from fmr_ingest_stock.catalogue_job import collect_model
+ seen=[]
+ def handler(req):
+  seen.append(req)
+  if req.url.host=='fwatlas.com':return response('<dl><dt>Model numbers</dt><dd>SM-S000B</dd></dl><table><tbody><tr data-region="EUX"><td><a href="/samsung/sample/actual-detail"><code>PDA.NEW</code></a></td><td data-label="Type">Full</td></tr></tbody></table>')
+  assert req.url.host=='fota-cloud-dn.ospserver.net'
+  return response('<versioninfo><latest>PDA.NEW/CSC.NEW/PHONE.NEW</latest><value>PDA.OLD/CSC.OLD/PHONE.OLD</value></versioninfo>','text/xml')
+ device={'vendor':'samsung','upstream_id':'sample','page':'https://fwatlas.com/samsung/sample'}
+ with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+  _,rows,_=collect_model(device,None,MetadataHTTP(client))
+ fota=[r for r in rows if r.get('metadata_source')=='samsung_fota_version_xml']
+ assert len(fota)==1 and fota[0]['version'].startswith('PDA.OLD/')
+ assert fota[0]['resolution']=='requires_samsung_fus' and 'detail_page' not in fota[0]
+ assert len(seen)==2

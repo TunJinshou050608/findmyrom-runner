@@ -30,7 +30,7 @@ concurrency:
 jobs:
   catalogue:
     name: "采集、复用缓存、加密保存断点（不访问D1）"
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || vars.FMR_SAMSUNG_AUTO_ENABLED == 'true')
     runs-on: ${{ fromJSON(vars.FMR_CATALOGUE_RUNNER || '"ubuntu-latest"') }}
     timeout-minutes: 20
     environment: production

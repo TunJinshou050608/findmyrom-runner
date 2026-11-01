@@ -209,7 +209,9 @@ def test_metadata_runner_routing_keeps_binary_and_pr_jobs_off_local_host():
     for path in root.glob('catalogue_*.yml'):
         for job in yaml.safe_load(path.read_text())['jobs'].values():
             assert 'FMR_CATALOGUE_RUNNER' in job['runs-on']
-            assert job['if']=="github.ref == 'refs/heads/main'"
+            if path.name=='catalogue_samsung.yml':
+                assert job['if']=="github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || vars.FMR_SAMSUNG_AUTO_ENABLED == 'true')"
+            else:assert job['if']=="github.ref == 'refs/heads/main'"
     for name in ('batch_extract.yml','history_sweep.yml','sony_bundle.yml','ci.yml','telegram_trial.yml'):
         assert 'FMR_CATALOGUE_RUNNER' not in (root/name).read_text()
 

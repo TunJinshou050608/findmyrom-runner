@@ -1,0 +1,39 @@
+name: Repair paused Samsung metadata state
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/repair_samsung_state.yml','fmr_ingest_stock/samsung_repair.py']
+permissions:
+  contents: read
+  actions: write
+concurrency:
+  group: catalogue-v2-samsung
+  cancel-in-progress: false
+jobs:
+  repair:
+    runs-on: [self-hosted, findmyrom-metadata]
+    timeout-minutes: 8
+    environment: production
+    env:
+      FMR_CATALOGUE_STATE_DIR: ${{ vars.FMR_CATALOGUE_STATE_DIR }}
+      SIGN_PRIVATE_KEY_HEX: ${{ secrets.SIGN_PRIVATE_KEY_HEX }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Prepare isolated Python environment
+        run: |
+          python3 -m venv "$RUNNER_TEMP/fmr-python"
+          printf '%s\n' "$RUNNER_TEMP/fmr-python/bin" >> "$GITHUB_PATH"
+      - run: python -m pip install -r requirements.txt
+      - name: Correct queue without resuming collection; probe two metadata entries
+        run: python -u -m fmr_ingest_stock.samsung_repair
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: catalogue-v3-samsung
+          path: ${{ env.FMR_CATALOGUE_STATE_DIR }}/upload/samsung.sqlite.enc
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0
