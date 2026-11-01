@@ -71,3 +71,43 @@ meta,html=fetch('https://search.buzz.im/')
 report['services'].append(dict(meta,service='buzz',term=None))
 Path('probe-summary.json').write_text(json.dumps(report,indent=2))
 print('PROBE_COMPLETE '+json.dumps(report,sort_keys=True),flush=True)
+
+# Follow-up: verify small samples against original posts; don't count SERP links as ROMs.
+from urllib.parse import parse_qs
+checks=[]
+for term in TARGETS+['fmr_absent_7d96b3e20c']:
+    meta,html=fetch('https://lyzem.com/search',{'q':term})
+    soup=BeautifulSoup(html,'html.parser');links=[]
+    for anchor in soup.select('a[href]'):
+        href=anchor.get('href','')
+        if not re.fullmatch(r'https?://t\.me/[A-Za-z][A-Za-z0-9_]{3,31}/[0-9]+/?',href):continue
+        if href not in links:links.append(href)
+    samples=[]
+    for href in links[:2] if term in TARGETS else []:
+        time.sleep(1.5)
+        ref=urlsplit(href).path.strip('/')
+        m,body=fetch('https://t.me/'+ref,{'embed':'1','mode':'tme'});rows=posts(body)
+        text=rows.get(ref,'');node=BeautifulSoup(body,'html.parser').select_one('.tgme_widget_message[data-post]')
+        samples.append(dict(m,requested_message_found=ref in rows,literal_device_match=bool(re.search(r'(?i)(?<![a-z0-9_])'+re.escape(term)+r'(?![a-z0-9_])',text)),
+            resource_terms=bool(re.search(r'(?i)\b(rom|firmware|kernel|recovery|hyperos|miui|unofficial|lineageos|evolution)\b',text)),
+            external_link=bool(node and any((urlsplit(a.get('href','')).hostname or '') not in ('','t.me','telegram.me') for a in node.select('a[href]')))))
+    checks.append({'term':term,'http':meta,'direct_post_anchors':len(links),'verified_samples':samples})
+report['lyzem_verification']=checks
+pages=[]
+for index,channel in enumerate(selected,1):
+    time.sleep(1.5)
+    meta,html=fetch('https://t.me/s/'+channel,{'q':'alioth'})
+    rows=posts(html);soup=BeautifulSoup(html,'html.parser');more=soup.select_one('a.tme_messages_more')
+    item={'source':'productive_'+str(index),'initial_messages':len(rows),'has_pagination':bool(more)}
+    if more:
+        href=urljoin('https://t.me',more.get('href',''));url=urlsplit(href)
+        params=parse_qs(url.query)
+        item['link_keeps_query']=params.get('q')==['alioth']
+        if url.hostname=='t.me' and url.path=='/s/'+channel:
+            params['q']='alioth';time.sleep(1.5)
+            m,body=fetch('https://t.me'+url.path,params);nextrows=posts(body)
+            item.update(next_http=m,next_messages=len(nextrows),next_text_matches=sum('alioth' in t.lower() for t in nextrows.values()),different_page=bool(nextrows) and set(nextrows)!=set(rows))
+    pages.append(item)
+report['search_pagination']=pages
+Path('probe-summary.json').write_text(json.dumps(report,indent=2))
+print('VERIFICATION_COMPLETE '+json.dumps({'lyzem_verification':checks,'search_pagination':pages},sort_keys=True),flush=True)
