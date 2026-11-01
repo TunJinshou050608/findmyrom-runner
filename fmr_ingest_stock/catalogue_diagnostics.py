@@ -1,4 +1,4 @@
-"""Read-only live source diagnostics. Public output contains aggregates only."""
+"""Read-only diagnostics with public firmware identities and aggregate errors."""
 from collections import Counter
 import json
 import os
@@ -84,6 +84,8 @@ def inspect(vendor):
                              for frame in traceback.extract_tb(exc.__traceback__)[-5:]]}
                 if type(exc).__name__=='DeviceAttestationRequired':probe['alternate_api']=alternate_probe(row,with_client)
                 probes.append(probe)
+            # Firmware identities are public; keep signed URLs and tokens out of logs.
+            probes[-1]['firmware']={key:row.get(key) for key in ('version','region','kind','detail_page')}
             if len(probes) >= 3:
                 break
     finally:
