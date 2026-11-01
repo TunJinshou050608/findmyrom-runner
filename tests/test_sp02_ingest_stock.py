@@ -93,7 +93,7 @@ def test_device_sync_fixture_and_brand_mapping(db, tmp_path):
     )
     rows = {r["codename"]: r for r in db.query("SELECT * FROM devices")}
     assert len(db.query("SELECT * FROM brands")) == 13
-    assert rows["marble"]["marketing_name"] == "Redmi Note 12 Turbo CN"
+    assert rows["marble"]["marketing_name"] == "Redmi Note 12 Turbo"
     assert rows["pdx234"]["brand_id"] == "sony"
     assert rows["phone2"]["brand_id"] == "nothing"
     assert rows["alioth"]["boot_partition_type"] == "boot"
