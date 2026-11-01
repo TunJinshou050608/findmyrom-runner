@@ -311,3 +311,32 @@ def test_legacy_expiring_url_is_repaired_without_changing_token_or_extraction_st
  assert stored['public_token']==result['public_token'] and stored['extract_status']=='processing'
  assert stored['fast_cdn_url']==new['download_url']
  Ed25519PublicKey.from_public_bytes(bytes.fromhex(pub)).verify(bytes.fromhex(stored['ed25519_signature']),f"v1|fw|{stored['public_token']}|{stored['fast_cdn_url']}".encode())
+
+
+def test_public_oplus_download_check_gate_is_resolved_as_metadata_only():
+ from fmr_ingest_stock.vendor_catalogue import durable_download
+ seen=[]
+ def handler(req):
+  seen.append(req)
+  if req.url.host=='component-ota-sg.allawnos.com':
+   assert req.url.path=='/downloadCheck' and req.headers['userId']=='oplus-ota|16001011'
+   return httpx.Response(302,headers={'Location':'https://gauss.allawnofs.com/firmware.zip?Expires=60&Signature=public'})
+  assert req.url.host=='fwatlas.com'
+  if req.url.path.endswith('/build'):return response('<h1>BUILD.123</h1><a href="/download/123/build-cn">Download</a>')
+  if req.url.path.endswith('/go'):return httpx.Response(302,headers={'Location':'https://component-ota-sg.allawnos.com/downloadCheck?token=public'})
+  return response('<a href="/download/123/build-cn/go?t=public">Start download now</a>')
+ with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+  row=resolve_atlas({'vendor':'realme','version':'BUILD.123','kind':'full','detail_page':'https://fwatlas.com/realme/sample/build'},MetadataHTTP(client))
+ assert durable_download('realme',row) and row['refresh_source']['filename']=='firmware.zip'
+ assert len(seen)==4
+ assert download_origin('oneplus','https://android.googleapis.com/packages/ota-api/package/aabb1234.zip')=='oem'
+ assert download_origin('oneplus','https://android.googleapis.com/unrelated/file.zip') is None
+
+
+def test_oplus_gate_never_reads_an_unexpected_binary_body():
+ from fmr_ingest_stock.oem_sources import resolve_oplus_gate
+ class Forbidden(httpx.SyncByteStream):
+  def __iter__(self):raise AssertionError('Binary body consumed');yield b''
+ def handler(req):return httpx.Response(200,headers={'Content-Type':'application/zip'},stream=Forbidden())
+ with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+  with pytest.raises(ValueError):resolve_oplus_gate('realme','https://component-ota-sg.allawnos.com/downloadCheck?token=public',MetadataHTTP(client))

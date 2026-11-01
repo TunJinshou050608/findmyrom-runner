@@ -36,6 +36,7 @@ class CachedClient:
     @staticmethod
     def lifetime(url):
         p=urlsplit(url)
+        if p.path.endswith('/downloadCheck'):return 0
         # Public go/download tokens rotate; never persist those landing responses.
         if p.hostname=='fwatlas.com' and p.path.startswith('/download/'):return 0
         if p.hostname=='xmfirmwareupdater.com':return 3600 if p.path.startswith('/archive/') else 30*86400

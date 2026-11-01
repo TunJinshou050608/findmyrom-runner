@@ -35,7 +35,8 @@ def inspect(vendor):
         if value.get('error'):
             errors[stage + ':' + value['error']] += 1
         if stage == 'release' and (value.get('status') in ('blocked', 'failed', 'retry') or expiring(value['release'].get('download_url',''))):
-            samples.append(value['release'])
+            if value.get('error')=='ValueError':samples.insert(0,value['release'])
+            else:samples.append(value['release'])
     probes = []
     with_client = MetadataHTTP()
     try:

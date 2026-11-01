@@ -33,7 +33,7 @@ ADAPTER_REVISION='20261101-download-refresh-1'
 def upgrade_adapters(store,status):
     """Retry affected local records once per adapter revision, never per start."""
     if store.vendor not in ('oneplus','oppo','realme','vivo','asus'):return
-    revision=ADAPTER_REVISION+('-asus-2' if store.vendor=='asus' else '')
+    revision=ADAPTER_REVISION+('-asus-2' if store.vendor=='asus' else '-gate-2' if store.vendor in ('oneplus','realme') else '')
     key=store.key('adapters')
     if (store.get(key) or {}).get('revision')==revision:return
     from .download_refresh import expiring

@@ -36,6 +36,9 @@ MIRROR_HOSTS = {'motorola': ('mirrors.lolinet.com',)}
 METADATA_HOSTS = {'raw.githubusercontent.com','fwatlas.com','developers.google.com','xmfirmwareupdater.com',
                   'fota-cloud-dn.ospserver.net','doc.samsungmobile.com',
                   'consumer.huawei.com','www.honor.com','igoreisberg.com','app.swup.update.sony.net'}
+OPLUS_GATES={f'component-ota{pc}-{region}.{root}' for pc in ('','pc')
+    for region in ('cn','sg','in','eu','us') for root in ('allawnos.com','allawntech.com')}
+METADATA_HOSTS.update(OPLUS_GATES)
 
 
 def text(node):
@@ -55,6 +58,8 @@ def safe_url(url):
 
 def download_origin(vendor, url):
     p = safe_url(url)
+    if vendor=='oneplus' and p.hostname=='android.googleapis.com' and re.fullmatch(r'/packages/ota-api/[A-Za-z0-9/_-]+\.zip',p.path):
+        return 'oem'
     for root in OEM_HOSTS.get(vendor, ()):
         if p.hostname == root or p.hostname.endswith('.'+root):
             return 'oem'
@@ -62,6 +67,21 @@ def download_origin(vendor, url):
         if p.hostname == root:
             return 'archive_mirror'
     return None
+
+
+def resolve_oplus_gate(vendor,url,http):
+    p=safe_url(url)
+    if vendor not in ('oneplus','oppo','realme') or p.hostname not in OPLUS_GATES or not p.path.endswith('/downloadCheck'):
+        return url
+    # Public stock-updater protocol documented by OPlus_firmware_download. Read
+    # only a redirect header; never follow it to, or consume, a firmware body.
+    with http.client.stream('GET',url,headers={'userId':'oplus-ota|16001011','Accept':'application/json'}) as response:
+        if response.status_code in (301,302,303,307,308):
+            target=normalize_download(vendor,urljoin(url,response.headers.get('Location','')))
+            if not download_origin(vendor,target):raise ValueError('Untrusted OTA gate destination')
+            return target
+        response.raise_for_status()
+    raise ValueError('Official OTA gate did not issue a file redirect')
 
 
 def normalize_download(vendor, url):
@@ -282,6 +302,7 @@ def resolve_atlas(release,http):
             with http.client.stream('GET',url,headers={'Referer':landing}) as response:
                 if response.status_code in (301,302,303,307,308):
                     url=normalize_download(release['vendor'],urljoin(url,response.headers.get('Location','')))
+                    url=resolve_oplus_gate(release['vendor'],url,http)
                     target=urlsplit(url)
                     if target.hostname!='fwatlas.com':
                         result['resolver_observation']={'host':target.hostname,
