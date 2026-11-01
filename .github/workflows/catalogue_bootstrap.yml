@@ -14,7 +14,7 @@ jobs:
       contents: read
       actions: write
     if: github.ref == 'refs/heads/main'
-    runs-on: ${{ fromJSON(vars.FMR_CATALOGUE_RUNNER || '"ubuntu-latest"') }}
+    runs-on: ${{ fromJSON(vars.FMR_PUBLISH_RUNNER || vars.FMR_CATALOGUE_RUNNER || '"ubuntu-latest"') }}
     timeout-minutes: 30
     environment: production
     env:
