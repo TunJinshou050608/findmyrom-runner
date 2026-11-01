@@ -9,6 +9,7 @@ import time
 from urllib.parse import unquote,urlsplit,parse_qs
 
 import httpx
+import yaml
 from .html_parser import channel_name
 
 SEARCH_PROVIDERS=[
@@ -83,6 +84,8 @@ def discover_channels(device,cache,log,*,client=None,now=None):
             log({'event':'discovery_search_started','provider':provider,'device':device})
             try:
                 payload=loader();candidates=organic_candidates(payload,device) if provider.startswith('duckduckgo_lite') else channel_links(payload)
+                if provider.startswith('telegram_naming_aliases'):
+                    for item in candidates:item['quality_score']=250
                 cache[key]={'retry_at':now+(86400 if candidates else 1800),'candidates':candidates,'provider':provider,'device':device}
                 log({'event':'discovery_search_finished','provider':provider,'device':device,'candidate_count':len(candidates),'elapsed_ms':round((time.monotonic()-started)*1000)})
             except Exception as exc:
@@ -90,26 +93,60 @@ def discover_channels(device,cache,log,*,client=None,now=None):
                 log({'event':'discovery_provider_failed','provider':provider,'device':device,'error_type':type(exc).__name__})
         for item in candidates:found.setdefault(item['channel'],dict(item,discovered_for=device,provider=provider))
     try:
+        alias_key='device_aliases_v1:'+device
+        alias_entry=cache.get(alias_key)
+        if alias_entry and alias_entry['retry_at']>now:
+            aliases=alias_entry.get('aliases',[])
+        else:
+            aliases=[]
+            try:
+                catalogue=yaml.safe_load(bounded_get(client,'https://raw.githubusercontent.com/XiaomiFirmwareUpdater/miui-updates-tracker/master/data/devices.yml'))
+                if isinstance(catalogue,dict):
+                    for code,labels in catalogue.items():
+                        if str(code).split('_',1)[0].lower()==device and isinstance(labels,list) and labels:
+                            for index,label in enumerate(labels):
+                                if index and not re.search(r'\d',str(label)):continue
+                                for value in re.split(r'\s*/\s*|\s*&\s*|\s+aka\s+',str(label),flags=re.I):
+                                    alias=re.sub(r'\([^)]*\)','',value).strip()[:100]
+                                    if alias and alias not in aliases:aliases.append(alias)
+                cache[alias_key]={'retry_at':now+604800,'aliases':aliases}
+                log({'event':'device_aliases_resolved','device':device,'aliases':aliases})
+            except Exception as exc:
+                cache[alias_key]={'retry_at':now+1800,'aliases':[]}
+                log({'event':'device_alias_resolution_failed','device':device,'error_type':type(exc).__name__})
         def telegram_candidates():
             from .html_parser import parse_tg_channel_page
             from .crawler import pause
             verified=[]
             # These are generic naming rules, derived from the input only.
             # No device-specific channel, author, or model alias is embedded.
-            names=[device,device+'updates',device+'_updates',device+'roms',device+'_roms',device+'_official',device+'_global',device+'_community']
+            model_names=set()
+            for alias in aliases:
+                normalized=re.sub('[^a-z0-9]','',alias.lower())
+                if not 4<=len(normalized)<=28:continue
+                model_names.add(normalized)
+                family=re.sub(r'(?:pro|ultra|plus|max|5g|4g)$','',normalized)
+                if len(family)>=4:model_names.add(family)
+            names=[]
+            for model in sorted(model_names,key=lambda value:(len(value),value)):
+                names.extend([model,model+'update',model+'updates',model+'_updates'])
+            names.extend([device,device+'update',device+'updates',device+'_updates',device+'roms',device+'_roms',device+'_official'])
+            names=list(dict.fromkeys(names))[:24]
             for name in names:
                 if len(name)>32:continue
                 pause()
                 try:
                     page=parse_tg_channel_page(bounded_get(client,'https://t.me/s/'+name),name)
-                    if page['messages']:
+                    context=' '.join(message.get('text','') for message in page['messages'])
+                    if page['messages'] and re.search(r'(?i)android|firmware|kernel|lineage|hyperos|xiaomi|redmi|poco|recovery|unofficial',context):
                         verified.append('https://t.me/'+name)
                         log({'event':'discovery_telegram_candidate_verified','channel':name,'device':device,'floors':len(page['messages'])})
                 except Exception as exc:
                     log({'event':'discovery_telegram_candidate_rejected','channel':name,'device':device,'error_type':type(exc).__name__})
             return '\n'.join(verified)
-        lookup('telegram_naming_rules_v1',device,telegram_candidates)
+        lookup('telegram_naming_aliases_v2',device,telegram_candidates)
         queries=[device+' Telegram ROM',f'"{device}" Android unofficial site:t.me']
+        queries.extend(alias+' unofficial Android Telegram' for alias in aliases[:2])
         for provider,url,param in SEARCH_PROVIDERS:
             for query in queries:
                 params={param:query}

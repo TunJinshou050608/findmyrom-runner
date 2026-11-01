@@ -102,7 +102,8 @@ def extract_package_by_rules(msg_dict: dict, default_codename=None):
     package_name=m.get('file_attachment_name')
     if not package_name:
         for link in links:
-            filename=unquote(urlsplit(link).path.rsplit('/',1)[-1])
+            segments=urlsplit(link).path.rstrip('/').split('/')
+            filename=unquote(segments[-2] if len(segments)>1 and segments[-1].lower() in ('download','view') else segments[-1])
             if re.search(r'(?i)\.(?:zip|tgz|tar(?:\.(?:gz|xz|zst))?|img(?:\.gz)?|bin|7z)$',filename):
                 package_name=filename;break
     package_name=re.sub(r'[\x00-\x1f\x7f]','',package_name or title)[:512]

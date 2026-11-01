@@ -408,3 +408,43 @@ def test_device_directory_links_do_not_count_as_real_packages():
     assert classify(row)=='stock_official'
     row['download_links_json']='["https://mirror.example/ROM-v1.2.zip"]'
     assert qualification(row)=='package'
+
+
+def test_telegram_android_footer_does_not_expand_unrelated_channels(tmp_path,monkeypatch):
+    from fmr_tg_scanner.trial import run
+    monkeypatch.setenv('GITHUB_RUN_ID','irrelevant-footer');monkeypatch.setenv('FMR_TEST_NO_SLEEP','1')
+    (tmp_path/'config.json').write_text(json.dumps({'target_codenames':['annibale']}))
+    html='<section class="tgme_channel_history"><div class="tgme_widget_message" data-post="MusicChannel/1"><div class="tgme_widget_message_text">Concert tonight https://t.me/unrelated_music</div></div></section><footer>Telegram for Android</footer>'
+    report=run(tmp_path,fetcher=lambda _:html,discoverer=lambda *_:[{'channel':'musicchannel'}])
+    registry=json.loads((tmp_path/'source_registry.json').read_text())
+    assert 'unrelated_music' not in registry
+    assert registry['musicchannel']['phone_context'] is False
+    assert not report['ok']
+
+
+def test_device_alias_lookup_derives_channels_without_human_model_or_channel_inputs(monkeypatch):
+    from fmr_tg_scanner import discovery
+    monkeypatch.setenv('FMR_TEST_NO_SLEEP','1');monkeypatch.setattr(discovery,'SEARCH_PROVIDERS',[])
+    requested=[]
+    def handler(req):
+        requested.append(str(req.url))
+        if req.url.host=='raw.githubusercontent.com':return httpx.Response(200,text='testdevice: ["Brand Q7 Pro / Brand Q7", "Global"]')
+        if req.url.host=='t.me':
+            channel=req.url.path.rsplit('/',1)[-1]
+            if channel=='brandq7update':return httpx.Response(200,text=simple_page(channel,[2,1]))
+            return httpx.Response(200,text='<html>No history</html>')
+        if req.url.host=='api.github.com':return httpx.Response(200,json={'items':[]})
+        return httpx.Response(503)
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        found=discovery.discover_channels('testdevice',{},lambda *_:None,client=client)
+    assert any(item['channel']=='brandq7update' for item in found)
+    assert 'https://t.me/s/brandq7update' in requested
+
+
+def test_sourceforge_download_page_preserves_actual_package_name():
+    from fmr_tg_scanner.trial import qualification
+    message=parse_tg_channel_page(LATEST,'marbleupdates')['messages'][0]
+    message['links']=['https://sourceforge.net/projects/test/files/Android-ROM-v2.0.zip/download']
+    row=extract_package_by_rules(message)
+    assert row['package_name']=='Android-ROM-v2.0.zip'
+    assert qualification(row)=='package'

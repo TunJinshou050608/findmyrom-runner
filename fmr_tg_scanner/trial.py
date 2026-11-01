@@ -37,7 +37,7 @@ def qualification(package):
     if links and all(re.search(r'/(?:[a-z-]+/)?phones/[^/?]+/?$',urlsplit(url).path) for url in links):return 'index_reference'
     filename=package.get('file_attachment_name') or package.get('package_name') or ''
     if re.search(r'(?i)\.(zip|tgz|img(?:\.gz)?|tar(?:\.(gz|xz))?|bin|7z)$',filename):return 'package'
-    if any(re.search(r'(?i)\.(zip|tgz|img(?:\.gz)?|bin|7z)(?:$|[?#])',link) for link in links):return 'package'
+    if any(re.search(r'(?i)\.(zip|tgz|img(?:\.gz)?|bin|7z)(?:$|[/?#])',link) for link in links):return 'package'
     if package.get('build_version_tag') and package['rule_confidence']>=.8:return 'package'
     if any((urlsplit(link).hostname or '') in ('mega.nz','drive.google.com','pixeldrain.com','mediafire.com') for link in links) and package['rule_confidence']>=.8:return 'package'
     return 'unresolved_reference'
@@ -115,11 +115,15 @@ def run(state_dir,*,fetcher=None,discoverer=None):
             from .crawler import PageFetcher
             self.inner=fetcher or PageFetcher();self.messages={}
         def __call__(self,url):
-            from .html_parser import parse_tg_channel_page
+            from .html_parser import parse_tg_channel_page,DOM
             from .discovery import channel_links
             html=self.inner(url);ch=urlsplit(url).path.rsplit('/',1)[-1]
             registry[ch]['profile_discovery_version']=2
-            phone_context=bool(re.search(r'(?i)\b(android|firmware|kernel|lineageos|hyperos|miui|xiaomi|redmi|poco|twrp|orangefox|magisk|kernelsu|flashable)\b',html))
+            context_dom=DOM();context_dom.feed(html)
+            context_parts=[n.text() for n in context_dom.root.walk() if any(n.has(name) for name in ('tgme_channel_info_description','tgme_page_description','tgme_widget_message_text','tgme_widget_message_document_title'))]
+            # Telegram's own footer says "Android" on every channel. It must
+            # never turn a music/account landing page into an Android source.
+            phone_context=bool(re.search(r'(?i)\b(android|firmware|kernel|lineageos|hyperos|miui|xiaomi|redmi|poco|twrp|orangefox|magisk|kernelsu|flashable)\b',' '.join(context_parts)))
             registry[ch]['phone_context']=phone_context
             # An unavailable history can still be a public profile pointing to
             # its author's update channel. Follow metadata links, not files.
