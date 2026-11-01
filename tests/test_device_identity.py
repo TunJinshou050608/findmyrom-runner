@@ -4,6 +4,7 @@ from fmr_ingest_stock import staged_catalogue,vendor_catalogue
 
 
 @pytest.mark.parametrize('vendor,name,models,expected',[
+ ('asus','ROG 7 AI2205','','ROG Phone 7'),
  ('google','"akita" for Pixel 8a','','Google Pixel 8a'),
  ('samsung','Galaxy S23 SM-S911B 32 files · Oct 2026','SM-S911B','Samsung Galaxy S23'),
  ('oneplus','OnePlus 12 PJD110, CPH2581, CPH2573 45 files · Oct 2026','PJD110, CPH2581, CPH2573','OnePlus 12'),

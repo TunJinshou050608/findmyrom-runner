@@ -51,10 +51,12 @@ def publish_device(db,device):
     from .device_identity import marketing_name
     name=marketing_name(device)
     brand='rog' if vendor=='asus' and re.search(r'\bROG\b',name,re.I) else vendor if vendor in DIRECT_BRANDS else 'other'
+    models=str(device.get('models') or '')
+    if not models and vendor=='asus':models=','.join(re.findall(r'\b(?:AI\d{4}[A-Z]?|ZS\d{3}[A-Z]{2})\b',str(device.get('name') or ''),re.I))
     notes=None
     db.execute('''INSERT OR IGNORE INTO devices(codename,brand_id,marketing_name,model_numbers_json,flashing_notes_md,boot_partition_type)
         VALUES (?,?,?,?,?,?)''',(code,brand,name,
-        json.dumps([v.strip() for v in str(device.get('models') or '').split(',') if v.strip()]),notes or None,
+        json.dumps([v.strip() for v in models.split(',') if v.strip()]),notes or None,
         'boot' if int(device.get('android_release') or 13)<13 else 'init_boot'))
     return code
 

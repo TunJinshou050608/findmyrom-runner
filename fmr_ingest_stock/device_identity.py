@@ -14,6 +14,9 @@ def marketing_name(device):
         if name.lower()==model.lower():continue
         name=re.sub(r'\(\s*'+re.escape(model)+r'\s*\)',' ',name,flags=re.I)
         name=re.sub(r'(?:\s|,)'+re.escape(model)+r'(?=\s|,|$)',' ',name,flags=re.I)
+    if vendor in ('asus','rog'):
+        name=re.sub(r'\s+(?:AI\d{4}[A-Z]?|ZS\d{3}[A-Z]{2})\b.*$','',name,flags=re.I)
+        name=re.sub(r'^ROG\s+(?=\d)','ROG Phone ',name,flags=re.I)
     name=re.sub(r'\(\s*\)','',name)
     name=re.sub(r'\s+',' ',name.strip(' ,'))
     prefixes={'google':('Google',r'^(?:Pixel|Nexus)\b'),'samsung':('Samsung',r'^Galaxy\b'),

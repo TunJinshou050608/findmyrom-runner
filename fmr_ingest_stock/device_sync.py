@@ -99,6 +99,8 @@ def sync_devices(db_client, source_path_or_url: str, batch_size: int = 200) -> d
                 boot = "init_boot"
         from .device_identity import marketing_name
         bid=brand_id(row.get("brand") or row.get("oem"))
+        if bid in ('asus','rog') and not models:
+            models=re.findall(r'\b(?:AI\d{4}[A-Z]?|ZS\d{3}[A-Z]{2})\b',text(row.get("name") or row.get("model")),re.I)
         label=marketing_name({'vendor':bid,'upstream_id':code,'codename':code,
             'name':text(row.get("name") or row.get("model")) or code,'models':','.join(models)})
         if bid=='asus' and re.search(r'\bROG\b',label,re.I):bid='rog'
