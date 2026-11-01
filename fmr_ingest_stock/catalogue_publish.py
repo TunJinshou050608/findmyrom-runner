@@ -25,6 +25,7 @@ def candidates(local,ledger,vendor):
     store=Store(local,vendor)
     for stage in ('release','model'):
         for key,value in store.rows(stage):
+            if value.get('status')=='excluded' or value['device'].get('catalogue_scope')=='non_android':continue
             if stage=='release' and (value.get('status')!='resolved' or value.get('published')):continue
             body=value['device'] if stage=='model' else [value['device'],value['release']]
             fingerprint=digest(body)

@@ -55,7 +55,7 @@ class CachedClient:
     def stream(self,method,url,**kwargs):
         if time.monotonic()>=self.deadline:raise CatalogueDeadline('Batch time budget reached')
         p=safe_url(str(url))
-        if method!='GET' or p.hostname not in METADATA_HOSTS or re.search(r'\.(zip|tgz|gz|img|enc[24]|lz4|bin)(?:$|/)',unquote(p.path),re.I):
+        if method!='GET' or p.hostname not in METADATA_HOSTS or re.search(r'\.(zip|ozip|tgz|gz|img|enc[24]|lz4|bin)(?:$|/)',unquote(p.path),re.I):
             raise ValueError('Metadata cache refused a binary request')
         ttl=self.lifetime(str(url));now=int(self.now())
         key=self.store.key('page',[str(url),kwargs.get('cookies') or {}])

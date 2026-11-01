@@ -306,3 +306,24 @@ def test_corrupt_page_cache_is_rebuilt_without_erasing_catalogue_tasks(env):
     assert store.counts()['models']=={'pending':1}
     assert CachedClient.unpack(store.get(key))==b'rebuilt'
 
+
+
+def test_adapter_revision_retries_only_affected_records_once_and_excludes_chromeos(env):
+ from fmr_ingest_stock.catalogue_publish import candidates,open_ledger
+ db,path=env;store=Store(db,'asus')
+ phone={'vendor':'asus','upstream_id':'phone','name':'Phone'};pc={'vendor':'asus','upstream_id':'chromebook','name':'Chromebook'}
+ for device in (phone,pc):store.put(store.key('model',device['upstream_id']),{'device':device,'status':'ok'})
+ entries=[('bad',phone,'full','blocked','https://dlcdnets.asus.com/bad.zip'),('good',phone,'full','resolved','https://dlcdnets.asus.com/good.zip'),('chrome',pc,'chromeos','blocked','')]
+ for key,device,kind,state,url in entries:store.put(store.key('release',key),{'device':device,'release':{'vendor':'asus','kind':kind,'download_url':url},'status':state,'next_check':2**40,'last_cycle':'old'})
+ with job.Status('asus',interval=100) as status:job.upgrade_adapters(store,status)
+ assert store.get(store.key('release','bad'))['status']=='pending'
+ assert store.get(store.key('release','good'))['status']=='resolved'
+ assert store.get(store.key('release','chrome'))['status']=='excluded'
+ assert store.get(store.key('model','chromebook'))['status']=='excluded'
+ assert not any(v['status']=='excluded' for _,v in store.due('release','new',10,operation='retry_failed'))
+ store.put(store.key('release','bad'),{**store.get(store.key('release','bad')),'status':'blocked','next_check':2**40})
+ with job.Status('asus',interval=100) as status:job.upgrade_adapters(store,status)
+ assert store.get(store.key('release','bad'))['status']=='blocked'
+ ledger=open_ledger(Path(path).with_suffix('.publisher'))
+ try:assert all(v['device']['upstream_id']!='chromebook' for _,_,v,_ in candidates(db,ledger,'asus'))
+ finally:ledger.close()

@@ -28,7 +28,12 @@ def build_version(value):
 
 def package_kind(vendor,release):
     if vendor=='sony' and release.get('kind')=='sony_bundle':return 'sony_bundle'
+    if release.get('refresh_source'):
+        from .download_refresh import valid_release
+        if not valid_release(vendor,release):raise ValueError('Invalid refresh release')
+        return 'incremental_zip' if release.get('kind') in ('incremental','delta') else 'recovery_zip'
     path=urlsplit(release['download_url']).path.lower()
+    if path.endswith('.ozip'):return 'recovery_ozip'
     if path.endswith(('.enc2','.enc4')):return 'samsung_encrypted'
     if path.endswith(('.tgz','.tar.gz')):return 'fastboot_tgz'
     if not path.endswith('.zip'):raise ValueError('No supported firmware suffix')
@@ -57,7 +62,11 @@ def publish_device(db,device):
 def publish_release(db,device,release):
     if not release.get('download_url'):return {'status':'unresolved_download'}
     url=release['download_url']
-    if device['vendor']=='sony' and release.get('kind')=='sony_bundle':
+    if release.get('refresh_source'):
+        from .download_refresh import valid_release
+        if not valid_release(device['vendor'],release):raise ValueError('Invalid refresh release')
+        origin='oem_on_demand'
+    elif device['vendor']=='sony' and release.get('kind')=='sony_bundle':
         from .sony_source import validate_manifest,manifest_digest
         validate_manifest(release['bundle']);bundle_hash=manifest_digest(release['bundle'])
         if url!='https://findmyrom.com/sony/bundles/'+bundle_hash:raise ValueError('Invalid Sony bundle URL')
@@ -65,8 +74,8 @@ def publish_release(db,device,release):
     else:origin=download_origin(device['vendor'],url)
     if not origin:return {'status':'untrusted_download_origin'}
     # A rotating signed link cannot be advertised as a permanent download.
-    keys={k.lower() for k in __import__('urllib.parse',fromlist=['parse_qs']).parse_qs(urlsplit(url).query)}
-    if keys & {'x-amz-signature','x-goog-signature','expires','token','signature'}:
+    from .download_refresh import expiring
+    if expiring(url):
         return {'status':'requires_download_refresh'}
     code=publish_device(db,device)
     vendor=device['vendor']
@@ -96,8 +105,20 @@ def publish_release(db,device,release):
         (token,code,region,str(device.get('codename') or device['upstream_id']),version,
          (re.match(r'^\d+(?:\.\d+)*',str(release.get('android_version') or ''))[0] if re.match(r'^\d+(?:\.\d+)*',str(release.get('android_version') or '')) else str(release.get('android_version') or 'unknown')),kind,release.get('size'),digest.lower() if digest else None,
          url,fast,release.get('date'),signature))
-    row=db.query('SELECT public_token,extract_status FROM stock_firmwares WHERE device_codename=? AND region_code=? AND version_str=? AND package_type=?',
+    row=db.query('SELECT public_token,extract_status,original_official_url,fast_cdn_url FROM stock_firmwares WHERE device_codename=? AND region_code=? AND version_str=? AND package_type=?',
                  (code,region,version,kind))[0]
+    # Repair only a proven expiring URL for the same build/region/type. Keep the
+    # public token and extraction status; re-sign the new stable destination.
+    if release.get('refresh_source') and expiring(row['original_official_url']):
+        db.execute('''UPDATE stock_firmwares SET original_official_url=?,fast_cdn_url=?,ed25519_signature=?
+            WHERE public_token=? AND original_official_url=?''',
+            (url,fast,sign_firmware(row['public_token'],fast,private_key()),row['public_token'],row['original_official_url']))
+    if release.get('refresh_source'):
+        from .download_refresh import fingerprint
+        source=release['refresh_source']
+        db.execute('''INSERT OR IGNORE INTO crawler_sources(device_codename,source_kind,source_target,last_cursor_val,last_checked_at)
+            VALUES ('__global__','stock_download_refresh',?,?,strftime('%s','now'))''',
+            (fingerprint(source),json.dumps({'source':source,'public_token':row['public_token']},sort_keys=True,separators=(',',':'))))
     if device['vendor']=='sony' and release.get('kind')=='sony_bundle':
         db.execute('''INSERT OR IGNORE INTO crawler_sources(device_codename,source_kind,source_target,last_cursor_val,last_checked_at)
             VALUES ('__global__','sony_bundle',?,?,strftime('%s','now'))''',(bundle_hash,json.dumps({'manifest':release['bundle'],'public_token':row['public_token']},sort_keys=True,separators=(',',':'))))

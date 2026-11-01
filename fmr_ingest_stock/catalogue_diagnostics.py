@@ -7,6 +7,7 @@ import sqlite3
 from urllib.parse import urlsplit, parse_qs
 
 from .oem_sources import MetadataHTTP, resolve_atlas
+from .download_refresh import expiring
 from .vendor_catalogue import durable_download, problem
 
 
@@ -29,7 +30,7 @@ def inspect(vendor):
             kinds[value['release'].get('kind', 'unknown')] += 1
         if value.get('error'):
             errors[stage + ':' + value['error']] += 1
-        if stage == 'release' and value.get('status') in ('blocked', 'failed', 'retry'):
+        if stage == 'release' and (value.get('status') in ('blocked', 'failed', 'retry') or expiring(value['release'].get('download_url',''))):
             samples.append(value['release'])
     probes = []
     with_client = MetadataHTTP()

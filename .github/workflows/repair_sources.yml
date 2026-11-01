@@ -1,0 +1,25 @@
+name: Repair official source queues
+on:
+  workflow_run:
+    workflows: [Runner offline verification]
+    types: [completed]
+permissions:
+  contents: read
+  actions: write
+concurrency:
+  group: repair-official-source-queues
+  cancel-in-progress: false
+jobs:
+  retry:
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main' && contains(github.event.workflow_run.head_commit.message, '[repair-sources]')
+    runs-on: [self-hosted, findmyrom-metadata]
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Retry affected sources through their existing concurrency groups
+        run: |
+          for vendor in oneplus oppo realme vivo asus; do
+            gh workflow run "catalogue_${vendor}.yml" --ref main -f operation=retry_failed
+          done

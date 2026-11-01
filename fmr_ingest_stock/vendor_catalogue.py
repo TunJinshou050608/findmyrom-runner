@@ -27,6 +27,34 @@ VENDORS=tuple(LABELS)
 MODEL_TTL=6*3600
 RELEASE_TTL=30*86400
 FAILURE_TTL=86400
+ADAPTER_REVISION='20261101-download-refresh-1'
+
+
+def upgrade_adapters(store,status):
+    """Retry affected local records once per adapter revision, never per start."""
+    if store.vendor not in ('oneplus','oppo','realme','vivo','asus'):return
+    key=store.key('adapters')
+    if (store.get(key) or {}).get('revision')==ADAPTER_REVISION:return
+    from .download_refresh import expiring
+    changes=[];excluded=set();android=set()
+    for target,value in store.rows('release'):
+        row=value['release'];device=value['device']['upstream_id']
+        if store.vendor=='asus' and row.get('kind')=='chromeos':
+            excluded.add(device)
+            value.update(status='excluded',error=None,next_check=2**40)
+            changes.append((target,value));continue
+        android.add(device)
+        if value.get('status') in ('blocked','failed','retry') or expiring(row.get('download_url','')):
+            value.update(status='pending',next_check=0,last_cycle='',attempts=0,published=False,error=None)
+            changes.append((target,value))
+    for target,value in store.rows('model'):
+        if value['device']['upstream_id'] in excluded-android:
+            value['device']['catalogue_scope']='non_android'
+            value.update(status='excluded',error=None,next_check=2**40)
+            changes.append((target,value))
+    store.put_many(changes)
+    store.put(key,{'revision':ADAPTER_REVISION})
+    status.log(f'下载适配器已更新；定向重新核对 {len(changes)} 条本机记录，已成功的稳定链接保持不变。')
 
 
 def utc8(epoch=None):
@@ -97,14 +125,16 @@ def input_hash(row):
 
 
 def durable_download(vendor,row):
+    from .download_refresh import expiring, valid_release
     url=row.get('download_url')
+    if row.get('refresh_source'):
+        return valid_release(vendor,row)
     if vendor=='sony' and row.get('kind')=='sony_bundle':
         from .sony_source import validate_manifest,manifest_digest
         validate_manifest(row['bundle'])
         return url=='https://findmyrom.com/sony/bundles/'+manifest_digest(row['bundle'])
     if not url or not download_origin(vendor,url):return False
-    keys={k.lower() for k in parse_qs(urlsplit(url).query)}
-    return not keys & {'x-amz-signature','x-goog-signature','expires','token','signature'}
+    return not expiring(url)
 
 
 def model_value(device,embedded,old):
@@ -252,6 +282,12 @@ def batch(store,control,http,status):
         status.update(f'检查本批第 {number}/{len(models)} 个机型的历史目录')
         try:
             device,rows,provenance=collect_model(value['device'],value.get('embedded'),http)
+            if store.vendor=='asus' and rows and all(row.get('kind')=='chromeos' for row in rows):
+                value.update(device={**device,'catalogue_scope':'non_android'},provenance=provenance,
+                    releases=len(rows),checked_at=now,status='excluded',error=None,next_check=2**40,last_cycle=cycle)
+                store.put(key,value);store.advance('model',key);changed+=1
+                status.log('该目录为 ChromeOS 固件，已排除出 Android 官包采集。')
+                continue
             new=0
             for offset in range(0,len(rows),100):
                 if time.monotonic()>=http.client.deadline:raise CatalogueDeadline()
@@ -320,6 +356,7 @@ def dispatch(control,vendor):
 def run(db,vendor,mode='audit',operation='incremental',cycle='',sequence=1,client=None,dispatch_next=True,time_budget=2700):
     store=Store(db,vendor);key=store.key('control');control=store.get(key)
     with Status(vendor) as status:
+        upgrade_adapters(store,status)
         if int(os.environ.get('GITHUB_RUN_ATTEMPT','1'))>1 and control and control['state']=='completed_with_gaps':
             cycle='';mode=control['mode'];operation='retry_failed'
             status.log('收到失败任务的重新运行请求；复用成功记录，只重试失败项。')

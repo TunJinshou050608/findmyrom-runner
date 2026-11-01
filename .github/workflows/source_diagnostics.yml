@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
     paths:
-      - '.github/workflows/catalogue_diagnostics.yml'
+      - '.github/workflows/source_diagnostics.yml'
       - 'fmr_ingest_stock/catalogue_diagnostics.py'
 permissions:
   contents: read

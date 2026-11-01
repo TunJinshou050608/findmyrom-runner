@@ -6,7 +6,7 @@ entry is never treated as successful device/release discovery.
 import hashlib
 import re
 import time
-from urllib.parse import urljoin, urlsplit, unquote
+from urllib.parse import urljoin, urlsplit, unquote, quote, urlunsplit
 import xml.etree.ElementTree as ET
 
 from bs4 import BeautifulSoup
@@ -27,7 +27,7 @@ OEM_HOSTS = {
     'oneplus': ('allawnofs.com','allawnfs.com','oneplus.net','oneplus.com','oneplusmobile.com','oplusmobile.com','oppomobile.com','coloros.com','heytapmobile.com'),
     'oppo': ('allawnofs.com','allawnfs.com','oplusmobile.com','oppomobile.com','coloros.com','heytapmobile.com','oppo.com'),
     'realme': ('allawnofs.com','allawnfs.com','realme.com','realme.net','oplusmobile.com','oppomobile.com','coloros.com','heytapmobile.com'),
-    'vivo': ('vivo.com','vivo.com.cn','bbk.com'),
+    'vivo': ('vivo.com','vivo.com.cn','vivoglobal.com','bbk.com'),
     'asus': ('asus.com','asus.com.cn'),
     'nothing': ('android.googleapis.com','nothing.tech','nothing.community','nothingos.com'),
     'motorola': ('motorola.com','lenovo.com','motorola.com.cn'),
@@ -58,6 +58,18 @@ def download_origin(vendor, url):
         if p.hostname == root:
             return 'archive_mirror'
     return None
+
+
+def normalize_download(vendor, url):
+    # Some OEM support archives still redirect to HTTP or an unescaped filename.
+    # Upgrade only a known OEM host; never weaken metadata/redirect allowlists.
+    p = urlsplit(url)
+    if (p.scheme not in ('http', 'https') or not p.hostname or p.username or p.password
+            or p.port or any(ord(c)<32 or ord(c)==127 for c in url)):
+        return url
+    if any(p.hostname == root or p.hostname.endswith('.'+root) for root in OEM_HOSTS.get(vendor, ())):
+        return urlunsplit(('https', p.netloc, quote(p.path, safe='/%:@!$&\'()*+,;=-._~'), p.query, p.fragment))
+    return url
 
 
 def canonical_code(vendor, upstream):
@@ -96,7 +108,7 @@ class MetadataHTTP:
         if cache_key in self.cache:return self.cache[cache_key]
         for _ in range(5):
             p=safe_url(url)
-            if p.hostname not in METADATA_HOSTS or re.search(r'\.(zip|tgz|gz|img|enc[24]|lz4|bin)(?:$|/)',unquote(p.path),re.I):
+            if p.hostname not in METADATA_HOSTS or re.search(r'\.(zip|ozip|tgz|gz|img|enc[24]|lz4|bin)(?:$|/)',unquote(p.path),re.I):
                 raise ValueError('Metadata adapter refused a firmware request')
             with self.client.stream('GET',url,cookies=cookies) as r:
                 if r.status_code in (301,302,303,307,308):
@@ -240,6 +252,7 @@ def atlas_releases(device,http):
 
 
 def resolve_atlas(release,http):
+    from .download_refresh import expiring, renewable, VENDORS
     result=dict(release)
     soup=BeautifulSoup(http.get(release['detail_page']),'html.parser')
     facts={text(dt).lower():text(dt.find_next_sibling('dd')) for dt in soup.select('dl dt')}
@@ -263,7 +276,7 @@ def resolve_atlas(release,http):
             if p.hostname!='fwatlas.com':break
             with http.client.stream('GET',url,headers={'Referer':landing}) as response:
                 if response.status_code in (301,302,303,307,308):
-                    url=urljoin(url,response.headers.get('Location',''))
+                    url=normalize_download(release['vendor'],urljoin(url,response.headers.get('Location','')))
                     if download_origin(release['vendor'],url):
                         candidates.append(url)
                         break
@@ -279,17 +292,20 @@ def resolve_atlas(release,http):
             candidates.extend(urljoin(url,a['href']) for a in page.select('a[href]'))
             start=next((a for a in page.select('a[href]') if 'start download' in text(a).lower()),None)
             if not start:break
-            next_url=urljoin(url,start['href'])
+            next_url=normalize_download(release['vendor'],urljoin(url,start['href']))
             if next_url==url:break
             if download_origin(release['vendor'],next_url):
                 candidates.append(next_url)
                 break
             url=next_url
     for url in candidates:
+        url=normalize_download(release['vendor'],url)
         try:origin=download_origin(release['vendor'],url)
         except ValueError:continue
-        if origin and re.search(r'\.(zip|tgz|tar\.gz|enc[24])$',unquote(urlsplit(url).path),re.I):
+        if origin and re.search(r'\.(zip|ozip|tgz|tar\.gz|enc[24])$',unquote(urlsplit(url).path),re.I):
             result.update(download_url=url,origin_kind=origin,resolution='resolved')
+            if expiring(url) and release['vendor'] in VENDORS and landing:
+                return renewable(result,landing)
             return result
     result.update(resolution='interactive_or_unresolved_download',landing_page=landing)
     return result

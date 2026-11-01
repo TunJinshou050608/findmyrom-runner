@@ -250,3 +250,63 @@ def test_progress_logs_only_operational_fields_and_heartbeat_stops(capsys):
  stop=threading.Event();stop.set()
  heartbeat(stop)
  assert not capsys.readouterr().out
+
+
+def test_vivo_global_and_realme_ozip_are_resolved_without_fetching_rom_bodies():
+ from fmr_ingest_stock.catalogue_sync import package_kind
+ for vendor,host,suffix in [('vivo','in-sysup-awdl.vivoglobal.com','zip'),('realme','download.c.realme.com','ozip')]:
+  seen=[]
+  def handler(req):
+   seen.append(req);assert req.url.host=='fwatlas.com'
+   if not req.url.path.startswith('/download/'):return response('<h1>BUILD.123</h1><a href="/download/123/build">Download</a>')
+   if req.url.path.endswith('/go'):return httpx.Response(302,headers={'Location':f'https://{host}/firmware.{suffix}'})
+   return response('<a href="/download/123/build/go?t=public">Start download now</a>')
+  with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+   row=resolve_atlas({'vendor':vendor,'version':'BUILD.123','kind':'ota','detail_page':f'https://fwatlas.com/{vendor}/sample/build'},MetadataHTTP(client))
+  assert row['resolution']=='resolved' and row['origin_kind']=='oem' and len(seen)==3
+  assert package_kind(vendor,row)==('recovery_ozip' if suffix=='ozip' else 'recovery_zip')
+
+
+def test_signed_oplus_download_becomes_a_stable_refresh_descriptor(database):
+ from fmr_ingest_stock.download_refresh import PREFIX, fingerprint, expiring
+ from fmr_ingest_stock.vendor_catalogue import durable_download
+ db,pub=database;seen=[]
+ def handler(req):
+  seen.append(req);assert req.url.host=='fwatlas.com'
+  if req.url.path.endswith('/build'):return response('<h1>BUILD.123</h1><a href="/download/123/build-cn">Download</a>')
+  if req.url.path.endswith('/go'):return httpx.Response(302,headers={'Location':'https://gauss.allawnfs.com/firmware.zip?x-oss-expires=60&x-oss-signature=secret'})
+  return response('<a href="/download/123/build-cn/go?t=public">Start download now</a>')
+ with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+  row=resolve_atlas({'vendor':'oneplus','version':'BUILD.123','kind':'full','detail_page':'https://fwatlas.com/oneplus/sample/build'},MetadataHTTP(client))
+ assert durable_download('oneplus',row) and row['download_url']==PREFIX+fingerprint(row['refresh_source'])
+ assert 'secret' not in json.dumps(row) and len(seen)==3
+ device={'vendor':'oneplus','upstream_id':'sample','name':'Sample'}
+ result=publish_release(db,device,row);stored=db.query('SELECT * FROM stock_firmwares')[0]
+ assert stored['original_official_url']==row['download_url'] and result['package_type']=='recovery_zip'
+ payload=json.loads(db.query("SELECT last_cursor_val FROM crawler_sources WHERE source_kind='stock_download_refresh'")[0]['last_cursor_val'])
+ assert payload['public_token']==stored['public_token']
+ for query in ['X-OSS-Expires=60&X-OSS-Signature=secret','Expires=999&Signature=secret','sign=secret&t=1','X-Amz-Signature=secret']:
+  assert expiring('https://gauss.allawnfs.com/file.zip?'+query)
+  assert not durable_download('oneplus',{'download_url':'https://gauss.allawnfs.com/file.zip?'+query})
+ assert not durable_download('oppo',row)
+ with pytest.raises(ValueError):durable_download('oneplus',{**row,'refresh_source':{**row['refresh_source'],'landing_page':'https://evil.example/file'}})
+
+
+def test_asus_legacy_http_and_unescaped_filenames_are_upgraded_only_for_oem_hosts():
+ from fmr_ingest_stock.oem_sources import normalize_download
+ assert normalize_download('asus','http://dlcdnets.asus.com/pub/ASUS/Phone Firmware.zip')=='https://dlcdnets.asus.com/pub/ASUS/Phone%20Firmware.zip'
+ assert normalize_download('asus','http://evil.example/Phone.zip')=='http://evil.example/Phone.zip'
+
+
+def test_legacy_expiring_url_is_repaired_without_changing_token_or_extraction_state(database):
+ from fmr_ingest_stock.download_refresh import renewable
+ db,pub=database;device={'vendor':'oneplus','upstream_id':'sample','name':'Sample'}
+ original={'vendor':'oneplus','version':'BUILD.123','kind':'full','download_url':'https://gauss.allawnfs.com/firmware.zip'}
+ result=publish_release(db,device,original)
+ # Simulate a signed OSS URL that an older adapter incorrectly accepted.
+ db.execute("UPDATE stock_firmwares SET original_official_url=?,fast_cdn_url=?,extract_status='processing'",('https://gauss.allawnfs.com/firmware.zip?x-oss-expires=60','https://gauss.allawnfs.com/firmware.zip?x-oss-expires=60'))
+ new=renewable(original,'https://fwatlas.com/download/123/build-cn')
+ publish_release(db,device,new);stored=db.query('SELECT * FROM stock_firmwares')[0]
+ assert stored['public_token']==result['public_token'] and stored['extract_status']=='processing'
+ assert stored['fast_cdn_url']==new['download_url']
+ Ed25519PublicKey.from_public_bytes(bytes.fromhex(pub)).verify(bytes.fromhex(stored['ed25519_signature']),f"v1|fw|{stored['public_token']}|{stored['fast_cdn_url']}".encode())
