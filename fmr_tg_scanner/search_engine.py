@@ -1,0 +1,185 @@
+"""Autonomous query-first TG discovery with bounded work and independent cursors."""
+from collections import Counter
+from datetime import datetime,timezone
+import json
+import os
+from pathlib import Path
+import re
+import time
+import threading
+from urllib.parse import urlsplit
+
+from .channel_search import search_page
+from .html_parser import parse_tg_channel_page,ChannelUnavailableError
+from .message_reader import read_message
+from .search_discovery import aliases,index_search,name_candidates,profile_context,linked_channels
+from .search_http import SearchHTTP,WorkBudgetReached
+from .search_policy import analyse
+from .search_store import SearchStore
+from .trial import atomic_json
+
+
+def run(root,targets,*,max_requests=180,max_seconds=480,http_factory=SearchHTTP,mode='query_first',cold=False):
+    root=Path(root);root.mkdir(parents=True,exist_ok=True)
+    if not 1<=len(targets)<=500 or not all(re.fullmatch('[a-z0-9_-]{3,24}',v) for v in targets):raise ValueError('Invalid target codenames')
+    if not 1<=max_requests<=2000 or not 10<=max_seconds<=1800:raise ValueError('Invalid batch budget')
+    run_id=os.environ.get('GITHUB_RUN_ID','local')+'-'+os.environ.get('FMR_TG_CYCLE',str(time.time_ns()))
+    logs=root/'logs';logs.mkdir(exist_ok=True);log_path=logs/(run_id+'.jsonl')
+    started=time.monotonic();events=Counter();new_products=0;first_product=None;per_device=Counter();failures=[]
+    def emit(value):
+        value=dict(value);events[value['event']]+=1
+        with log_path.open('a') as handle:handle.write(json.dumps({'time':time.time(),**value},ensure_ascii=False,sort_keys=True)+'\n')
+        if value['event'] in ('task_finished','task_failed','resource_decision','source_admitted'):
+            public={key:value[key] for key in ('event','kind','reason','accepted','new','count') if key in value}
+            print(json.dumps(public),flush=True)
+    store=SearchStore(root/'search.sqlite');http=http_factory(store,emit,max_requests=max_requests,max_seconds=max_seconds)
+    stopped=threading.Event()
+    def heartbeat():
+        while not stopped.wait(30):print(json.dumps({'event':'search_heartbeat','requests':http.requests,'new_qualified_products':new_products,'elapsed_seconds':round(time.monotonic()-started)}),flush=True)
+    monitor=threading.Thread(target=heartbeat,daemon=True);monitor.start()
+    all_names={code:[] for code in targets};outcome='completed';processed=0
+    try:
+        try:all_names=aliases(http,store,targets)
+        except WorkBudgetReached:outcome='budget_reached'
+        except Exception as exc:emit({'event':'alias_catalogue_unavailable','error_type':type(exc).__name__})
+        for code in targets:
+            store.enqueue('index',code,{'provider':'lyzem','query':code},40)
+            # Index discovery and direct channel candidates interleave with
+            # retrieval; they cannot consume the whole batch before any scan.
+            for index,channel in enumerate(name_candidates(code,all_names.get(code,[]))):
+                store.enqueue('admit',code,{'channel':channel,'depth':0},50+index)
+        def admit(code,channel,html,depth=0):
+            context=profile_context(html)
+            try:page=parse_tg_channel_page(html,channel)
+            except ChannelUnavailableError:
+                if depth<2 and re.search(r'(?i)android|rom|firmware|kernel|xiaomi|redmi|poco|recovery',context):
+                    for linked in linked_channels(html)[:8]:
+                        if linked!=channel:store.enqueue('admit',code,{'channel':linked,'depth':depth+1},40)
+                    emit({'event':'public_profile_links_observed','channel':channel,'device':code})
+                return False
+            actual='\n'.join(m['text'] for m in page['messages'])
+            if not re.search(r'(?i)\b(android|rom|firmware|kernel|lineageos|hyperos|miui|xiaomi|redmi|poco|twrp|orangefox|magisk|kernelsu)\b',context+'\n'+actual):return False
+            store.set_meta('profile:'+channel,context)
+            sources=store.meta('sources',{})
+            entry=sources.setdefault(channel,{'targets':[],'depth':depth})
+            if code not in entry['targets']:entry['targets'].append(code)
+            store.set_meta('sources',sources)
+            if mode=='latest_first':store.enqueue('history',code,{'channel':channel,'depth':depth,'state':{}},10)
+            else:
+                store.enqueue('query',code,{'channel':channel,'query':code,'depth':depth,'state':{}},10)
+                for alias in all_names.get(code,[])[:2]:store.enqueue('query',code,{'channel':channel,'query':alias,'depth':depth,'state':{}},12)
+                store.enqueue('head',code,{'channel':channel,'depth':depth},25)
+            emit({'event':'source_admitted','channel':channel,'device':code})
+            return True
+        def message(code,msg,source,depth=0):
+            nonlocal new_products,first_product
+            events['messages_considered']+=1
+            result,reason=analyse(msg,code,all_names.get(code,[]),all_names,store.meta('profile:'+msg['channel_username'],''))
+            if result is None:
+                events['rejected:'+reason]+=1;return False
+            package=result['package'];evidence={**result['evidence'],'source_url':source,'message_identity_verified':True,
+                'source_post_url':package['original_post_url'],'numeric_sender_id_observed':package.get('sender_id') is not None,
+                'author_identity_verified':False}
+            changed=store.save(package,evidence,result['classification'],reason,result['accepted'])
+            if result['accepted']:
+                per_device[code]+=1
+                if changed:
+                    new_products+=1
+                    if first_product is None:first_product=round(time.monotonic()-started,3)
+                if depth<2:
+                    channels=set()
+                    for url in [package['original_post_url'],*msg.get('links',[])]:
+                        p=urlsplit(url)
+                        if p.scheme=='https' and p.hostname=='t.me':
+                            match=re.fullmatch(r'/(?:s/)?([a-z][a-z0-9_]{3,31})(?:/[0-9]+)?/?',p.path,re.I)
+                            if match:channels.add(match[1].lower())
+                    for channel in sorted(channels)[:8]:
+                        if channel!=msg['channel_username']:store.enqueue('admit',code,{'channel':channel,'depth':depth+1},35)
+            emit({'event':'resource_decision','device':code,'channel':msg['channel_username'],'msg_id':msg['msg_id'],
+                  'accepted':result['accepted'],'new':changed,'reason':reason,'classification':result['classification'],'package':package,'evidence':evidence})
+            return result['accepted']
+        last_heartbeat=time.monotonic();task=None
+        while time.monotonic()-started<max_seconds:
+            if time.monotonic()-last_heartbeat>=30:
+                print(json.dumps({'event':'search_heartbeat','requests':http.requests,'new_qualified_products':new_products,'tasks_completed':processed}),flush=True);last_heartbeat=time.monotonic()
+            task=store.due(targets)
+            if task is None:break
+            code,kind,payload=task['device'],task['kind'],task['payload'];depth=payload.get('depth',0)
+            try:
+                count=0;delay=3600
+                if kind=='index':
+                    # A random negative control is shared, not repeated per model.
+                    if store.meta('lyzem_control_checked',{}).get('checked',0)+86400<time.time():
+                        control=index_search(http,'lyzem','fmr_negative_zqx724601193')
+                        store.set_meta('lyzem_control_checked',{'ok':not control['messages'],'checked':time.time()})
+                    control=store.meta('lyzem_control_checked')
+                    if not control['ok']:raise ValueError('Index ignores query; provider disabled')
+                    results=index_search(http,payload['provider'],payload['query']);count=len(results['messages'])
+                    for item in results['messages'][:20]:store.enqueue('post',code,{**item,'depth':0},5)
+                    # Bare channels are evidence candidates, never products.
+                    for item in results['channels'][:6]:store.enqueue('admit',code,{**item,'depth':0},45)
+                    emit({'event':'index_funnel','device':code,'candidate_messages':count,'status':results['status']})
+                elif kind=='post':
+                    msg,url=read_message(lambda url:http.get(url,ttl=86400),payload['channel'],payload['msg_id'])
+                    count=int(message(code,msg,url,depth))
+                    if count:store.enqueue('admit',code,{'channel':payload['channel'],'depth':depth},15)
+                    delay=7*86400
+                elif kind=='admit':
+                    url='https://t.me/s/'+payload['channel'];html=http.get(url,ttl=300)
+                    admitted=admit(code,payload['channel'],html,depth)
+                    count=int(admitted);delay=86400 if admitted else 2*86400
+                    # The fetched head is reused immediately rather than thrown away.
+                    if admitted:
+                        page=parse_tg_channel_page(html,payload['channel'])
+                        for msg in page['messages']:message(code,msg,url,depth)
+                        if depth<2:
+                            for channel in linked_channels(html)[:12]:
+                                if channel!=payload['channel']:store.enqueue('admit',code,{'channel':channel,'depth':depth+1},60)
+                elif kind=='query':
+                    page=search_page(lambda url:http.get(url,ttl=86400 if payload.get('state',{}).get('before') else 120),payload['channel'],payload['query'],payload.get('state'))
+                    for msg in page['messages']:count+=int(message(code,msg,page['source_url'],depth))
+                    payload['state']=page['state'];delay=0 if page['has_more'] else 1800
+                    if page['status'] not in ('more','search_exhausted'):delay=7200;emit({'event':'query_incomplete','status':page['status'],'device':code,'channel':payload['channel']})
+                    emit({'event':'query_page','device':code,'channel':payload['channel'],'status':page['status'],'matched_products':count,'messages':len(page['messages'])})
+                elif kind in ('head','history'):
+                    before=payload.get('state',{}).get('before')
+                    url='https://t.me/s/'+payload['channel']+(f'?before={before}' if before else '')
+                    page=parse_tg_channel_page(http.get(url,ttl=86400 if before else 120),payload['channel'])
+                    for msg in page['messages']:count+=int(message(code,msg,url,depth))
+                    delay=600
+                    if kind=='history':
+                        lo=page['min_msg_id']
+                        if lo and (not before or lo<before):payload['state']={'before':lo};delay=0
+                        else:delay=86400
+                else:raise ValueError('Unknown search task')
+                store.finish(task,delay=delay,payload=payload);processed+=1
+                emit({'event':'task_finished','kind':kind,'device':code,'count':count,'next_in_seconds':delay})
+            except WorkBudgetReached:
+                store.finish(task,payload=payload);outcome='budget_reached';break
+            except Exception as exc:
+                reason=type(exc).__name__;failures.append({'kind':kind,'device':code,'error_type':reason})
+                store.finish(task,delay=min(86400,900*(2**min(task['attempts'],5))),error=reason,payload=payload)
+                emit({'event':'task_failed','kind':kind,'device':code,'error_type':reason})
+            task=None
+        else:outcome='time_budget_reached'
+        rows=store.query('SELECT * FROM tg_search_records ORDER BY device,channel,msg_id')
+        unique={}
+        for row in rows:
+            if row['accepted']:unique.setdefault(row['fingerprint'],row)
+        products=[{'package':json.loads(row['payload']),'evidence':json.loads(row['evidence']),'classification':row['classification']} for row in unique.values()]
+        atomic_json(root/'products.json',{'products':products})
+        atomic_json(root/'candidates.json',{'candidates':[{'package':json.loads(r['payload']),'evidence':json.loads(r['evidence']),'reason':r['reason']} for r in rows if not r['accepted']]})
+        todo=store.query("SELECT kind,status,COUNT(*) AS count FROM tg_search_tasks GROUP BY kind,status")
+        counts=Counter(v['package']['device_codename'] for v in products)
+        report={'engine':'query_first_v3','mode':mode,'ok':bool(products),'outcome':outcome,'targets':targets,
+            'new_qualified_products':new_products,'packages':len(products),'stored_observations':len(rows),'per_device':dict(counts),
+            'http_requests':http.requests,'cache_hits':http.cache_hits,'response_bytes':http.bytes,'http_errors':http.errors,
+            'first_product_seconds':first_product,'elapsed_seconds':round(time.monotonic()-started,3),'tasks_processed':processed,
+            'requests_per_new_product':round(http.requests/new_products,3) if new_products else None,
+            'events':dict(events),'task_states':todo,'failures':failures,'sources':len(store.meta('sources',{})),
+            'D1_requests':0,'llm_calls':0,'firmware_downloaded':False,'global_coverage_complete':False,
+            'note':'Products are observed metadata, not binary integrity or independent author verification. Search completion is not complete Telegram history.'}
+        atomic_json(root/'reports'/f'{run_id}.json',report);atomic_json(root/'reports/latest.json',report)
+        print(json.dumps({k:report[k] for k in ('engine','mode','ok','outcome','new_qualified_products','packages','per_device','http_requests','cache_hits','first_product_seconds','elapsed_seconds','sources')}),flush=True)
+        return report
+    finally:stopped.set();monitor.join(2);http.close();store.close()

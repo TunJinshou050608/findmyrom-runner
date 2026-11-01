@@ -1,0 +1,65 @@
+"""Device and resource decisions must be grounded in the actual Telegram post."""
+import json
+import re
+from urllib.parse import urlsplit,unquote
+from .rule_extractor import extract_package_by_rules
+from .trial import qualification,MAINSTREAM
+
+
+def token(text,value):return bool(re.search(r'(?<![a-z0-9_])'+re.escape(value)+r'(?![a-z0-9_])',text,re.I))
+
+
+def target_evidence(message,target,names,all_names,profile=''):
+    text=message.get('text','');head='\n'.join(text.splitlines()[:4])
+    files=(message.get('file_attachment_name') or '')+' '+unquote(' '.join(message.get('links',[])))
+    tokens=re.findall(r'(?i)#([a-z][a-z0-9_-]{2,24})\b|(?:codename|device)\s*[:：-]\s*([a-z0-9_-]{3,24})\b|[\[(]\s*([a-z0-9_-]{3,24})\s*[\])]',text)
+    explicit={part.lower() for groups in tokens for part in groups if part and (part.lower() in all_names or part.lower()==target)}
+    if explicit and target not in explicit:return None
+    if len(explicit)>1:
+        if not token(files,target):return None
+        return {'kind':'target_in_download_path','value':target}
+    if target in explicit:return {'kind':'explicit_codename','value':target}
+    if token(files,target):return {'kind':'target_in_download_path','value':target}
+    for alias in names:
+        if len(alias)>4 and token(text,alias):return {'kind':'catalogue_model_alias','value':alias}
+    if token(head,target):return {'kind':'codename_in_release_heading','value':target}
+    if token(text,target):return {'kind':'codename_in_release_body','value':target}
+    # A channel name alone is not evidence. A profile must independently name
+    # exactly this model, without another known target/alias in its description.
+    if profile and (token(profile,target) or any(token(profile,name) for name in names)):
+        other=[code for code,aliases in all_names.items() if code!=target and
+               (re.search(r'#'+re.escape(code)+r'\b',profile,re.I) or any(len(a)>7 and token(profile,a) for a in aliases))]
+        if not other:return {'kind':'dedicated_channel_profile','value':profile[:300]}
+    return None
+
+
+def analyse(message,target,names,all_names,profile=''):
+    evidence=target_evidence(message,target,names,all_names,profile)
+    if evidence is None:return None,'wrong_or_unproved_device'
+    package=extract_package_by_rules(message)
+    if package is None:return None,'not_a_resource'
+    package['device_codename']=target
+    text=message.get('text','');heading='\n'.join(text.splitlines()[:4])
+    # Keep the declared primary resource type separate from companion links.
+    if re.search(r'(?i)\b(?:kernel)\b',heading) and not re.search(r'(?i)\bROM\b',heading):package['resource_kind']='kernel'
+    elif re.search(r'(?i)\b(?:recovery|TWRP|OrangeFox)\b',heading) and not re.search(r'(?i)\bROM\b',heading):package['resource_kind']='recovery'
+    if re.search(r'(?i)\bunofficial\b|#unofficial|^\s*(?:status|build type)\s*[:：-]\s*unofficial',heading):label='unofficial'
+    elif re.search(r'(?i)\bport(?:ed)?\b|\bcustom\b',heading):label='custom_or_port'
+    elif package['project_name'].lower() in ('hyperos','miui') or any((urlsplit(u).hostname or '') in ('bigota.d.miui.com','hugeota.d.miui.com','dl.google.com','bkt-sgp-miui-ota-update-alisgp.oss-ap-southeast-1.aliyuncs.com') for u in json.loads(package['download_links_json'])):label='stock_official'
+    elif package['resource_kind']=='rom' and package['project_name'].lower() in MAINSTREAM and re.search(r'(?i)\bofficial\b',heading):label='mainstream_official'
+    else:label='unknown'
+    # A credited developer is not automatically the account that published the
+    # post. Missing forward/signature evidence remains unknown in the new path.
+    credited=package.get('maintainer_handle')
+    explicit_credit=bool(re.search(r'(?i)(?:by|maintainer|developer|author|builder|built\s+by)\s*[:：-]?\s*(?:https?://t\.me/|@)',text))
+    if not explicit_credit:package['maintainer_handle']=None
+    signature=message.get('sender_author_signature') or ''
+    if package['origin_type']=='author_direct' and not (explicit_credit and credited and credited.lstrip('@').lower() in signature.lower()):
+        package['origin_type']='unknown'
+    if package['origin_type']=='repost_aggregator' and package['original_post_url']==package['tg_post_url']:
+        package['origin_type']='unknown'
+    reason='accepted'
+    if qualification(package)!='package':reason='unresolved_download_reference'
+    elif label=='stock_official':reason='excluded_stock_firmware'
+    elif label=='mainstream_official':reason='excluded_mainstream_official_rom'
+    return {'package':package,'evidence':evidence,'classification':label,'accepted':reason=='accepted'},reason
