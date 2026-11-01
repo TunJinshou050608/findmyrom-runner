@@ -69,10 +69,11 @@ def normalize_download(vendor, url):
     # Upgrade only a known OEM host; never weaken metadata/redirect allowlists.
     p = urlsplit(url)
     if (p.scheme not in ('http', 'https') or not p.hostname or p.username or p.password
-            or p.port or any(ord(c)<32 or ord(c)==127 for c in url)):
+            or p.port not in (None,80 if p.scheme=='http' else 443) or any(ord(c)<32 or ord(c)==127 for c in url)):
         return url
     if any(p.hostname == root or p.hostname.endswith('.'+root) for root in OEM_HOSTS.get(vendor, ())):
-        return urlunsplit(('https', p.netloc, quote(p.path, safe='/%:@!$&\'()*+,;=-._~'), p.query, p.fragment))
+        return urlunsplit(('https', p.hostname, quote(p.path, safe='/%:@!$&\'()*+,;=-._~'),
+            quote(p.query,safe='/%?:@!$&\'()*+,;=-._~'),p.fragment))
     return url
 
 

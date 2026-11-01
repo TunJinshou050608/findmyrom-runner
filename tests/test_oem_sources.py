@@ -295,6 +295,7 @@ def test_signed_oplus_download_becomes_a_stable_refresh_descriptor(database):
 def test_asus_legacy_http_and_unescaped_filenames_are_upgraded_only_for_oem_hosts():
  from fmr_ingest_stock.oem_sources import normalize_download
  assert normalize_download('asus','http://dlcdnets.asus.com/pub/ASUS/Phone Firmware.zip')=='https://dlcdnets.asus.com/pub/ASUS/Phone%20Firmware.zip'
+ assert normalize_download('asus','http://dlcdnets.asus.com:80/pub/ASUS/file.zip?model=ROG Phone 9')=='https://dlcdnets.asus.com/pub/ASUS/file.zip?model=ROG%20Phone%209'
  assert normalize_download('asus','http://evil.example/Phone.zip')=='http://evil.example/Phone.zip'
 
 

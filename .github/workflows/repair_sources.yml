@@ -11,15 +11,17 @@ concurrency:
   cancel-in-progress: false
 jobs:
   retry:
-    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main' && contains(github.event.workflow_run.head_commit.message, '[repair-sources]')
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main' && (contains(github.event.workflow_run.head_commit.message, '[repair-sources]') || contains(github.event.workflow_run.head_commit.message, '[repair-asus]'))
     runs-on: [self-hosted, findmyrom-metadata]
     timeout-minutes: 5
     env:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
+      REPAIR_VENDORS: ${{ contains(github.event.workflow_run.head_commit.message, '[repair-asus]') && 'asus' || 'oneplus oppo realme vivo asus' }}
     steps:
       - name: Retry affected sources through their existing concurrency groups
         run: |
-          for vendor in oneplus oppo realme vivo asus; do
+          for vendor in $REPAIR_VENDORS; do
             gh workflow run "catalogue_${vendor}.yml" --ref main -f operation=retry_failed
           done
+          gh workflow run catalogue_publish.yml --ref main

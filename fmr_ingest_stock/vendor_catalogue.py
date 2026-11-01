@@ -33,8 +33,9 @@ ADAPTER_REVISION='20261101-download-refresh-1'
 def upgrade_adapters(store,status):
     """Retry affected local records once per adapter revision, never per start."""
     if store.vendor not in ('oneplus','oppo','realme','vivo','asus'):return
+    revision=ADAPTER_REVISION+('-asus-2' if store.vendor=='asus' else '')
     key=store.key('adapters')
-    if (store.get(key) or {}).get('revision')==ADAPTER_REVISION:return
+    if (store.get(key) or {}).get('revision')==revision:return
     from .download_refresh import expiring
     changes=[];excluded=set();android=set()
     for target,value in store.rows('release'):
@@ -53,7 +54,7 @@ def upgrade_adapters(store,status):
             value.update(status='excluded',error=None,next_check=2**40)
             changes.append((target,value))
     store.put_many(changes)
-    store.put(key,{'revision':ADAPTER_REVISION})
+    store.put(key,{'revision':revision})
     status.log(f'下载适配器已更新；定向重新核对 {len(changes)} 条本机记录，已成功的稳定链接保持不变。')
 
 
