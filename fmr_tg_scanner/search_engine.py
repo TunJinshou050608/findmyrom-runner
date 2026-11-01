@@ -44,6 +44,19 @@ def run(root,targets,*,max_requests=180,max_seconds=480,http_factory=SearchHTTP,
         try:all_names=aliases(http,store,targets)
         except WorkBudgetReached:outcome='budget_reached'
         except Exception as exc:emit({'event':'alias_catalogue_unavailable','error_type':type(exc).__name__})
+        def share_source(channel,context,depth):
+            # An Android aggregator discovered while scanning one model is a
+            # useful source for the other tracked models too. Compatibility
+            # still comes from each actual post, never from this promotion.
+            info=store.meta('sources',{}).get(channel,{})
+            if 'history' in info.get('strategy_by_device',{}).values():return
+            dedicated=[code for code in targets if target_evidence({'text':''},code,all_names.get(code,[]),all_names,context)]
+            if dedicated:return
+            known=info.get('targets',[])
+            for other in targets:
+                if other not in known:store.enqueue('query',other,{'channel':channel,'query':other,'depth':depth,'state':{},'reason':'shared_android_source'},6)
+        for channel,info in store.meta('sources',{}).items():
+            share_source(channel,store.meta('profile:'+channel,''),info.get('depth',0))
         if store.meta('retrieval_mode')!=mode:
             for channel,info in store.meta('sources',{}).items():
                 for code in info.get('targets',[]):
@@ -81,6 +94,7 @@ def run(root,targets,*,max_requests=180,max_seconds=480,http_factory=SearchHTTP,
             strategy='history' if mode=='latest_first' or (mode=='adaptive' and dedicated and dedicated['kind']=='dedicated_channel_profile') else 'query'
             entry.setdefault('strategy_by_device',{})[code]=strategy
             store.set_meta('sources',sources)
+            share_source(channel,context,depth)
             if strategy=='history':
                 store.execute("UPDATE tg_search_tasks SET status='dormant' WHERE device=? AND kind='query' AND json_extract(payload,'$.channel')=?",(code,channel))
                 store.enqueue('history',code,{'channel':channel,'depth':depth,'state':{}},10)
@@ -92,8 +106,13 @@ def run(root,targets,*,max_requests=180,max_seconds=480,http_factory=SearchHTTP,
                 store.enqueue('head',code,{'channel':channel,'depth':depth},8)
             emit({'event':'source_admitted','channel':channel,'device':code,'strategy':strategy})
             return True
-        def message(code,msg,source,depth=0):
+        def message(code,msg,source,depth=0,routed=False):
             nonlocal new_products,first_product
+            if not routed:
+                for other in targets:
+                    if other!=code and target_evidence(msg,other,all_names.get(other,[]),all_names):
+                        message(other,msg,source,depth,routed=True)
+                        store.enqueue('admit',other,{'channel':msg['channel_username'],'depth':depth,'reason':'observed_device_post'},15)
             events['messages_considered']+=1
             result,reason=analyse(msg,code,all_names.get(code,[]),all_names,store.meta('profile:'+msg['channel_username'],''))
             if result is None:
@@ -172,6 +191,8 @@ def run(root,targets,*,max_requests=180,max_seconds=480,http_factory=SearchHTTP,
                     page=search_page(lambda url:http.get(url,ttl=86400 if payload.get('state',{}).get('before') else 120),payload['channel'],payload['query'],payload.get('state'))
                     for msg in page['messages']:count+=int(message(code,msg,page['source_url'],depth))
                     payload['state']=page['state'];delay=0 if page['has_more'] else 1800
+                    if not page['messages'] and payload['query']==code:
+                        for alias in all_names.get(code,[])[:2]:store.enqueue('query',code,{'channel':payload['channel'],'query':alias,'depth':depth,'state':{}},12)
                     if page['status'] not in ('more','search_exhausted'):
                         delay=7200
                         store.enqueue('history',code,{'channel':payload['channel'],'depth':depth,'state':{}},30)
@@ -225,7 +246,8 @@ def run(root,targets,*,max_requests=180,max_seconds=480,http_factory=SearchHTTP,
         counts=Counter(v['package']['device_codename'] for v in products)
         report={'engine':'tg_search_v3','mode':mode,'ok':not failures or len(failures)<processed,'has_products':bool(products),'activity':'new_products' if new_products else 'no_new_products','outcome':outcome,'targets':targets,
             'policy_version':hashlib.sha256(Path(__file__).with_name('search_policy.py').read_bytes()).hexdigest()[:16],
-            'new_qualified_products':new_products,'packages':len(products),'stored_observations':len(rows),'per_device':dict(counts),
+            'new_qualified_products':new_products,'packages':len(products),'stored_observations':len(rows),'per_device':{code:counts.get(code,0) for code in targets},
+            'unresolved_targets':[code for code in targets if not counts.get(code)],'coverage_ok':all(counts.get(code,0) for code in targets),
             'http_requests':http.requests,'cache_hits':http.cache_hits,'response_bytes':http.bytes,'http_errors':http.errors,
             'first_product_seconds':first_product,'elapsed_seconds':round(time.monotonic()-started,3),'tasks_processed':processed,
             'requests_per_new_product':round(http.requests/new_products,3) if new_products else None,

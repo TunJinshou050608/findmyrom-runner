@@ -218,3 +218,22 @@ def test_multidevice_post_does_not_mix_download_targets():
     result,reason=analyse(msg,'alioth',[],{'alioth':[],'liuqin':[]})
     assert reason=='accepted'
     assert json.loads(result['package']['download_links_json'])==['https://sourceforge.net/files/EvolutionX_alioth-15.zip']
+
+
+def test_shared_aggregator_reaches_model_without_own_channel(tmp_path,monkeypatch):
+    from fmr_tg_scanner.search_engine import run
+    monkeypatch.setenv('FMR_TEST_NO_SLEEP','1');requests=[]
+    def response(req):
+        requests.append(str(req.url))
+        if req.url.host=='raw.githubusercontent.com':body='alioth: ["POCO F3"]\nishtar: ["Xiaomi 13 Ultra"]'
+        elif req.url.host=='api.github.com':body='{"items":[]}'
+        elif req.url.host=='lyzem.com':body='<html></html>'
+        elif req.url.path=='/s/aliothupdates':
+            code='ishtar' if req.url.params.get('q')=='ishtar' else 'alioth'
+            body='<h1 class="tgme_channel_info_header_title">Android Custom ROM Updates</h1>'+page(ids=(13,),text=f'#{code} Evolution X unofficial Android 15').replace('testchannel/','aliothupdates/').replace('alioth-13.zip',code+'-13.zip')
+        else:body='<html></html>'
+        return httpx.Response(200,headers={'content-type':'text/html'},text=body)
+    def factory(*args,**kwargs):return SearchHTTP(*args,**kwargs,client=httpx.Client(transport=httpx.MockTransport(response)))
+    result=run(tmp_path,['alioth','ishtar'],max_requests=90,max_seconds=30,http_factory=factory)
+    assert result['per_device']['ishtar']==1 and result['coverage_ok']
+    assert any('/s/aliothupdates?q=ishtar' in url for url in requests)

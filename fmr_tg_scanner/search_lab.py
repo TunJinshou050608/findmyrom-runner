@@ -12,9 +12,13 @@ def main():
     parser=argparse.ArgumentParser()
     parser.add_argument('--state-dir',required=True)
     parser.add_argument('--targets',default='annibale,ishtar,liuqin,alioth')
-    parser.add_argument('--mode',choices=('batch','compare'),default='batch')
+    parser.add_argument('--mode',choices=('batch','compare','focus'),default='batch')
     args=parser.parse_args()
     targets=list(dict.fromkeys(v.strip().lower() for v in args.targets.split(',') if v.strip()))
+    if args.mode=='focus':
+        from .search_focus import focus
+        focus(args.state_dir,targets)
+        return
     root=Path(args.state_dir)/'experiments'/'search-v3'/os.environ.get('GITHUB_RUN_ID','local')
     modes=['query_first'] if args.mode=='batch' else ['query_first','latest_first']
     reports={}

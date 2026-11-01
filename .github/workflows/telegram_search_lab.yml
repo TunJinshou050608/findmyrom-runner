@@ -5,7 +5,7 @@ on:
       mode:
         description: Capability probe or finite autonomous search batch
         type: choice
-        options: [probe, batch, compare]
+        options: [probe, batch, compare, focus]
         default: probe
       targets:
         description: Device codenames only; never channel seeds
@@ -13,7 +13,8 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: tg01-annibale-private-trial
+  # Focus runs read the resident snapshot and write a separate experiment dir.
+  group: ${{ inputs.mode == 'focus' && 'tg-search-focus' || 'tg01-annibale-private-trial' }}
   cancel-in-progress: false
 jobs:
   lab:
