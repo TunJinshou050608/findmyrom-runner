@@ -148,3 +148,12 @@ def test_payload_refuses_bad_hash_deltas_and_extents(kwargs,match):
     remote,client=remote_for(data)
     with closing(client),pytest.raises(ValueError,match=match):
         list(image_stream(remote,'init_boot',{}))
+
+
+def test_final_chunk_is_withheld_on_partition_hash_failure():
+    image,data=payload_zip(corrupt=True)
+    remote,client=remote_for(data)
+    received=0
+    with closing(client),pytest.raises(ValueError,match='Partition SHA256 mismatch'):
+        for chunk in image_stream(remote,'init_boot',{}): received+=len(chunk)
+    assert received<len(image)

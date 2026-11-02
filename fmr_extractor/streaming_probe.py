@@ -303,7 +303,7 @@ def payload_stream(remote, base, payload_size, target, metrics):
     metrics['sha256_verified']=True
 
 
-def image_stream(remote, target, metrics):
+def _image_stream(remote, target, metrics):
     """Pull iterator. Closing it closes every nested decoder/container."""
     if target not in ('boot','init_boot','recovery'): raise ValueError('Invalid lab partition')
     with contextlib.ExitStack() as stack:
@@ -364,6 +364,28 @@ def image_stream(remote, target, metrics):
         raise ValueError('Target not found before budget/deadline')
 
 
+def image_stream(remote,target,metrics):
+    """Withhold the final chunk until CRC/hash/decoder validation completes.
+
+    Otherwise a Content-Length client could accept a complete corrupt image
+    before the producer's final SHA256 check raises an error.
+    """
+    stream=_image_stream(remote,target,metrics)
+    pending=None;written=0
+    try:
+        for chunk in stream:
+            if pending is None and written==0 and not chunk.startswith(LIMITS[target][2]):
+                raise ValueError('Image magic mismatch')
+            written+=len(chunk)
+            if written>LIMITS[target][1]: raise ValueError('Image output bound exceeded')
+            if pending is not None: yield pending
+            pending=chunk
+        if pending is None or written!=metrics['output_size']:
+            raise ValueError('Incomplete image output')
+        yield pending
+    finally: stream.close()
+
+
 VIVO='https://asia-sysupwsdl.vivoglobal.com/upgrade/official/officialFiles/PD2357F_EX_A_14.0.16.1.W30.V000L1-update-full_1739959098.zip'
 OPLUS='https://gauss-componentotacostmanual-cn.allawnfs.com/remove-f3beae86ff23858de919c5c568891ca7/component-ota/24/10/09/233fa60caa38462e97b29bfa8bc0c0e2.zip'
 
@@ -377,6 +399,7 @@ def http_delivery_probe(remote,target):
     ticket='/'+secrets.token_hex(16)
     states=[]
     class Handler(BaseHTTPRequestHandler):
+        protocol_version='HTTP/1.1'
         def log_message(self,*args): pass
         def do_GET(self):
             if self.path!=ticket:
@@ -391,11 +414,17 @@ def http_delivery_probe(remote,target):
                 self.send_response(200)
                 self.send_header('Content-Type','application/octet-stream')
                 self.send_header('Cache-Control','no-store')
-                if 'output_size' in state: self.send_header('Content-Length',str(state['output_size']))
+                chunked='output_size' not in state
+                if not chunked: self.send_header('Content-Length',str(state['output_size']))
+                else: self.send_header('Transfer-Encoding','chunked')
                 self.end_headers()
-                self.wfile.write(first);state['sent_bytes']+=len(first)
+                def send(chunk):
+                    self.wfile.write(f'{len(chunk):x}\r\n'.encode()+chunk+b'\r\n' if chunked else chunk)
+                    state['sent_bytes']+=len(chunk)
+                send(first)
                 for chunk in stream:
-                    self.wfile.write(chunk);state['sent_bytes']+=len(chunk)
+                    send(chunk)
+                if chunked: self.wfile.write(b'0\r\n\r\n')
                 state['status']='complete'
             except (BrokenPipeError,ConnectionResetError): state['status']='client_disconnected'
             except Exception as e: state.update(status='failed',error=type(e).__name__+': '+str(e))
