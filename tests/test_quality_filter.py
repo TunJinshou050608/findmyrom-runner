@@ -100,6 +100,13 @@ class QualityTests(unittest.TestCase):
             rows.append(row)
         self.assertEqual(quality.screen_records(rows, "alioth")["status_counts"], {"accepted": 2})
 
+    def test_identical_caption_with_changed_file_link_is_not_merged(self):
+        caption = "ExampleOS for alioth - Unofficial\n" + "This build comes with Google apps. " * 4
+        rows = [self.row(caption, mid=i) for i in (1, 2)]
+        for i, row in enumerate(rows):
+            row["observed_links"] = [f"https://files.example.org/build-{i}.zip"]
+        self.assertEqual(quality.screen_records(rows, "alioth")["status_counts"], {"accepted": 2})
+
     def test_replay_replaces_old_accepted_without_mutating_input(self):
         row = self.row("ExampleOS for POCO F4\nPorted from alioth")
         row["status"] = "accepted"

@@ -6,7 +6,7 @@ import json
 import re
 import unicodedata
 
-POLICY_VERSION = "quality-view-v1"
+POLICY_VERSION = "quality-view-v1.1"
 DEFAULT_CATALOGUE = {
     "alioth": ["POCO F3", "Redmi K40", "Mi 11X"],
     "aliothin": ["Mi 11X India"],
@@ -291,7 +291,11 @@ def release_keys(row, reviewed):
     if checksum:
         keys.append(digest([*prefix, "sha256_claim", checksum[1].lower()]))
     if len(text.strip()) >= 80:
-        keys.append(digest([*prefix, "caption_and_attachment", text.strip(), attachment]))
+        # Same caption with changed file/mirror links may be a different build.
+        # Exclude only Telegram attribution links, not arbitrary dependency URLs.
+        external = sorted(set(url for url in row.get("observed_links", [])
+                              if not re.match(r"(?i)^https?://(?:t\.me|telegram\.me)/", url)))
+        keys.append(digest([*prefix, "caption_attachment_links", text.strip(), attachment, external]))
     # Same named release/date/maintainer/variant is a duplicate candidate only:
     # missing metadata or same version alone cannot auto-merge builds.
     return keys

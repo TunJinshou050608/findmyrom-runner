@@ -2,7 +2,11 @@ name: TG quality replay · frozen input, no crawling
 on:
   push:
     branches: [main]
-    paths: ['.github/workflows/telegram_quality_replay.yml']
+    paths:
+      - '.github/workflows/telegram_quality_replay.yml'
+      - 'fmr_tg_scanner/quality_filter.py'
+      - 'fmr_tg_scanner/quality_replay.py'
+      - 'tests/test_quality_filter.py'
   workflow_dispatch:
 permissions:
   contents: read
