@@ -127,3 +127,15 @@ def test_real_loopback_http_download():
             assert len(response.content) == 65536 and response.content.startswith(b'ANDROID!')
     finally:
         server.shutdown(); server.server_close(); thread.join(timeout=2)
+
+
+@pytest.mark.parametrize('host', ['bigota.d.miui.com', 'hugeota.d.miui.com', 'bkt-sgp-miui-ota-update-alisgp.oss-ap-southeast-1.aliyuncs.com'])
+def test_xiaomi_jobs_accept_only_known_firmware_hosts(host):
+    body, sig = payload(brand='xiaomi', device='alioth', partition='boot', package_type='recovery_zip', url=f'https://{host}/v1/miui_ALIOTH.zip')
+    assert verify_job(body, sig, SECRET)['brand'] == 'xiaomi'
+
+
+def test_xiaomi_cdn_lookalikes_and_arbitrary_buckets_rejected():
+    for host in ('bigota.d.miui.com.evil.test', 'unrelated.oss-ap-southeast-1.aliyuncs.com'):
+        body, sig = payload(brand='xiaomi', url=f'https://{host}/miui.zip')
+        with pytest.raises(ValueError): verify_job(body, sig, SECRET)

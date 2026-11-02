@@ -35,7 +35,10 @@ LIMITS = dict(IMAGE_LIMITS, recovery=(65536, 256*1024*1024, b'ANDROID!'))
 CHUNK = 256 * 1024
 BUDGET = 250 * 1024 * 1024
 ALLOWED = ('dl.google.com', 'allawnfs.com', 'allawnofs.com',
-           'vivoglobal.com', 'vivo.com.cn', 'cloud-neofussvr.samsungmobile.com')
+           'vivoglobal.com', 'vivo.com.cn', 'bigota.d.miui.com', 'hugeota.d.miui.com',
+           'ultimota.d.miui.com', 'ultimateota.d.miui.com', 'superota.d.miui.com',
+           'bkt-sgp-miui-ota-update-alisgp.oss-ap-southeast-1.aliyuncs.com',
+           'cloud-neofussvr.samsungmobile.com')
 
 
 class RangeReader(io.RawIOBase):

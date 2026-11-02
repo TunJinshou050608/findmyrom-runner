@@ -21,7 +21,7 @@ from .streaming_probe import (RangeReader, DecryptedReader, image_stream,
 
 LOG = logging.getLogger('fmr-extractor')
 MAX_BODY = 8192
-BRANDS = {'google', 'oneplus', 'oppo', 'realme', 'vivo', 'samsung'}
+BRANDS = {'xiaomi', 'google', 'oneplus', 'oppo', 'realme', 'vivo', 'samsung'}
 
 
 def verify_job(body, signature, secret, now=None):
@@ -133,6 +133,8 @@ class Handler(BaseHTTPRequestHandler):
         self.close_connection = True
 
     def do_GET(self):
+        if self.path == '/v1/capabilities':
+            return self.reply(200, json.dumps({'schema': 2, 'brands': sorted(BRANDS), 'partitions': ['boot', 'init_boot', 'recovery']}))
         self.reply(404, 'Not found')
 
     def do_POST(self):
