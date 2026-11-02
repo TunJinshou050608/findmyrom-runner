@@ -80,7 +80,8 @@ def run(root,targets,*,max_requests=180,max_seconds=480,http_factory=SearchHTTP,
             # Index discovery and direct channel candidates interleave with
             # retrieval; they cannot consume the whole batch before any scan.
             for index,channel in enumerate(name_candidates(code,all_names.get(code,[]))):
-                store.enqueue('admit',code,{'channel':channel,'depth':0},50+index)
+                unresolved=not store.query('SELECT 1 FROM tg_search_records WHERE device=? AND accepted=1 LIMIT 1',(code,))
+                store.enqueue('admit',code,{'channel':channel,'depth':0},3 if unresolved and index<8 else 50+index)
         def admit(code,channel,html,depth=0):
             context=profile_context(html)
             try:page=parse_tg_channel_page(html,channel)

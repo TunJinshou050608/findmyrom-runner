@@ -34,7 +34,11 @@ class SearchStore(SQLiteDB):
         # Pagination lives in payload.state and must not enter the task identity.
         identity={k:v for k,v in payload.items() if k not in ('state','reason','depth')}
         key=hashlib.sha256(json.dumps([kind,device,identity],sort_keys=True).encode()).hexdigest()
-        if self.query('SELECT 1 FROM tg_search_tasks WHERE key=?',(key,)):return key
+        existing=self.query('SELECT priority FROM tg_search_tasks WHERE key=?',(key,))
+        if existing:
+            if priority<existing[0]['priority']:
+                self.execute('UPDATE tg_search_tasks SET priority=?,next_at=MIN(next_at,?) WHERE key=?',(priority,time.time(),key))
+            return key
         if self.query('SELECT COUNT(*) AS n FROM tg_search_tasks WHERE device=?',(device,))[0]['n']>=1500:
             self.set_meta('frontier_limit_observed',True)
             return None

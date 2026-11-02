@@ -80,12 +80,16 @@ def index_search(http,provider,query):
 
 
 def name_candidates(code,names):
-    found=[code+'updates',code+'_updates',code]
-    for name in names[:4]:
-        name=re.sub('[^a-z0-9]','',name.lower())
-        if 4<=len(name)<=22:found.extend([name+'updates',name+'globalupdates',name+'_updates'])
-        if name.startswith('xiaomipad'):found.append('mipad'+name[len('xiaomipad'):]+'updates')
-    found.extend([code+'roms',code+'_roms'])
+    stems=[code]
+    for label in names[:4]:
+        name=re.sub('[^a-z0-9]','',label.lower())
+        if re.fullmatch('[a-z][a-z0-9]{3,21}',name):stems.append(name)
+    stems=list(dict.fromkeys(stems))
+    # Interleave catalogue-derived model spellings across suffixes: testing
+    # plural-only names misses otherwise identical singular Update channels.
+    found=[code]
+    for suffix in ('updates','update','_updates','_update','globalupdates','roms'):
+        found.extend(stem+suffix for stem in stems)
     return list(dict.fromkeys(v for v in found if len(v)<=32))[:12]
 
 
@@ -104,7 +108,7 @@ def linked_channels(html):
 def text_telegram_links(text):
     urls=re.findall(r'(?i)(?<![A-Za-z0-9_.])(?:https?://)?(?:t\.me|telegram\.me)/[A-Za-z0-9_/]+',text)
     urls=['https://'+re.sub(r'^https?://','',u,flags=re.I) for u in urls]
-    for handle in re.findall(r'(?i)(?:telegram|\btg|电报)\s*(?:channel|group|频道|群)?\s*[:：-]?\s*@([A-Za-z][A-Za-z0-9_]{3,31})',text):urls.append('https://t.me/'+handle)
+    for handle in re.findall(r'(?i)(?:telegram|\btg|电报|\bchannel|\bfollow|\bjoin)\s*(?:channel|group|频道|群)?\s*[:：-]?\s*@([A-Za-z][A-Za-z0-9_]{3,31})',text):urls.append('https://t.me/'+handle)
     for handle in re.findall(r'(?i)tg://resolve\?domain=([A-Za-z][A-Za-z0-9_]{3,31})',text):urls.append('https://t.me/'+handle)
     return indexed_messages(''.join('<a href="'+html_module.escape(url,quote=True)+'">TG</a>' for url in urls))
 

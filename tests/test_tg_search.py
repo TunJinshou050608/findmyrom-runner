@@ -345,3 +345,18 @@ def test_release_delivers_message_without_file_links_or_attachment():
     assert reason=='accepted'
     assert result['package']['target_post_url']=='https://t.me/testchannel/12'
     assert result['package']['download_links_json']=='[]'
+
+
+def test_channel_name_candidates_cover_generic_singular_and_plural_updates():
+    from fmr_tg_scanner.search_discovery import name_candidates
+    candidates=name_candidates('fictional',['Example 42'])
+    assert 'example42update' in candidates and 'example42updates' in candidates
+
+
+def test_higher_priority_discovery_revives_once_without_erasing_cooldown(tmp_path):
+    db=SearchStore(tmp_path/'state.sqlite');payload={'channel':'exampleupdates','depth':0}
+    db.enqueue('admit','example',payload,50);task=db.due(['example']);db.finish(task,delay=86400)
+    db.enqueue('admit','example',payload,3)
+    promoted=db.due(['example']);assert promoted and promoted['priority']==3
+    db.finish(promoted,delay=86400);db.enqueue('admit','example',payload,3)
+    assert db.due(['example']) is None;db.close()
