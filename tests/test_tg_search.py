@@ -237,3 +237,61 @@ def test_shared_aggregator_reaches_model_without_own_channel(tmp_path,monkeypatc
     result=run(tmp_path,['alioth','ishtar'],max_requests=90,max_seconds=30,http_factory=factory)
     assert result['per_device']['ishtar']==1 and result['coverage_ok']
     assert any('/s/aliothupdates?q=ishtar' in url for url in requests)
+
+
+def test_telegram_metadata_normalizes_bare_links_and_explicit_handles():
+    from fmr_tg_scanner.search_discovery import text_telegram_links
+    messages,channels=text_telegram_links('Telegram: @romupdates; t.me/releases_channel/123; tg://resolve?domain=anotherchannel; thanks @github_contributor')
+    assert messages[0]['msg_id']==123
+    assert {c['channel'] for c in channels}=={'romupdates','anotherchannel'}
+
+
+def test_release_metadata_discovers_target_when_readme_missing(tmp_path,monkeypatch):
+    from fmr_tg_scanner.search_engine import run
+    monkeypatch.setenv('FMR_TEST_NO_SLEEP','1');requests=[]
+    def response(req):
+        requests.append(str(req.url));status=200;kind='text/html'
+        if req.url.host=='raw.githubusercontent.com':body='liuqin: ["Xiaomi Pad 6 Pro"]'
+        elif req.url.path=='/search/repositories':
+            body=json.dumps({'items':[{'full_name':'dev/ROM-liuqin','description':'Custom ROM for Xiaomi Pad 6 Pro'}]});kind='application/json'
+        elif req.url.host=='api.github.com':
+            kind='application/json'
+            if req.url.path.endswith('/readme'):body='{}';status=404
+            elif req.url.path.endswith('/releases'):body=json.dumps([{'body':'Announcement t.me/releaseupdates/123'}])
+            else:body='{}'
+        elif req.url.path=='/releaseupdates/123':body=page(ids=(123,),text='#liuqin Lunaris unofficial Android 15').replace('testchannel/','releaseupdates/').replace('alioth-123.zip','liuqin-123.zip')
+        else:body='<html></html>'
+        return httpx.Response(status,headers={'content-type':kind},text=body)
+    def factory(*args,**kwargs):return SearchHTTP(*args,**kwargs,client=httpx.Client(transport=httpx.MockTransport(response)))
+    result=run(tmp_path,['liuqin'],max_requests=70,max_seconds=30,http_factory=factory)
+    assert result['per_device']=={'liuqin':1}
+    assert result['http_errors']>=1
+    assert any('/releases?' in url for url in requests)
+
+
+def test_port_donor_model_does_not_become_a_target():
+    msg=parse_tg_channel_page(page(text='Custom ROM for POCO F3<br>Ported from Xiaomi 13 Ultra (ishtar)'), 'testchannel')['messages'][0]
+    # Parentheses in a donor declaration are not an explicit target label.
+    assert analyse(msg,'ishtar',['Xiaomi 13 Ultra'],{'ishtar':['Xiaomi 13 Ultra'],'alioth':['POCO F3']})[0] is None
+
+
+def test_private_checkpoint_rebases_two_disjoint_writers(tmp_path,monkeypatch):
+    import subprocess
+    from fmr_tg_scanner.watch import publish_private
+    monkeypatch.setenv('GIT_CONFIG_GLOBAL',str(tmp_path/'empty-config'))
+    def git(*args):return subprocess.run(['git',*map(str,args)],check=True,capture_output=True,text=True)
+    remote=tmp_path/'remote.git';first=tmp_path/'first';second=tmp_path/'second'
+    git('init','--bare','--initial-branch=main',remote)
+    git('clone',remote,first)
+    (first/'base.json').write_text('{}')
+    # The empty remote has no main to pull until its first commit exists.
+    git('-C',first,'add','base.json')
+    git('-C',first,'-c','user.name=Test','-c','user.email=test@example.invalid','commit','-m','base')
+    git('-C',first,'push','origin','HEAD:main')
+    git('clone',remote,second)
+    (first/'resident.json').write_text('{"ok":true}')
+    assert publish_private(first)
+    (second/'experiment.json').write_text('{"ok":true}')
+    assert publish_private(second)
+    assert (second/'resident.json').exists()
+    assert git('-C',second,'show','origin/main:experiment.json').stdout=='{"ok":true}'

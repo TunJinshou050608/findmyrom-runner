@@ -40,7 +40,7 @@ def metadata_url(url):
         if p.path!='/XiaomiFirmwareUpdater/miui-updates-tracker/master/data/devices.yml' or q:
             raise ValueError('Only the public device dictionary is allowed')
     elif p.hostname=='api.github.com':
-        if not (p.path=='/search/repositories' or re.fullmatch(r'/repos/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/readme',p.path)):
+        if not (p.path=='/search/repositories' or re.fullmatch(r'/repos/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/(?:readme|releases)',p.path) or re.fullmatch(r'/users/[A-Za-z0-9_-]{1,39}',p.path)):
             raise ValueError('Only public project metadata is allowed')
     else:raise ValueError('Not an enabled metadata origin')
     return url
@@ -85,7 +85,9 @@ class SearchHTTP:
                         except ValueError:delay=2**attempt
                         if os.environ.get('FMR_TEST_NO_SLEEP')!='1':time.sleep(delay)
                         continue
-                    if response.status_code!=200:raise SearchTransportError('HTTP '+str(response.status_code))
+                    if response.status_code!=200:
+                        self.errors+=1
+                        raise SearchTransportError('HTTP '+str(response.status_code))
                     media=response.headers.get('Content-Type','').split(';')[0].lower()
                     if media not in ('text/html','text/plain','application/json','application/xhtml+xml'):
                         raise SearchTransportError('Non-metadata response')

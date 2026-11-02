@@ -25,7 +25,28 @@ def aliases(http,store,targets):
                 if re.search(r'[A-Za-z]',part) and re.search(r'\d',part) and part not in items:items.append(part)
         for code in targets:saved.setdefault(code,[])
         store.set_meta('device_aliases_v3',saved)
-    return saved
+    # Search-only spelling variants follow verified catalogue models. They do
+    # not change the display name or infer a model from an unknown codename.
+    expanded={}
+    for code,names in saved.items():
+        variants=list(names)
+        for name in names:
+            variants.append(re.sub(r'\s+','',name))
+            if name.startswith('Xiaomi Pad '):
+                suffix=name[len('Xiaomi Pad '):]
+                variants.extend(['Mi Pad '+suffix,'MiPad'+suffix.replace(' ',''),'小米平板'+suffix.replace(' ','')])
+            elif name.startswith('Xiaomi '):
+                suffix=name[len('Xiaomi '):]
+                variants.extend(['Mi '+suffix,'Mi'+suffix.replace(' ',''),'小米'+suffix.replace(' ','')])
+            elif name.startswith('Redmi '):variants.append('红米'+name[len('Redmi '):].replace(' ',''))
+        expanded[code]=list(dict.fromkeys(variants))
+    return expanded
+
+
+def query_aliases(names):
+    selected=names[:2]
+    localized=next((name for name in names if re.search(r'[\u4e00-\u9fff]',name)),None)
+    return list(dict.fromkeys([*selected,*([localized] if localized else [])]))
 
 
 def indexed_messages(html):
@@ -80,13 +101,21 @@ def linked_channels(html):
     return sorted({v['channel'] for v in channels+messages})
 
 
-def project_repositories(http,code):
+def text_telegram_links(text):
+    urls=re.findall(r'(?i)(?<![A-Za-z0-9_.])(?:https?://)?(?:t\.me|telegram\.me)/[A-Za-z0-9_/]+',text)
+    urls=['https://'+re.sub(r'^https?://','',u,flags=re.I) for u in urls]
+    for handle in re.findall(r'(?i)(?:telegram|\btg|电报)\s*(?:channel|group|频道|群)?\s*[:：-]?\s*@([A-Za-z][A-Za-z0-9_]{3,31})',text):urls.append('https://t.me/'+handle)
+    for handle in re.findall(r'(?i)tg://resolve\?domain=([A-Za-z][A-Za-z0-9_]{3,31})',text):urls.append('https://t.me/'+handle)
+    return indexed_messages(''.join('<a href="'+html_module.escape(url,quote=True)+'">TG</a>' for url in urls))
+
+
+def project_repositories(http,code,query=None):
     """Optional project metadata fallback; never infer compatibility from a repo name."""
     token=os.environ.get('GITHUB_TOKEN')
     headers={'Authorization':'Bearer '+token} if token else None
-    url='https://api.github.com/search/repositories?'+urlencode({'q':code+' android in:name,description','per_page':5})
+    url='https://api.github.com/search/repositories?'+urlencode({'q':query or code+' android in:name,description','per_page':5})
     data=json.loads(http.get(url,ttl=86400,headers=headers))
-    return [r['full_name'] for r in data.get('items',[]) if re.fullmatch(r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+',r.get('full_name',''))][:5]
+    return [r for r in data.get('items',[]) if re.fullmatch(r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+',r.get('full_name',''))][:5]
 
 
 def project_links(http,repository):
@@ -94,5 +123,16 @@ def project_links(http,repository):
     data=json.loads(http.get('https://api.github.com/repos/'+repository+'/readme',ttl=86400,headers=headers))
     if data.get('encoding')!='base64':return [],[]
     text=base64.b64decode(data.get('content','')).decode('utf-8',errors='replace')[:150000]
-    urls=re.findall(r'https://(?:t\.me|telegram\.me)/[A-Za-z0-9_/]+',text)
-    return indexed_messages(''.join('<a href="'+html_module.escape(url,quote=True)+'">TG</a>' for url in urls))
+    return text_telegram_links(text)
+
+
+def project_owner_links(http,owner):
+    token=os.environ.get('GITHUB_TOKEN');headers={'Authorization':'Bearer '+token} if token else None
+    data=json.loads(http.get('https://api.github.com/users/'+owner,ttl=86400,headers=headers))
+    return text_telegram_links((data.get('bio') or '')+'\n'+(data.get('blog') or ''))
+
+
+def project_release_links(http,repository):
+    token=os.environ.get('GITHUB_TOKEN');headers={'Authorization':'Bearer '+token} if token else None
+    data=json.loads(http.get('https://api.github.com/repos/'+repository+'/releases?per_page=3',ttl=86400,headers=headers))
+    return text_telegram_links('\n'.join(r.get('body') or '' for r in data[:3]))

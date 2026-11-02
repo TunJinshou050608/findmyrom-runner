@@ -18,7 +18,8 @@ def path_token(text,value):return bool(re.search(r'(?<![a-z0-9])'+re.escape(valu
 def target_evidence(message,target,names,all_names,profile=''):
     text=message.get('text','');head='\n'.join(text.splitlines()[:4])
     files=(message.get('file_attachment_name') or '')+' '+' '.join(unquote(urlsplit(u).path) for u in message.get('links',[]) if urlsplit(u).hostname not in ('t.me','telegram.me'))
-    tokens=re.findall(r'(?i)#([a-z][a-z0-9_-]{2,24})\b|(?:codename|device)\s*[:：-]\s*([a-z0-9_-]{3,24})\b|[\[(]\s*([a-z0-9_-]{3,24})\s*[\])]',text)
+    identity_text=re.sub(r'(?im)(?:ported|extracted|taken|based)\s+from\b[^\n]*|^\s*(?:donor|base device|source device)\s*[:：-][^\n]*','',text)
+    tokens=re.findall(r'(?i)#([a-z][a-z0-9_-]{2,24})\b|(?:codename|device)\s*[:：-]\s*([a-z0-9_-]{3,24})\b|[\[(]\s*([a-z0-9_-]{3,24})\s*[\])]',identity_text)
     explicit={part.lower() for groups in tokens for part in groups if part and (part.lower() in all_names or part.lower()==target)}
     if explicit and target not in explicit:return None
     if len(explicit)>1:
@@ -26,6 +27,8 @@ def target_evidence(message,target,names,all_names,profile=''):
         return {'kind':'target_in_download_path','value':target,'multi_device_post':True}
     if target in explicit:return {'kind':'explicit_codename','value':target}
     if path_token(files,target):return {'kind':'target_in_download_path','value':target}
+    donors=re.findall(r'(?im)(?:ported|extracted|taken|based)\s+from\s*[:：-]?\s*([^\n]+)|^\s*(?:donor|base device|source device)\s*[:：-]\s*([^\n]+)',text)
+    if any(token(part,target) or any(token(part,name) for name in names) for pair in donors for part in pair if part):return None
     for alias in names:
         if len(alias)>4 and token(text,alias):return {'kind':'catalogue_model_alias','value':alias}
     if token(head,target):return {'kind':'codename_in_release_heading','value':target}

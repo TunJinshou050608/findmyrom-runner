@@ -16,15 +16,20 @@ SESSION_SECONDS=3300
 def publish_private(root):
     def git(*args,check=True):
         result=subprocess.run(['git','-C',str(root),*args],capture_output=True,text=True,timeout=60)
-        if check and result.returncode:raise RuntimeError('Private checkpoint Git operation failed')
+        if check and result.returncode:raise RuntimeError('Private checkpoint Git '+args[0]+' failed (exit '+str(result.returncode)+')')
         return result
-    paths=[str(p.relative_to(root)) for p in root.rglob('*') if p.is_file() and '.git' not in p.relative_to(root).parts and p.suffix in ('.sqlite','.json','.jsonl','.md')]
+    paths=[str(p.relative_to(root)) for p in root.rglob('*') if p.is_file() and '.git' not in p.relative_to(root).parts and p.suffix in ('.sqlite','.json','.jsonl')]
     if paths:git('add','--',*paths)
     if git('diff','--cached','--quiet',check=False).returncode==0:return False
+    # Rebase creates commits too. Command-scoped identity on the original
+    # commit alone fails as soon as another checkpoint advances origin/main.
+    git('config','--local','user.name','FindMyROM')
+    git('config','--local','user.email','automation@findmyrom.com')
     git('-c','user.name=FindMyROM','-c','user.email=automation@findmyrom.com','commit','--quiet','-m','TG01 resident check: private metadata and audit')
-    git('pull','--rebase','--quiet','origin','main')
-    git('push','--quiet','origin','HEAD:main')
-    return True
+    for _attempt in range(3):
+        git('pull','--rebase','--quiet','origin','main')
+        if git('push','--quiet','origin','HEAD:main',check=False).returncode==0:return True
+    raise RuntimeError('Private checkpoint push failed after three attempts')
 
 
 def watch(root,*,duration=SESSION_SECONDS,period=PERIOD,producer=run,publisher=publish_private,clock=time.time,sleeper=time.sleep):

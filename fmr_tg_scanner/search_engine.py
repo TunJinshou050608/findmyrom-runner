@@ -13,7 +13,7 @@ from urllib.parse import urlsplit
 from .channel_search import search_page
 from .html_parser import parse_tg_channel_page,ChannelUnavailableError
 from .message_reader import read_message
-from .search_discovery import aliases,index_search,name_candidates,profile_context,linked_channels,project_repositories,project_links
+from .search_discovery import aliases,index_search,name_candidates,profile_context,linked_channels,project_repositories,project_links,text_telegram_links,project_owner_links,project_release_links,query_aliases
 from .search_http import SearchHTTP,WorkBudgetReached
 from .search_policy import analyse,target_evidence
 from .search_store import SearchStore
@@ -27,12 +27,12 @@ def run(root,targets,*,max_requests=180,max_seconds=480,http_factory=SearchHTTP,
     if mode not in ('adaptive','query_first','latest_first'):raise ValueError('Unknown retrieval mode')
     run_id=os.environ.get('GITHUB_RUN_ID','local')+'-'+os.environ.get('FMR_TG_CYCLE',str(time.time_ns()))
     logs=root/'logs';logs.mkdir(exist_ok=True);log_path=logs/(run_id+'.jsonl')
-    started=time.monotonic();events=Counter();new_products=0;first_product=None;per_device=Counter();failures=[]
+    started=time.monotonic();events=Counter();new_products=0;first_product=None;per_device=Counter();failures=[];device_funnel={code:Counter() for code in targets}
     def emit(value):
         value=dict(value);events[value['event']]+=1
         with log_path.open('a') as handle:handle.write(json.dumps({'time':time.time(),**value},ensure_ascii=False,sort_keys=True)+'\n')
-        if value['event'] in ('task_finished','task_failed','resource_decision','source_admitted'):
-            public={key:value[key] for key in ('event','kind','reason','accepted','new','count') if key in value}
+        if value['event'] in ('task_finished','task_failed','resource_decision','source_admitted','query_page'):
+            public={key:value[key] for key in ('event','kind','reason','accepted','new','count','device','messages','matched_products','status') if key in value}
             print(json.dumps(public),flush=True)
     store=SearchStore(root/'search.sqlite');http=http_factory(store,emit,max_requests=max_requests,max_seconds=max_seconds)
     stopped=threading.Event()
@@ -69,6 +69,9 @@ def run(root,targets,*,max_requests=180,max_seconds=480,http_factory=SearchHTTP,
             store.enqueue('index',code,{'provider':'lyzem','query':code+' ROM'},46)
             if all_names.get(code):store.enqueue('index',code,{'provider':'lyzem','query':all_names[code][0]},47)
             store.enqueue('project',code,{'query':code},49)
+            if not store.query('SELECT 1 FROM tg_search_records WHERE device=? AND accepted=1 LIMIT 1',(code,)):
+                for word in ('rom','recovery','kernel','xiaomi'):
+                    store.enqueue('project',code,{'query':code,'search_query':code+' '+word,'discovery_revision':2},4)
             # Index discovery and direct channel candidates interleave with
             # retrieval; they cannot consume the whole batch before any scan.
             for index,channel in enumerate(name_candidates(code,all_names.get(code,[]))):
@@ -102,7 +105,7 @@ def run(root,targets,*,max_requests=180,max_seconds=480,http_factory=SearchHTTP,
             else:
                 key=store.enqueue('query',code,{'channel':channel,'query':code,'depth':depth,'state':{}},10)
                 store.execute("UPDATE tg_search_tasks SET status='ready' WHERE key=?",(key,))
-                for alias in all_names.get(code,[])[:2]:store.enqueue('query',code,{'channel':channel,'query':alias,'depth':depth,'state':{}},12)
+                for alias in query_aliases(all_names.get(code,[])):store.enqueue('query',code,{'channel':channel,'query':alias,'depth':depth,'state':{}},12)
                 store.enqueue('head',code,{'channel':channel,'depth':depth},8)
             emit({'event':'source_admitted','channel':channel,'device':code,'strategy':strategy})
             return True
@@ -114,18 +117,23 @@ def run(root,targets,*,max_requests=180,max_seconds=480,http_factory=SearchHTTP,
                         message(other,msg,source,depth,routed=True)
                         store.enqueue('admit',other,{'channel':msg['channel_username'],'depth':depth,'reason':'observed_device_post'},15)
             events['messages_considered']+=1
+            device_funnel[code]['messages_considered']+=1
             result,reason=analyse(msg,code,all_names.get(code,[]),all_names,store.meta('profile:'+msg['channel_username'],''))
             if result is None:
-                events['rejected:'+reason]+=1;return False
+                events['rejected:'+reason]+=1;device_funnel[code]['rejected:'+reason]+=1
+                if device_funnel[code]['rejected:'+reason]<=3:emit({'event':'rejection_sample','device':code,'reason':reason,'channel':msg['channel_username'],'msg_id':msg['msg_id'],'text':msg['text'][:1600],'links':msg.get('links',[])[:5]})
+                return False
             package=result['package'];evidence={**result['evidence'],'source_url':source,'message_identity_verified':True,
                 'source_post_url':package['original_post_url'],'numeric_sender_id_observed':package.get('sender_id') is not None,
                 'author_identity_verified':False}
             already_product=bool(store.query('SELECT 1 FROM tg_search_records WHERE fingerprint=? AND accepted=1 LIMIT 1',(store.fingerprint(package),)))
             changed=store.save(package,evidence,result['classification'],reason,result['accepted'])
+            device_funnel[code]['accepted_observations' if result['accepted'] else 'rejected:'+reason]+=1
             if result['accepted']:
                 per_device[code]+=1
                 if changed and not already_product:
                     new_products+=1
+                    device_funnel[code]['new_products']+=1
                     if first_product is None:first_product=round(time.monotonic()-started,3)
                 if depth<2:
                     channels=set()
@@ -168,14 +176,23 @@ def run(root,targets,*,max_requests=180,max_seconds=480,http_factory=SearchHTTP,
                     if count:store.enqueue('admit',code,{'channel':payload['channel'],'depth':depth},15)
                     delay=7*86400
                 elif kind=='project':
-                    for repository in project_repositories(http,code):store.enqueue('readme',code,{'repository':repository},55)
+                    for repository in project_repositories(http,code,payload.get('search_query')):
+                        name=repository['full_name']
+                        posts,channels=text_telegram_links((repository.get('description') or '')+'\n'+(repository.get('homepage') or ''))
+                        for item in posts:store.enqueue('post',code,{**item,'depth':0},5)
+                        for item in channels:store.enqueue('admit',code,{**item,'depth':0},15)
+                        store.enqueue('readme',code,{'repository':name,'discovery_revision':2},5)
+                        store.enqueue('owner',code,{'owner':name.split('/')[0]},5)
+                        store.enqueue('release_links',code,{'repository':name},5)
                     delay=86400
-                elif kind=='readme':
-                    posts,channels=project_links(http,payload['repository'])
+                elif kind in ('readme','owner','release_links'):
+                    if kind=='owner':posts,channels=project_owner_links(http,payload['owner'])
+                    elif kind=='release_links':posts,channels=project_release_links(http,payload['repository'])
+                    else:posts,channels=project_links(http,payload['repository'])
                     for item in posts[:10]:store.enqueue('post',code,{**item,'depth':0},5)
                     for item in channels[:8]:store.enqueue('admit',code,{**item,'depth':0},35)
                     count=len(posts)+len(channels);delay=86400
-                    emit({'event':'project_metadata_links','device':code,'repository':payload['repository'],'candidate_links':count})
+                    emit({'event':'project_metadata_links','device':code,'repository':payload.get('repository'),'owner':payload.get('owner'),'candidate_links':count})
                 elif kind=='admit':
                     url='https://t.me/s/'+payload['channel'];html=http.get(url,ttl=300)
                     admitted=admit(code,payload['channel'],html,depth)
@@ -192,7 +209,7 @@ def run(root,targets,*,max_requests=180,max_seconds=480,http_factory=SearchHTTP,
                     for msg in page['messages']:count+=int(message(code,msg,page['source_url'],depth))
                     payload['state']=page['state'];delay=0 if page['has_more'] else 1800
                     if not page['messages'] and payload['query']==code:
-                        for alias in all_names.get(code,[])[:2]:store.enqueue('query',code,{'channel':payload['channel'],'query':alias,'depth':depth,'state':{}},12)
+                        for alias in query_aliases(all_names.get(code,[])):store.enqueue('query',code,{'channel':payload['channel'],'query':alias,'depth':depth,'state':{}},12)
                     if page['status'] not in ('more','search_exhausted'):
                         delay=7200
                         store.enqueue('history',code,{'channel':payload['channel'],'depth':depth,'state':{}},30)
@@ -248,6 +265,7 @@ def run(root,targets,*,max_requests=180,max_seconds=480,http_factory=SearchHTTP,
             'policy_version':hashlib.sha256(Path(__file__).with_name('search_policy.py').read_bytes()).hexdigest()[:16],
             'new_qualified_products':new_products,'packages':len(products),'stored_observations':len(rows),'per_device':{code:counts.get(code,0) for code in targets},
             'unresolved_targets':[code for code in targets if not counts.get(code)],'coverage_ok':all(counts.get(code,0) for code in targets),
+            'device_funnel':{code:dict(values) for code,values in device_funnel.items()},
             'http_requests':http.requests,'cache_hits':http.cache_hits,'response_bytes':http.bytes,'http_errors':http.errors,
             'first_product_seconds':first_product,'elapsed_seconds':round(time.monotonic()-started,3),'tasks_processed':processed,
             'requests_per_new_product':round(http.requests/new_products,3) if new_products else None,
