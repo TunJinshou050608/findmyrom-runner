@@ -17,7 +17,8 @@ EXPECTED={
 
 def get(path):
     return urllib.request.urlopen(urllib.request.Request(BASE+path,headers={
-        'Authorization':'Bearer '+os.environ['CF_STREAM_LAB_TOKEN'],'Accept-Encoding':'identity'}),timeout=180)
+        'Authorization':'Bearer '+os.environ['CF_STREAM_LAB_TOKEN'],'Accept-Encoding':'identity',
+        'User-Agent':'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/130.0.0.0 Safari/537.36'}),timeout=180)
 
 def main():
     results=[]
