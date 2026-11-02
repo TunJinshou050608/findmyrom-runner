@@ -1,0 +1,35 @@
+name: Cloudflare image streaming lab
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        type: choice
+        options: [capabilities, matrix]
+        default: capabilities
+permissions:
+  contents: read
+concurrency:
+  group: cf-streaming-lab
+  cancel-in-progress: false
+jobs:
+  probe:
+    if: github.ref == 'refs/heads/main'
+    runs-on: [self-hosted, Linux, X64, findmyrom-metadata]
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Exercise real Cloudflare Worker; hash and discard images
+        env:
+          CF_STREAM_LAB_TOKEN: ${{ secrets.CF_STREAM_LAB_TOKEN }}
+          CF_STREAM_LAB_MODE: ${{ inputs.mode }}
+        run: python3 -u labs/cf-stream/probe.py
+      - name: Save JSON evidence only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cf-streaming-${{ github.run_id }}
+          path: cf-stream-results.json
+          retention-days: 7
+          if-no-files-found: warn

@@ -1,0 +1,8 @@
+{
+  "name": "findmyrom-stream-lab",
+  "main": "worker.mjs",
+  "compatibility_date": "2026-11-02",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "observability": {"enabled": true, "head_sampling_rate": 1, "redact_query_string": true}
+}
