@@ -7,9 +7,10 @@ on:
         type: choice
         options: [probe, batch, compare, focus]
         default: probe
-      targets:
-        description: Device codenames only; never channel seeds
-        default: annibale,ishtar,liuqin,alioth
+      state_repo:
+        description: Target private test repository to record products and logs
+        type: string
+        default: TunJinshou050608/findmyrom-tg01-test
 permissions:
   contents: read
 concurrency:
@@ -19,9 +20,11 @@ concurrency:
 jobs:
   lab:
     if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, findmyrom-metadata]
     timeout-minutes: 35
     environment: production
+    env:
+      FMR_CATALOGUE_STATE_DIR: ${{ vars.FMR_CATALOGUE_STATE_DIR || '/var/lib/findmyrom/catalogue-v3' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -29,7 +32,7 @@ jobs:
           persist-credentials: false
       - uses: actions/checkout@v4
         with:
-          repository: TunJinshou050608/findmyrom-tg01-test
+          repository: ${{ inputs.state_repo }}
           path: state
           ssh-key: ${{ secrets.GH_TG_TEST_SSH_KEY }}
           persist-credentials: true
@@ -41,13 +44,15 @@ jobs:
         working-directory: runner
         env:
           LAB_MODE: ${{ inputs.mode }}
-          LAB_TARGETS: ${{ inputs.targets }}
           GITHUB_TOKEN: ${{ github.token }}
+          LLM_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          LLM_MODEL_NAME: deepseek-flash
+          LLM_REASONING_EFFORT: low
         run: |
           if [ "$LAB_MODE" = probe ]; then
-            python -u -m fmr_tg_scanner.search_probe --state-dir ../state --targets "$LAB_TARGETS"
+            python -u -m fmr_tg_scanner.search_probe --state-dir ../state
           else
-            python -u -m fmr_tg_scanner.search_lab --state-dir ../state --targets "$LAB_TARGETS" --mode "$LAB_MODE"
+            python -u -m fmr_tg_scanner.search_lab --state-dir ../state --mode "$LAB_MODE"
           fi
       - name: Persist private test products and detailed logs
         if: always()

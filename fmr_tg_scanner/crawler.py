@@ -65,6 +65,8 @@ class PageFetcher:
 
 
 def upsert(package):
+    package=dict(package)
+    package.setdefault('taxonomy_json','{}')
     # Unchanged content must not generate another UPDATE/write or another row.
     updates=','.join(f'{c}=excluded.{c}' for c in COLUMNS if c not in ('channel_username','msg_id','maintainer_handle'))
     updates+=',maintainer_handle=COALESCE(excluded.maintainer_handle,tg_discovered_packages.maintainer_handle)'
@@ -115,7 +117,8 @@ def scan_channel(db_client, channel_username: str, default_codename=None, max_pa
                         if len(detected)==1:package['device_codename']=detected[0]
                     if package['device_codename'] not in targets:
                         event('message_skipped',msg_id=msg['msg_id'],reason='target_mismatch',detected_codename=package['device_codename']);continue
-                if existing and all(existing[0][k]==package[k] for k in ('raw_text_hash','download_links_json','original_post_url','origin_type','sender_author_signature','has_tg_attachment','file_attachment_name','published_timestamp','package_name','sender_id','sender_username')):
+                from .taxonomy import classify, VERSION as taxonomy_version
+                if existing and json.loads(existing[0].get('taxonomy_json') or '{}').get('schema_version')==taxonomy_version and all(existing[0][k]==package[k] for k in ('raw_text_hash','download_links_json','original_post_url','origin_type','sender_author_signature','has_tg_attachment','file_attachment_name','published_timestamp','package_name','sender_id','sender_username')):
                     event('message_skipped',msg_id=msg['msg_id'],reason='unchanged');continue
                 digest=package['raw_text_hash'];known=db.query('SELECT * FROM tg_discovered_packages WHERE raw_text_hash=? LIMIT 1',(digest,))
                 if known and known[0]['extraction_method']=='rule_plus_llm':
@@ -131,6 +134,7 @@ def scan_channel(db_client, channel_username: str, default_codename=None, max_pa
                     stats['llm_calls_used']+=1
                     try:package=llm_fallback.merge(package,(llm_callable or llm_fallback.completion)(msg['text']),text=msg['text'])
                     except Exception:pass
+                package['taxonomy_json']=json.dumps(classify(msg,package,accepted=True),ensure_ascii=False,sort_keys=True)
                 if package.get('device_codename') or package['extraction_method']=='rule_plus_llm':
                     packages.append(package);saved+=1
                 else:event('message_skipped',msg_id=msg['msg_id'],reason='unknown_codename')

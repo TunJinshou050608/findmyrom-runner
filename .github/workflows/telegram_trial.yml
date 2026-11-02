@@ -12,9 +12,11 @@ concurrency:
 jobs:
   trial:
     if: github.ref == 'refs/heads/main' && (vars.FMR_TG_TRIAL_ENABLED == 'true')
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, findmyrom-metadata]
     timeout-minutes: 75
     environment: production
+    env:
+      FMR_CATALOGUE_STATE_DIR: ${{ vars.FMR_CATALOGUE_STATE_DIR || '/var/lib/findmyrom/catalogue-v3' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -38,6 +40,9 @@ jobs:
         working-directory: runner
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          LLM_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          LLM_MODEL_NAME: deepseek-flash
+          LLM_REASONING_EFFORT: low
         run: python -u -m fmr_tg_scanner.search_watch --state-dir ../state
       - name: Save private logs, packages and checkpoints even on failure
         if: always()
@@ -76,4 +81,4 @@ jobs:
           PY
       - name: Public status summary
         if: always()
-        run: echo 'Detailed per-page and per-message logs, source coverage, cursors, package records and the latest integrity audit are in the dedicated PRIVATE test repository. No D1 queries, ROM downloads or LLM calls. The resident process checks every 10 minutes, commits each result privately, and hands off after a bounded session; GitHub queue delays can affect handoffs. Cron is a fallback.' >> "$GITHUB_STEP_SUMMARY"
+        run: echo 'Detailed metadata logs, checkpoints and LLM call/error counts are in the dedicated PRIVATE test repository. No D1 queries or ROM downloads. Optional bounded LLM classification uses DEEPSEEK_API_KEY; missing or invalid credentials are reported. The resident process checks every 10 minutes and hands off after a bounded session; cron is a fallback.' >> "$GITHUB_STEP_SUMMARY"

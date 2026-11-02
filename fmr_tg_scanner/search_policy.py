@@ -6,7 +6,7 @@ from .rule_extractor import (
     extract_package_by_rules, PROJECTS, download_evidence, extract_clean_heading,
     extract_maintainer_info, dynamic_project_name
 )
-from .llm_fallback import merge
+from .llm_fallback import merge, valid_decision
 from .trial import MAINSTREAM
 
 EXTRA_PROJECTS = []
@@ -192,6 +192,7 @@ def primary_release(package, message):
 
 
 def analyse(message, target, names, all_names, profile='', *, llm_callable=None):
+    llm_res = None
     channel = (message.get('channel_username') or '').lower()
     if re.search(r'(?i)screenshots?|wallpapers?|photos?|gallery|themes?|memes?|chat|support\b', channel):
         return None, 'not_a_release'
@@ -273,7 +274,7 @@ def analyse(message, target, names, all_names, profile='', *, llm_callable=None)
     is_port = bool(re.search(r'(?i)\bport(?:ed)?\b|\bcustom\b', heading + '\n' + text))
     is_stock_template = bool(re.search(r'(?i)new\s+(?:OS|MIUI|HyperOS)\s+(?:fastboot|recovery)\s+update|(?:hyperos|miui)\s*(?:\d+)?\s*version\s*[:=]', text))
 
-    known_project_names = {name.lower() for name, _ in PROJECTS} | {p.lower() for p in EXTRA_PROJECTS} | DYNAMIC_COMMUNITY_PROJECTS
+    known_project_names = {name.lower() for name, _ in PROJECTS} | {p.lower() for p in EXTRA_PROJECTS}
 
     if stock_filename or oem_link or is_stock_template:
         label = 'stock_official' if not is_custom_or_mod else 'custom_or_port'
@@ -337,15 +338,11 @@ def analyse(message, target, names, all_names, profile='', *, llm_callable=None)
                 llm_res = llm_callable(text, target=target, rule_reason=reason)
             except TypeError:
                 llm_res = llm_callable(text)
-            if isinstance(llm_res, dict):
-                if llm_res.get('accepted'):
+            if valid_decision(llm_res):
+                if llm_res['accepted'] is True:
                     package = merge(package, llm_res, text=text)
                     label = llm_res.get('classification', 'community_official')
                     reason = 'accepted'
-                    if label == 'community_official':
-                        proj = package.get('project_name')
-                        if proj and proj.lower() not in ('custom rom', 'rom'):
-                            DYNAMIC_COMMUNITY_PROJECTS.add(proj.lower())
                 elif llm_res.get('accepted') is False:
                     cls = llm_res.get('classification', label)
                     label = cls
@@ -358,4 +355,13 @@ def analyse(message, target, names, all_names, profile='', *, llm_callable=None)
         except Exception:
             pass
 
+    from .taxonomy import classify
+    if not valid_decision(llm_res):llm_res = None
+    if reason == 'accepted' and llm_res is None and llm_callable is not None:
+        try:
+            candidate = llm_callable(text, target=target, rule_reason='taxonomy_enrichment')
+            if valid_decision(candidate):llm_res = candidate
+        except Exception:
+            pass
+    package['taxonomy'] = classify(message, package, device_names=names, accepted=reason == 'accepted', llm_output=llm_res)
     return {'package': package, 'evidence': evidence, 'classification': label, 'accepted': reason == 'accepted'}, reason

@@ -23,10 +23,10 @@ from .rule_extractor import post_ref
 from . import llm_fallback
 
 
-def run(root,targets,*,max_requests=180,max_seconds=480,http_factory=SearchHTTP,mode='adaptive',enable_llm=True,max_llm_calls=50,llm_callable=None):
+def run(root,targets,*,max_requests=180,max_seconds=480,http_factory=SearchHTTP,mode='adaptive',enable_llm=True,max_llm_calls=50,llm_callable=None,catalogue_names=None):
     root=Path(root);root.mkdir(parents=True,exist_ok=True)
-    if not 1<=len(targets)<=500 or not all(re.fullmatch('[a-z0-9_-]{3,24}',v) for v in targets):raise ValueError('Invalid target codenames')
-    if not 1<=max_requests<=2000 or not 10<=max_seconds<=1800:raise ValueError('Invalid batch budget')
+    if not 1<=len(targets)<=500 or not all(re.fullmatch('[a-z0-9_-]{3,32}',v) for v in targets):raise ValueError('Invalid target codenames')
+    if not 1<=max_requests<=2000 or not 10<=max_seconds<=1800 or type(max_llm_calls) is not int or not 0<=max_llm_calls<=500:raise ValueError('Invalid batch budget')
     if mode not in ('adaptive','query_first','latest_first'):raise ValueError('Unknown retrieval mode')
     run_id=os.environ.get('GITHUB_RUN_ID','local')+'-'+os.environ.get('FMR_TG_CYCLE',str(time.time_ns()))
     logs=root/'logs';logs.mkdir(exist_ok=True);log_path=logs/(run_id+'.jsonl')
@@ -34,18 +34,25 @@ def run(root,targets,*,max_requests=180,max_seconds=480,http_factory=SearchHTTP,
     def emit(value):
         value=dict(value);events[value['event']]+=1
         with log_path.open('a') as handle:handle.write(json.dumps({'time':time.time(),**value},ensure_ascii=False,sort_keys=True)+'\n')
-        if value['event'] in ('task_finished','task_failed','resource_decision','source_admitted','query_page'):
+        if value['event'] in ('task_finished','task_failed','resource_decision','source_admitted','query_page','llm_configuration','llm_failed','llm_invalid_response'):
             public={key:value[key] for key in ('event','kind','reason','accepted','new','count','device','messages','matched_products','status') if key in value}
             print(json.dumps(public),flush=True)
     store=SearchStore(root/'search.sqlite');http=http_factory(store,emit,max_requests=max_requests,max_seconds=max_seconds)
     store.migrate_message_delivery()
-    DYNAMIC_COMMUNITY_PROJECTS.update(store.meta('dynamic_community_projects', []))
+    from .taxonomy import VERSION as taxonomy_version
+    if store.meta('taxonomy_version') != taxonomy_version:
+        store.set_meta('message_contract_cache_replay',{})
+        store.set_meta('taxonomy_version',taxonomy_version)
+    # Old learned project names must not become a global acceptance whitelist.
+    DYNAMIC_COMMUNITY_PROJECTS.clear()
     stopped=threading.Event()
     def heartbeat():
         while not stopped.wait(30):print(json.dumps({'event':'search_heartbeat','requests':http.requests,'new_qualified_products':new_products,'elapsed_seconds':round(time.monotonic()-started)}),flush=True)
     monitor=threading.Thread(target=heartbeat,daemon=True);monitor.start()
     all_names={code:[] for code in targets};outcome='completed';processed=0
     try:
+        if catalogue_names is not None:
+            store.set_meta('device_aliases_v3',catalogue_names)
         try:all_names=aliases(http,store,targets)
         except WorkBudgetReached:outcome='budget_reached'
         except Exception as exc:emit({'event':'alias_catalogue_unavailable','error_type':type(exc).__name__})
@@ -127,21 +134,42 @@ def run(root,targets,*,max_requests=180,max_seconds=480,http_factory=SearchHTTP,
             emit({'event':'source_admitted','channel':channel,'device':code,'strategy':strategy})
             return True
         llm_calls_used=0
+        llm_stats=Counter()
+        llm_status='disabled' if not enable_llm else ('injected' if llm_callable else llm_fallback.configuration_status())
+        emit({'event':'llm_configuration','status':llm_status})
         def bounded_llm(text,target=None,rule_reason=None):
-            nonlocal llm_calls_used
-            if not enable_llm or (not llm_callable and not os.environ.get('LLM_API_KEY')):return None
-            h=hashlib.sha256(text.encode()).hexdigest()
+            nonlocal llm_calls_used,llm_status
+            if llm_status not in ('configured','injected'):return None
+            h=hashlib.sha256(json.dumps([llm_fallback.SYSTEM_PROMPT,'decision-v2',os.environ.get('LLM_MODEL_NAME','deepseek-flash'),os.environ.get('LLM_API_BASE_URL','https://api.deepseek.com/v1'),target,rule_reason,text]).encode()).hexdigest()
             cached=store.meta('llm:'+h)
-            if cached is not None:return cached
-            if llm_calls_used>=max_llm_calls:return None
+            if llm_fallback.valid_decision(cached):
+                llm_stats['cache_hits']+=1
+                return cached
+            if llm_calls_used>=max_llm_calls:
+                llm_stats['budget_skips']+=1
+                return None
             llm_calls_used+=1
             fn=llm_callable or llm_fallback.disambiguate
-            try:res=fn(text,target=target,rule_reason=rule_reason)
-            except TypeError:res=fn(text)
-            if isinstance(res,dict):
-                store.set_meta('llm:'+h,res)
-                if DYNAMIC_COMMUNITY_PROJECTS:
-                    store.set_meta('dynamic_community_projects',sorted(list(DYNAMIC_COMMUNITY_PROJECTS)))
+            try:
+                # Inspect signatures instead of retrying a possibly paid call on TypeError.
+                import inspect
+                parameters=inspect.signature(fn).parameters
+                kwargs={'target':target,'rule_reason':rule_reason} if 'target' in parameters or any(p.kind==p.VAR_KEYWORD for p in parameters.values()) else {}
+                res=fn(text,**kwargs)
+            except Exception as exc:
+                llm_stats['errors']+=1
+                status=getattr(getattr(exc,'response',None),'status_code',None)
+                if status in (401,403):
+                    llm_stats['auth_errors']+=1
+                    llm_status='authentication_failed'
+                emit({'event':'llm_failed','reason':'authentication_failed' if status in (401,403) else type(exc).__name__})
+                return None
+            if not llm_fallback.valid_decision(res):
+                llm_stats['invalid_responses']+=1
+                emit({'event':'llm_invalid_response','reason':'invalid_or_low_confidence_decision'})
+                return None
+            llm_stats['successes']+=1
+            store.set_meta('llm:'+h,res)
             return res
         def message(code,msg,source,depth=0,routed=False):
             nonlocal new_products,first_product
@@ -331,6 +359,8 @@ def run(root,targets,*,max_requests=180,max_seconds=480,http_factory=SearchHTTP,
         products=[{'package':json.loads(row['payload']),'evidence':json.loads(row['evidence']),'classification':row['classification']} for row in unique.values()]
         posts=[{'device_codename':v['package']['device_codename'],'project_name':v['package']['project_name'],'resource_kind':v['package']['resource_kind'],'title':v['package']['package_name'],'target_post_url':v['package']['tg_post_url'],'original_post_url':v['package']['original_post_url'],'classification':v['classification']} for v in products]
         atomic_json(root/'products.json',{'delivery_type':'telegram_message','posts':posts,'products':products})
+        publishable=[item for item in products if item['package'].get('taxonomy',{}).get('schema_version')==taxonomy_version and item['package'].get('taxonomy',{}).get('publication',{}).get('eligible') is True]
+        atomic_json(root/'publishable_products.json',{'taxonomy_version':taxonomy_version,'products':publishable})
         atomic_json(root/'candidates.json',{'candidates':[{'package':json.loads(r['payload']),'evidence':json.loads(r['evidence']),'reason':r['reason']} for r in rows if not r['accepted']]})
         todo=store.query("SELECT kind,status,COUNT(*) AS count FROM tg_search_tasks GROUP BY kind,status")
         counts=Counter(v['package']['device_codename'] for v in products)
@@ -338,13 +368,18 @@ def run(root,targets,*,max_requests=180,max_seconds=480,http_factory=SearchHTTP,
             'policy_version':hashlib.sha256(Path(__file__).with_name('search_policy.py').read_bytes()).hexdigest()[:16],
             'new_qualified_products':new_products,'packages':len(products),'stored_observations':len(rows),'per_device':{code:counts.get(code,0) for code in targets},
             'delivery_type':'telegram_message','telegram_posts':len(posts),'new_telegram_posts':new_products,
+            'taxonomy_version':taxonomy_version,'publishable_products':len(publishable),
             'unresolved_targets':[code for code in targets if not counts.get(code)],'coverage_ok':all(counts.get(code,0) for code in targets),
             'device_funnel':{code:dict(values) for code,values in device_funnel.items()},
             'http_requests':http.requests,'cache_hits':http.cache_hits,'response_bytes':http.bytes,'http_errors':http.errors,
             'first_product_seconds':first_product,'elapsed_seconds':round(time.monotonic()-started,3),'tasks_processed':processed,
             'requests_per_new_product':round(http.requests/new_products,3) if new_products else None,
             'events':dict(events),'task_states':todo,'failures':failures,'sources':len(store.meta('sources',{})),
-            'D1_requests':0,'llm_calls':0,'firmware_downloaded':False,'global_coverage_complete':False,
+            'D1_requests':0,'llm_calls':llm_calls_used,'llm_status':llm_status,
+            'llm_cache_hits':llm_stats['cache_hits'],'llm_errors':llm_stats['errors'],
+            'llm_auth_errors':llm_stats['auth_errors'],'llm_invalid_responses':llm_stats['invalid_responses'],
+            'llm_successes':llm_stats['successes'],'llm_budget_skips':llm_stats['budget_skips'],
+            'firmware_downloaded':False,'global_coverage_complete':False,
             'frontier_limit_observed':store.meta('frontier_limit_observed',False),
             'note':'Products are observed metadata, not binary integrity or independent author verification. Search completion is not complete Telegram history.'}
         atomic_json(root/'reports'/f'{run_id}.json',report);atomic_json(root/'reports/latest.json',report)

@@ -41,9 +41,10 @@ def probe(root,targets):
 
 
 def main():
-    parser=argparse.ArgumentParser();parser.add_argument('--state-dir',required=True);parser.add_argument('--targets',default='annibale,ishtar,liuqin,alioth');args=parser.parse_args()
-    targets=args.targets.split(',')
-    if not all(re.fullmatch('[a-z0-9_-]{3,24}',v) for v in targets):parser.error('Invalid target')
+    parser=argparse.ArgumentParser();parser.add_argument('--state-dir',required=True);parser.add_argument('--targets',default=None);args=parser.parse_args()
+    from .targets import read_catalogue, select_targets
+    targets=args.targets.split(',') if args.targets else select_targets(read_catalogue()[0])
+    if not all(re.fullmatch('[a-z0-9_-]{3,32}',v) for v in targets):parser.error('Invalid target')
     probe(Path(args.state_dir)/'experiments'/'search-v3-probe',targets)
 
 

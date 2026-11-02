@@ -1,6 +1,6 @@
 # Autonomous Telegram metadata search
 
-The private trial now has a separate adaptive search engine. It accepts device codenames, not channel lists. Its products, rejected candidates, SQLite checkpoints and detailed logs belong in the private `findmyrom-tg01-test` repository. It never downloads firmware or writes D1.
+The private trial now has a separate adaptive search engine. The resident process reads its device targets and model aliases automatically from the existing local catalogue snapshots; it requires no manually entered device or channel list. Its products, rejected candidates, SQLite checkpoints and detailed logs belong in the private `findmyrom-tg01-test` repository. It never downloads firmware or writes D1.
 
 ## Discovery and evidence
 
@@ -26,7 +26,7 @@ The SQLite frontier alternates devices and reserves work for both new discovery 
 
 Resident retrieval is adaptive: a profile independently identifying exactly one device uses historical pages plus incremental head checks; aggregator or ambiguous channels use keyword queries plus head checks. The finite ordering experiment found that neither ordering dominated on every device. Fixed-order lab arms remain available for comparisons.
 
-Requests share a host limiter and persistent compressed cache. Each batch has request/time limits, response-size and MIME checks, retry limits and cooldowns. The frontier has a per-device ceiling reported explicitly. Exact-message failures receive a longer cooldown than transient transport failures. No CAPTCHA bypass, personal account login, paid search or LLM assistance is attempted.
+Requests share a host limiter and persistent compressed cache. Each batch has request/time limits, response-size and MIME checks, retry limits and cooldowns. The frontier has a per-device ceiling reported explicitly. Exact-message failures receive a longer cooldown than transient transport failures. No CAPTCHA bypass, personal account login or paid search is attempted. Optional DeepSeek classification covers unresolved rule decisions and evidence-backed release tagging, with a default ceiling of 50 calls per batch. Both the lab and resident workflow use the `DEEPSEEK_API_KEY` secret. Missing/invalid configuration, provider authentication failures, real call attempts, successful decisions, cache hits, invalid decisions and budget skips are reported without exposing credentials. A 401/403 stops further model calls in that batch; rules continue normally.
 
 `search_watch` uses the existing private checkpoint/handoff loop: a default 100-request/360-second batch every ten minutes, thirty-second heartbeats, and a bounded resident session. `tg_search_config.json` controls target codenames and budgets. SQLite commits each observation; checkpoints and metadata logs are committed privately each cycle. Search failure is reported separately from inventory size and new-product counts.
 
@@ -45,3 +45,38 @@ The resident workflow retains its enable flag. The D1 pause flag is independent 
 Public pages cannot cover private, deleted, login-only or otherwise unexposed messages. Telegram's global `channels.searchPosts` is user-only; no account credentials or Stars budget are configured. Bot-to-bot private communication requires support on both endpoints and is not assumed merely because another search bot exists. External index candidates are useful discovery inputs, not a claim of global Telegram coverage.
 
 References: [Telegram global search](https://core.telegram.org/api/search), [searchPosts](https://core.telegram.org/method/channels.searchPosts), [bot-to-bot conditions](https://core.telegram.org/api/bots/bot-to-bot), [TGStat API](https://api.tgstat.ru/docs/ru/posts/search.html), [Media Search Bot](https://github.com/Mahesh0253/Media-Search-bot).
+
+## Model decisions and identity safeguards
+
+Model acceptance requires an actual JSON boolean, a finite confidence from 0.90 to 1.00, an allowed classification consistent with acceptance, and no contradictory release/stock flags. Invalid or low-confidence results keep the rule decision. Cached decisions are scoped to the exact text, target device, rule reason, model, API origin and prompt version. Model decisions do not add projects to a global acceptance whitelist. Existing learned project lists are ignored.
+
+Message deduplication uses device, channel and message ID. Different posts remain separate even if their project/version matches, preserving different maintainers and rebuilds. This deliberately retains cross-posts until stronger build identity evidence exists. Existing stored fingerprints migrate automatically without deleting observations.
+
+## Local container execution and automatic enrollment
+
+All three TG retrieval workflows use `[self-hosted, findmyrom-metadata]` without an Ubuntu-hosted fallback. GitHub still triggers jobs and stores private checkpoints. The resident and lab jobs read `FMR_CATALOGUE_STATE_DIR` from the repository variable, defaulting to `/var/lib/findmyrom/catalogue-v3`, the directory created by `ops/setup_metadata_runner.sh`. Access is read-only; the TG task does not query D1 or scan firmware release rows to discover models. Existing catalogue model records provide site device identities, marketing aliases, upstream codenames and hardware model numbers. Excluded/non-Android model records are skipped. Published `devices` tables serve as a fallback only for snapshots without a model frontier.
+
+Every resident cycle reloads the catalogue and selects the next eight devices by a persisted cursor (`target_batch_size`, range 1–100). Existing per-device crawl queues/cursors stay intact across rotations. New models are included automatically; old `targets` arrays in `tg_search_config.json` no longer constrain enrollment. An empty/missing catalogue fails the cycle visibly rather than silently reverting to four sample devices. The lab workflow also selects devices automatically from the same catalogue and has no cloud-runner or manual-target input. Optional CLI target overrides remain for isolated developer experiments.
+
+## Release taxonomy and publication boundary
+
+Each search-ledger payload stores a versioned `taxonomy` object. Every classification has its evidence/source in `taxonomy.evidence`; unknown values remain explicit. Legacy scanner records store the same object in `taxonomy_json` (automatic additive schema migration). Cached public pages are replayed in bounded batches when the taxonomy version changes. Records without current tags never enter the publication-ready export.
+
+| User-facing category | Stored fields / values |
+| --- | --- |
+| 收录边界 | `access`: `free`, `paid`, `unknown` |
+| 资源类型 | `resource_type`: `rom`, `recovery`, `kernel`, `other_tool` |
+| 适配设备 | `devices.device_id`, `codename`, `applicable_models`, `excluded_models`, `compatibility_conditions` |
+| ROM 分类 | `rom_family`: `aosp_like`, `manufacturer_modified`, `manufacturer_port`, `other`, `pending`; non-ROM uses null |
+| 系统基础 | `system_base`: `AOSP`, `HyperOS`, `MIUI`, `One UI`, `OxygenOS`, `ColorOS`, `OriginOS`, `unknown` |
+| 项目身份 | `project.id`, `name`, `aliases` (local canonical registry; no claim of external registry registration) |
+| 维护分支 | `maintenance.maintainer_id`, `branch_id`, `branch_name`, `identity_verified` |
+| 项目认可 | `project_recognition`: `official`, `unofficial`, `unknown`; source is an author claim |
+| 版本 | `versions.android`, `project_version`, `build_id`, `build_date` |
+| 构建变体 | `build_variants`: list of `vanilla`, `gapps`, `other`, `unknown`; one post may announce multiple variants |
+| 包形式 | `package_form`: `device_specific`, `gsi`, `unknown` |
+| 发布阶段 | `release_stage`: `stable`, `beta`, `alpha`, `unknown`; source is an author claim |
+
+Rules identify explicit statements and known project identities first. The optional, bounded model call supplies evidence-backed family/base/access suggestions for qualified releases and assists ambiguous release decisions. Model output never creates supported-device mappings, real account IDs or verified endorsements. Missing values are not inferred from public links, channel ownership or message timestamps. Build dates with ambiguous day/month order stay null. A `tg-handle:` maintainer ID identifies an observed credited handle, not a verified Telegram numeric account; absent author evidence leaves maintainer and branch IDs null. Branch IDs include project, credited maintainer, device and any declared branch, so different maintainers do not collapse.
+
+`products.json` remains the accepted inventory, including paid/unknown access for review. `publishable_products.json` contains only records with `taxonomy.publication.eligible == true`. Free status must be explicitly supported; optional donations alone establish neither free nor paid status, while mandatory payment/donation gates prevent publication. Explicit excluded models and GSI compatibility requiring review also block publication. The legacy signed SP07 export applies the same free/current-taxonomy gate. These changes do not enable production publication.

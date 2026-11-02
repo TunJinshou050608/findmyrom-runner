@@ -187,6 +187,7 @@ def test_official_rom_scope_and_port_kind():
 
 def test_resident_reuses_discovered_sources_without_importing_products(tmp_path,monkeypatch):
     from fmr_tg_scanner import search_watch
+    monkeypatch.setattr(search_watch,'read_catalogue',lambda:({'annibale':['Redmi K90']},[]))
     from fmr_tg_scanner.trial import atomic_json
     path=tmp_path/'experiments/search-v3/123/query_first/products.json'
     atomic_json(path,{'products':[{'package':{'device_codename':'annibale','channel_username':'autofoundupdates','tg_post_url':'https://t.me/autofoundupdates/12'}}]})
@@ -558,7 +559,7 @@ def test_farewell_and_advisory_rejected():
     assert analyse(msg2, 'alioth', [], {'alioth': []})[1] == 'not_a_release'
 
 
-def test_canonical_build_fingerprint_deduplication():
+def test_distinct_messages_with_same_build_are_preserved():
     from fmr_tg_scanner.search_store import SearchStore
     store = SearchStore(':memory:')
     p1 = {
@@ -569,6 +570,7 @@ def test_canonical_build_fingerprint_deduplication():
         'package_name': 'DerpFest 13 Tango - OFFICIAL',
         'delivery_type': 'telegram_message',
         'tg_post_url': 'https://t.me/author_channel/10',
+        'channel_username': 'author_channel', 'msg_id': 10,
     }
     p2 = {
         'device_codename': 'alioth',
@@ -578,8 +580,11 @@ def test_canonical_build_fingerprint_deduplication():
         'package_name': 'DerpFest 13 Tango - OFFICIAL',
         'delivery_type': 'telegram_message',
         'tg_post_url': 'https://t.me/repost_channel/999',
+        'channel_username': 'repost_channel', 'msg_id': 999,
     }
-    assert store.fingerprint(p1) == store.fingerprint(p2)
+    assert store.fingerprint(p1) != store.fingerprint(p2)
+    assert store.fingerprint(p1) == store.fingerprint(dict(p1, maintainer_handle='@another'))
+    store.close()
 
 
 def test_llm_disambiguates_novel_community_official_rom():
@@ -600,7 +605,7 @@ Download: https://drive.google.com/file/d/123/view"""
     # 2. With LLM disambiguation: rescues community official ROM
     def mock_llm(t, **kwargs):
         return {
-            'accepted': True,
+            'accepted': True, 'confidence': 0.95,
             'classification': 'community_official',
             'project_name': 'SkylineUI',
             'android_version': '13',
@@ -631,7 +636,7 @@ Changelog: Fixed Dolby Vision."""
     # With LLM: recognized as community unofficial build
     def mock_llm(t, **kwargs):
         return {
-            'accepted': True,
+            'accepted': True, 'confidence': 0.95,
             'classification': 'unofficial',
             'project_name': 'PixelOS',
             'android_version': '17',
@@ -712,7 +717,7 @@ def test_llm_grounding_guard_blocks_hallucinated_entities():
     assert merged_legit['maintainer_handle'] == '@real_builder'
 
 
-def test_dynamic_project_learning_cache_prevents_redundant_llm_calls():
+def test_llm_decision_does_not_globally_whitelist_project():
     from fmr_tg_scanner import search_policy
     search_policy.DYNAMIC_COMMUNITY_PROJECTS.clear()
     
@@ -728,21 +733,21 @@ Download: https://drive.google.com/file/d/111"""
         nonlocal llm_calls
         llm_calls += 1
         return {
-            'accepted': True,
+            'accepted': True, 'confidence': 0.95,
             'classification': 'community_official',
             'project_name': 'CloverProject',
             'android_version': '14',
             'maintainer_handle': '@clover_dev'
         }
 
-    # First call: triggers LLM and learns the project
+    # Each distinct post requires its own decision.
     res1, reason1 = analyse(msg1, 'alioth', [], {'alioth': []}, llm_callable=mock_llm)
     assert reason1 == 'accepted'
     assert llm_calls == 1
-    assert 'cloverproject' in search_policy.DYNAMIC_COMMUNITY_PROJECTS
+    assert 'cloverproject' not in search_policy.DYNAMIC_COMMUNITY_PROJECTS
 
     # Second call: new build with different date, different link, different version
-    # Must NOT call LLM because project is now in dynamic cache!
+    # A previous decision must not whitelist a different release.
     msg2_text = """#CloverProject #Official #ROM
 CloverProject - OFFICIAL | Android 14 v2.5
 Updated: 02/02/24
@@ -751,11 +756,82 @@ Download: https://mega.nz/file/222"""
     msg2 = parse_tg_channel_page(page(text=msg2_text), 'testchannel')['messages'][0]
     res2, reason2 = analyse(msg2, 'alioth', [], {'alioth': []}, llm_callable=mock_llm)
     assert reason2 == 'accepted'
-    # LLM calls MUST STILL BE 1 (Cache Hit!)
-    assert llm_calls == 1
+    # No project-wide bypass. Exact-post caching is tested in the engine.
+    assert llm_calls == 2
     assert res2['package']['project_name'] == 'CloverProject'
 
 
 
 
 
+
+@pytest.mark.parametrize('changes',[
+    {'accepted':'false'}, {'confidence':True}, {'confidence':float('nan')},
+    {'confidence':.89}, {'confidence':1.1}, {'classification':'stock_official'},
+    {'classification':'made_up'}, {'is_release':False}, {'is_oem_stock_firmware':True},
+])
+def test_invalid_llm_decisions_cannot_accept(changes):
+    msg=parse_tg_channel_page(page(text='#SkylineUI Official Android 15 #alioth'),'testchannel')['messages'][0]
+    decision={'accepted':True,'classification':'community_official','confidence':.95,**changes}
+    result,reason=analyse(msg,'alioth',[],{'alioth':[]},llm_callable=lambda *a,**k:decision)
+    assert not result['accepted'] and reason=='official_rom_scope_unproved'
+
+
+def test_llm_configuration_checks(monkeypatch):
+    from fmr_tg_scanner.llm_fallback import configuration_status
+    monkeypatch.delenv('LLM_API_KEY',raising=False)
+    assert configuration_status()=='missing_key'
+    monkeypatch.setenv('LLM_API_KEY','sk-your-deepseek-api-key')
+    assert configuration_status()=='invalid_key'
+    monkeypatch.setenv('LLM_API_KEY','sk-test-secret')
+    monkeypatch.setenv('LLM_API_BASE_URL','http://api.deepseek.com/v1')
+    assert configuration_status()=='invalid_origin'
+    monkeypatch.setenv('LLM_API_BASE_URL','https://api.deepseek.com/v1')
+    assert configuration_status()=='configured'
+
+
+@pytest.mark.parametrize('outcome',['success','auth','invalid','typeerror'])
+def test_engine_llm_accounting_cache_and_auth_failure(tmp_path,monkeypatch,outcome):
+    from fmr_tg_scanner.search_engine import run
+    monkeypatch.setenv('FMR_TEST_NO_SLEEP','1')
+    def response(req):
+        if req.url.host=='raw.githubusercontent.com':body='alioth: ["POCO F3"]'
+        elif req.url.host=='api.github.com':body='{"items":[]}'
+        elif req.url.host=='lyzem.com':body='<html></html>'
+        elif req.url.path=='/s/aliothupdates':
+            body='<h1 class="tgme_channel_info_header_title">POCO F3 Updates</h1>'+page(text='#SkylineUI Official Android 15 #alioth').replace('testchannel/','aliothupdates/')
+        else:body='<html><div class="tgme_page_title">Contact</div></html>'
+        return httpx.Response(200,headers={'content-type':'text/html'},text=body)
+    def factory(*args,**kwargs):return SearchHTTP(*args,**kwargs,client=httpx.Client(transport=httpx.MockTransport(response)))
+    calls=[]
+    def llm(text,**kwargs):
+        calls.append((text,kwargs))
+        if outcome=='auth':
+            res=httpx.Response(401,request=httpx.Request('POST','https://api.deepseek.com/v1/chat/completions'))
+            raise httpx.HTTPStatusError('unauthorized',request=res.request,response=res)
+        if outcome=='typeerror':raise TypeError('internal provider error')
+        return {'accepted':True,'classification':'community_official','confidence':.95 if outcome=='success' else .1}
+    report=run(tmp_path,['alioth'],max_requests=40,max_seconds=30,http_factory=factory,llm_callable=llm)
+    assert report['llm_calls']==len(calls)>0
+    if outcome=='success':
+        assert report['llm_successes']==1 and report['llm_cache_hits']>=1
+    elif outcome=='auth':
+        assert len(calls)==1 and report['llm_auth_errors']==1
+        assert report['llm_status']=='authentication_failed'
+    elif outcome=='invalid':assert report['llm_invalid_responses']==len(calls)
+    else:assert report['llm_errors']==len(calls)
+    if outcome!='success':assert report['packages']==0
+
+
+def test_existing_fingerprints_migrate_without_deleting_observations(tmp_path):
+    db=SearchStore(tmp_path/'old.sqlite')
+    for i in (10,11):
+        msg=parse_tg_channel_page(page(ids=(i,)),'testchannel')['messages'][0]
+        result,_=analyse(msg,'alioth',[],{'alioth':[]})
+        db.save(result['package'],result['evidence'],'unofficial','accepted',True)
+    db.execute("UPDATE tg_search_records SET fingerprint='old-colliding-value'")
+    db.set_meta('delivery_contract','telegram_message_v1')
+    db.migrate_message_delivery()
+    assert len(db.query('SELECT DISTINCT fingerprint FROM tg_search_records'))==2
+    assert db.meta('delivery_contract')=='telegram_message_v2'
+    db.close()

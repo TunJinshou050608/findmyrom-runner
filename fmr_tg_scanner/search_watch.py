@@ -9,19 +9,22 @@ from .search_engine import run
 from .search_store import SearchStore
 from .trial import atomic_json
 from .watch import watch
+from .targets import read_catalogue, select_targets
 
 
 def produce(root):
     root=Path(root)
     config_path=root/'tg_search_config.json'
-    config=json.loads(config_path.read_text()) if config_path.exists() else {
-        'targets':['annibale','ishtar','liuqin','alioth'],'max_requests':100,'max_seconds':360}
-    targets=config['targets']
-    if not isinstance(targets,list) or len(set(targets))!=len(targets):raise ValueError('Invalid search targets')
+    config=json.loads(config_path.read_text()) if config_path.exists() else {'max_requests':100,'max_seconds':360}
+    # Old four-device configs must not silently restrict automatic discovery.
+    config.pop('targets',None)
+    config['target_source']='local_catalogue'
+    names,sources=read_catalogue()
     atomic_json(config_path,config)
     state_root=root/'search-v3';state_root.mkdir(exist_ok=True)
     store=SearchStore(state_root/'search.sqlite')
     try:
+        targets=select_targets(names,store.meta('catalogue_last_device'),config.get('target_batch_size',8))
         if not store.meta('prior_lab_import_complete',False):
             imported=[]
             # Warm operation may reuse sources independently discovered by the
@@ -37,7 +40,12 @@ def produce(root):
             store.set_meta('prior_lab_source_evidence',imported)
             store.set_meta('prior_lab_import_complete',True)
     finally:store.close()
-    report=run(root/'search-v3',targets,max_requests=config.get('max_requests',100),max_seconds=config.get('max_seconds',360))
+    report=run(root/'search-v3',targets,max_requests=config.get('max_requests',100),max_seconds=config.get('max_seconds',360),catalogue_names=names)
+    # Only advance after a completed batch has committed its frontier/report.
+    store=SearchStore(state_root/'search.sqlite')
+    try:store.set_meta('catalogue_last_device',targets[-1])
+    finally:store.close()
+    report['target_selection']={'source':'local_catalogue','total_devices':len(names),'batch_devices':len(targets),'sources':sources}
     report['products_path']='search-v3/products.json'
     report['candidates_path']='search-v3/candidates.json'
     atomic_json(root/'reports/latest.json',report)
