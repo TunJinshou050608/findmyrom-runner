@@ -8,7 +8,7 @@ from fmr_ingest_stock.catalogue_store import KIND
 from fmr_ingest_stock.device_identity import clean_model_name, marketing_name
 from fmr_ingest_stock.oem_sources import canonical_code
 
-IDENTITY = re.compile(r'[a-z0-9_-]{3,32}')
+IDENTITY = re.compile(r'[a-z0-9][a-z0-9_-]{2,31}')
 
 
 def read_catalogue(directory=None):

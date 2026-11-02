@@ -36,6 +36,15 @@ def test_empty_catalogue_has_no_manual_four_device_fallback(tmp_path):
     with pytest.raises(RuntimeError,match='missing or empty'):read_catalogue(tmp_path)
 
 
+def test_published_device_fallback_ignores_system_anchor(tmp_path):
+    with sqlite3.connect(tmp_path/'published.sqlite') as db:
+        db.execute('CREATE TABLE devices(codename TEXT,marketing_name TEXT,model_numbers_json TEXT)')
+        db.executemany('INSERT INTO devices VALUES (?,?,?)',[
+            ('__global__','Global System Anchor','[]'),('alioth','POCO F3','["M2012K11AC"]')])
+    names,_=read_catalogue(tmp_path)
+    assert set(names)=={'alioth'}
+
+
 def test_rotation_handles_new_and_removed_devices():
     names={f'device{i:04}':[] for i in range(1200)}
     selected=[];last=None
@@ -78,3 +87,4 @@ def test_failed_batch_does_not_advance_catalogue_cursor(tmp_path,monkeypatch):
     store=SearchStore(tmp_path/'search-v3/search.sqlite')
     assert store.meta('catalogue_last_device') is None
     store.close()
+
