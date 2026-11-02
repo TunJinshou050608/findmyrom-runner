@@ -56,12 +56,17 @@ def test_publication_populates_existing_table_and_enables_device_idempotently(tm
     private,_=generate_keypair()
     assert publish(out,db,private)['published_and_verified']==1
     row=db.query('SELECT * FROM custom_resources')[0]
+    assert re.fullmatch(r'cr_[A-Za-z0-9_-]{10,13}',row['public_token'])
     assert row['zone_type']=='free_rom' and row['target_post_url']=='https://t.me/testupdates/1'
     assert json.loads(row['metadata_json'])['taxonomy']['maintenance']['branch_id']
     assert db.query("SELECT phase2_roms_enabled FROM devices WHERE codename='alioth'")[0]['phase2_roms_enabled']==1
     db.execute('UPDATE custom_resources SET site_click_count=12')
     assert publish(out,db,private)['published_and_verified']==1
     assert db.query('SELECT COUNT(*) n,MAX(site_click_count) clicks FROM custom_resources')[0]=={'n':1,'clicks':12}
+    legacy='cr_'+hashlib.sha256(('alioth|https://t.me/testupdates/1').encode()).hexdigest()[:24]
+    db.execute('UPDATE custom_resources SET public_token=?',(legacy,))
+    assert publish(out,db,private)['published_and_verified']==1
+    assert re.fullmatch(r'cr_[A-Za-z0-9_-]{10,13}',db.query('SELECT public_token FROM custom_resources')[0]['public_token'])
     db.close()
 
 

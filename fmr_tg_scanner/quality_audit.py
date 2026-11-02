@@ -1,5 +1,6 @@
 """Full, offline evidence audit and one-cohort D1 publication of existing TG records."""
 import argparse
+import base64
 from collections import Counter
 from copy import deepcopy
 from datetime import datetime, timezone
@@ -192,10 +193,16 @@ def audit(root):
     finally:store.close()
 
 
+def resource_token(package):
+    digest=hashlib.sha256((package['device_codename']+'|'+package['tg_post_url']).encode()).digest()
+    # Existing SSR/verify/download routes accept exactly 10–13 token characters.
+    return 'cr_'+base64.urlsafe_b64encode(digest).decode().rstrip('=')[:13]
+
+
 def publication_row(item,key,run_id):
     from fmr_core.crypto import sign_custom_resource
     p=item['package'];t=p['taxonomy'];url=p['tg_post_url']
-    token='cr_'+hashlib.sha256((p['device_codename']+'|'+url).encode()).hexdigest()[:24]
+    token=resource_token(p)
     zone='free_rom' if t['resource_type']=='rom' else 'essential_tool'
     categories={'aosp_like':'类原生','manufacturer_modified':'厂商修改','manufacturer_port':'厂商移植','other':'其他','pending':'待确认'}
     category=categories.get(t['rom_family'],'待确认') if t['resource_type']=='rom' else {'kernel':'Kernel','recovery':'Recovery','other_tool':'其他工具'}[t['resource_type']]
@@ -226,7 +233,7 @@ def publish(out,db,key):
     for item in products:
         errors=quality_errors(item['package'],True)
         if item['package']['device_codename'] not in devices:errors.append('device_absent_from_production_D1')
-        token='cr_'+hashlib.sha256((item['package']['device_codename']+'|'+item['package']['tg_post_url']).encode()).hexdigest()[:24]
+        token=resource_token(item['package'])
         if token in opted_out:errors.append('maintainer_opted_out')
         if errors:excluded.append({'post_url':item['package']['tg_post_url'],'device':item['package']['device_codename'],'reasons':errors})
         else:ready.append(item)
@@ -236,6 +243,9 @@ def publish(out,db,key):
         if name not in fields:db.execute('ALTER TABLE custom_resources ADD COLUMN '+name+' '+kind)
     db.execute('CREATE INDEX IF NOT EXISTS idx_custom_audit_batch ON custom_resources(audit_batch_id)')
     columns='public_token,device_codename,zone_type,category_tag,project_name,is_official,android_version,build_version_tag,maintainer_name,maintainer_contact_tg,target_post_url,gapps_type,known_bugs_json,published_at,ed25519_signature,metadata_json,audit_batch_id'
+    # Repair only this audit publisher's initial overlong deterministic tokens.
+    # Retain the actual resource rows/counters; never delete user resources.
+    legacy={r['public_token']:r for r in db.query('SELECT public_token,device_codename,target_post_url,metadata_json FROM custom_resources') if json.loads(r['metadata_json']).get('audit_version')==AUDIT_VERSION}
     updates=','.join(c+'=excluded.'+c for c in columns.split(',') if c!='public_token')
     sql='INSERT INTO custom_resources('+columns+') VALUES ('+','.join('?' for _ in columns.split(','))+') ON CONFLICT(public_token) DO UPDATE SET '+updates+' WHERE custom_resources.maintainer_opted_out=0'
     expected={};committed=0
@@ -243,6 +253,10 @@ def publish(out,db,key):
         chunk=ready[offset:offset+40];statements=[]
         for item in chunk:
             values=publication_row(item,key,run_id);expected[values[0]]=values
+            p=item['package']
+            old='cr_'+hashlib.sha256((p['device_codename']+'|'+p['tg_post_url']).encode()).hexdigest()[:24]
+            if old in legacy and legacy[old]['device_codename']==p['device_codename'] and legacy[old]['target_post_url']==p['tg_post_url']:
+                statements.append(('UPDATE custom_resources SET public_token=?,ed25519_signature=? WHERE public_token=? AND maintainer_opted_out=0',(values[0],values[14],old)))
             statements.append((sql,values))
         # Each request is an atomic chunk of the same audited full publication cohort.
         db.execute_batch(statements)
