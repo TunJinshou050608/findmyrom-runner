@@ -71,12 +71,13 @@ def analyse(message,target,names,all_names,profile=''):
     evidence=target_evidence(message,target,names,all_names,profile)
     if evidence is None:return None,'wrong_or_unproved_device'
     text=message.get('text','');head='\n'.join(text.splitlines()[:4])
+    head+='\n'+(message.get('file_attachment_name') or '')
     resource_signal=bool(re.search(r'(?i)\b(?:rom|kernel|recovery|twrp|orangefox|ofrp|boot|fastboot|init_boot|gsi)\b|刷机包|内核|第三方系统',head) or any(re.search(pattern,head,re.I) for _,pattern in [*PROJECTS,*EXTRA_PROJECTS]))
     if re.search(r'(?i)security warning|scam alert|malware|phishing',head):return None,'not_a_release'
     release_signal=bool(re.search(r'(?i)\b(?:release|released|build|updated?|download|version|unofficial|official|community|port|changelog|gapps|vanilla)\b|发布|下载|更新|移植|适配',text) or message.get('has_tg_attachment'))
     if not resource_signal or not release_signal:return None,'not_a_resource'
     if re.search(r'(?i)^(?:can |could |does |is there |how |anyone |when |求|请问|有没有)',head.strip()):return None,'not_a_release'
-    if re.search(r'[?？]',text.splitlines()[0]) and not re.search(r'(?i)\b(?:released?|updated?|build|changelog)\b|发布|更新',head):return None,'not_a_release'
+    if re.search(r'[?？]',next(iter(text.splitlines()),'')) and not re.search(r'(?i)\b(?:released?|updated?|build|changelog)\b|发布|更新',head):return None,'not_a_release'
     package=extract_package_by_rules(message,default_codename=target,post_only=True)
     if package is None:return None,'not_a_resource'
     package['device_codename']=target
@@ -90,9 +91,10 @@ def analyse(message,target,names,all_names,profile=''):
     generic_image=bool(re.search(r'(?i)\bGSI\b',heading) or re.search(r'(?i)(?:ErfanGSI|NipponGSI|/Generic[ /%-]|[-_]AB[-_]\d)',paths))
     oem_link=any((urlsplit(u).hostname or '') in ('bigota.d.miui.com','hugeota.d.miui.com','dl.google.com','bkt-sgp-miui-ota-update-alisgp.oss-ap-southeast-1.aliyuncs.com') for u in links)
     project_base=re.sub(r'(?i)(?:rom|os)$','',package['project_name']).strip()
-    official=bool(re.search(r'(?i)\bofficial\b',heading) or (len(project_base)>3 and re.search(r'(?i)\b'+re.escape(project_base)+r'\s*(?:ROM|OS)?\s+Official\s+Channel\b',text)))
+    status_text=heading+'\n'+re.sub(r'[_-]',' ',message.get('file_attachment_name') or '')
+    official=bool(re.search(r'(?i)\bofficial\b',status_text) or (len(project_base)>3 and re.search(r'(?i)\b'+re.escape(project_base)+r'\s*(?:ROM|OS)?\s+Official\s+Channel\b',text)))
     if stock_filename or oem_link:label='stock_official'
-    elif re.search(r'(?i)\bunofficial\b|#unofficial|\bcommunity\b|^\s*(?:status|build type)\s*[:：-]\s*unofficial',heading):label='unofficial'
+    elif re.search(r'(?i)\bunofficial\b|#unofficial|\bcommunity\b|^\s*(?:status|build type)\s*[:：-]\s*unofficial',status_text):label='unofficial'
     elif re.search(r'(?i)\bport(?:ed)?\b|\bcustom\b',heading):label='custom_or_port'
     elif re.search(r'(?i)new\s+(?:OS|MIUI|HyperOS)\s+(?:fastboot|recovery)\s+update|(?:hyperos|miui)\s*(?:\d+)?\s*version\s*[:=]',text):label='stock_official'
     elif package['project_name'].lower() in ('hyperos','miui'):label='stock_official'

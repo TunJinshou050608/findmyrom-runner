@@ -360,3 +360,17 @@ def test_higher_priority_discovery_revives_once_without_erasing_cooldown(tmp_pat
     promoted=db.due(['example']);assert promoted and promoted['priority']==3
     db.finish(promoted,delay=86400);db.enqueue('admit','example',payload,3)
     assert db.due(['example']) is None;db.close()
+
+
+def test_short_telegram_release_has_no_file_or_minimum_caption_gate():
+    msg=parse_tg_channel_page(page(text='#ishtar kernel updated'),'testchannel')['messages'][0]
+    msg['links']=[];msg['link_items']=[]
+    result,reason=analyse(msg,'ishtar',[],{'ishtar':[]})
+    assert reason=='accepted' and result['package']['target_post_url']=='https://t.me/testchannel/12'
+
+
+def test_attachment_only_post_still_delivers_the_telegram_floor():
+    msg=parse_tg_channel_page(page(),'testchannel')['messages'][0]
+    msg.update(text='',links=[],link_items=[],has_tg_attachment=True,file_attachment_name='lineage-23.2-UNOFFICIAL-liuqin.zip')
+    result,reason=analyse(msg,'liuqin',[],{'liuqin':[]})
+    assert reason=='accepted' and result['package']['target_post_url']=='https://t.me/testchannel/12'

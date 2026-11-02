@@ -71,7 +71,7 @@ def extract_package_by_rules(msg_dict: dict, default_codename=None, *, post_only
         if link not in links:links.append(link)
     attachment=m.get('has_tg_attachment',False) and bool(re.search(r'(?i)\.(zip|tgz|tar(?:\.(gz|xz|zst))?|img(?:\.gz)?|bin|7z)$',m.get('file_attachment_name') or ''))
     if attachment and not post_only:links.append(url)
-    if (not links and not post_only) or (len(text)<25 and not re.search(r'\.(?:zip|img|tgz)(?:\.gz)?$',m.get('file_attachment_name') or '',re.I)) or not re.search(WORDS,text+' '+(m.get('file_attachment_name') or ''),re.I):return None
+    if (not post_only and (not links or (len(text)<25 and not re.search(r'\.(?:zip|img|tgz)(?:\.gz)?$',m.get('file_attachment_name') or '',re.I)))) or not re.search(WORDS,text+' '+(m.get('file_attachment_name') or ''),re.I):return None
     match=re.search(MAINTAINER_REGEX,text)
     maintainer=handle(match[1]) if match else None
     if not maintainer:
