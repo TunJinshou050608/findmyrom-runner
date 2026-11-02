@@ -7,12 +7,36 @@ from .trial import MAINSTREAM
 
 EXTRA_PROJECTS=[('BlissROM',r'\bBliss\s*ROM\b|#BlissROM'),('Project Elixir',r'Project\s*Elixir'),('Xtended',r'\bXtended\b'),('AlphaDroid',r'AlphaDroid'),('ColtOS',r'ColtOS'),('Bootleggers',r'Bootleggers'),('PixelExperience',r'Pixel\s*Experience|#PEX\b'),('PixelPlusUI',r'Pixel\s*Plus\s*UI'),('AOSPA',r'\bAOSPA\b'),('OxygenOS',r'OxygenOS'),('ColorOS',r'ColorOS'),('OriginOS',r'OriginOS')]
 MAINSTREAM_ROMS=MAINSTREAM|{'pixelexperience','pixelplusui','blissrom','project elixir','xtended','alphadroid','coltos','aospa'}
+_profile_catalogue=None
+_profile_patterns=[]
+_profile_cache={}
 
 
 def token(text,value):return bool(re.search(r'(?<![a-z0-9_])'+re.escape(value)+r'(?![a-z0-9_])',text,re.I))
 
 
 def path_token(text,value):return bool(re.search(r'(?<![a-z0-9])'+re.escape(value)+r'(?![a-z0-9])',text,re.I))
+
+
+def profile_devices(profile,all_names,*,aliases_only=False):
+    """Longest catalogue spans win: Pad 6 Pro must not also imply Pad 6."""
+    global _profile_catalogue,_profile_patterns,_profile_cache
+    if all_names is not _profile_catalogue:
+        _profile_catalogue=all_names;_profile_cache={}
+        _profile_patterns=[(code,re.compile(r'(?<![a-z0-9_])'+re.escape(value)+r'(?![a-z0-9_])',re.I),value==code) for code,names in all_names.items() for value in [code,*names] if value]
+    cache_key=(profile,aliases_only)
+    if cache_key in _profile_cache:return _profile_cache[cache_key]
+    spans=[(m.start(),m.end(),code) for code,pattern,is_code in _profile_patterns if not aliases_only or not is_code for m in pattern.finditer(profile)]
+    # A longer alias may contain a shorter model name. Disjoint mentions of
+    # both models still identify a mixed-device profile.
+    ordered=sorted(spans,key=lambda x:(x[0],-x[1]));accepted=[]
+    for start,end,code in ordered:
+        if any(a<=start and b>=end and (a<start or b>end) for a,b,_ in accepted):continue
+        accepted.append((start,end,code))
+    result={code for _,_,code in accepted}
+    if len(_profile_cache)>=512:_profile_cache={}
+    _profile_cache[cache_key]=result
+    return result
 
 
 def target_evidence(message,target,names,all_names,profile=''):
@@ -29,15 +53,19 @@ def target_evidence(message,target,names,all_names,profile=''):
     donors=re.findall(r'(?im)(?:ported|extracted|taken|based)\s+from\s*[:：-]?\s*([^\n]+)|^\s*(?:donor|base device|source device)\s*[:：-]\s*([^\n]+)',text)
     if any(token(part,target) or any(token(part,name) for name in names) for pair in donors for part in pair if part):return None
     for alias in names:
-        if len(alias)>4 and token(text,alias):return {'kind':'catalogue_model_alias','value':alias}
+        if len(alias)>4 and token(text,alias):
+            named=profile_devices(identity_text,all_names,aliases_only=True)
+            if named and target not in named:return None
+            return {'kind':'catalogue_model_alias','value':alias}
     if token(head,target):return {'kind':'codename_in_release_heading','value':target}
     if token(text,target):return {'kind':'codename_in_release_body','value':target}
     # A channel name alone is not evidence. A profile must independently name
     # exactly this model, without another known target/alias in its description.
     if profile and (token(profile,target) or any(token(profile,name) for name in names)):
-        other=[code for code,aliases in all_names.items() if code!=target and
-               (token(profile,code) or any(len(a)>7 and token(profile,a) for a in aliases))]
-        if not other:return {'kind':'dedicated_channel_profile','value':profile[:300]}
+        if profile_devices(profile,all_names)=={target}:
+            named=profile_devices(identity_text,all_names,aliases_only=True)
+            if named and target not in named:return None
+            return {'kind':'dedicated_channel_profile','value':profile[:300]}
     return None
 
 

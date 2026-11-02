@@ -374,3 +374,17 @@ def test_attachment_only_post_still_delivers_the_telegram_floor():
     msg.update(text='',links=[],link_items=[],has_tg_attachment=True,file_attachment_name='lineage-23.2-UNOFFICIAL-liuqin.zip')
     result,reason=analyse(msg,'liuqin',[],{'liuqin':[]})
     assert reason=='accepted' and result['package']['target_post_url']=='https://t.me/testchannel/12'
+
+
+def test_longer_model_names_do_not_make_dedicated_channel_ambiguous():
+    from fmr_tg_scanner.search_policy import profile_devices
+    names={'pipa':['Xiaomi Pad 6'],'liuqin':['Xiaomi Pad 6 Pro'],'fuxi':['Xiaomi 13'],'ishtar':['Xiaomi 13 Ultra']}
+    assert profile_devices('Xiaomi Pad 6 Pro Updates',names)=={'liuqin'}
+    assert profile_devices('Xiaomi 13 Ultra Updates',names)=={'ishtar'}
+    assert profile_devices('Xiaomi Pad 6 Pro / Xiaomi Pad 6 Updates',names)=={'liuqin','pipa'}
+    msg=parse_tg_channel_page(page(text='TWRP recovery release'),'testchannel')['messages'][0]
+    msg['links']=[];msg['link_items']=[]
+    assert analyse(msg,'liuqin',names['liuqin'],names,'Xiaomi Pad 6 Pro Updates')[1]=='accepted'
+    assert analyse(msg,'pipa',names['pipa'],names,'Xiaomi Pad 6 Pro Updates')[0] is None
+    msg['text']='TWRP recovery released for Xiaomi Pad 6'
+    assert analyse(msg,'liuqin',names['liuqin'],names,'Xiaomi Pad 6 Pro Updates')[0] is None

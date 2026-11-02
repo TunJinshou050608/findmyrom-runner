@@ -26,6 +26,7 @@ def focus(state_root,targets):
                 diagnosis['resident_frontier']=[dict(zip(('device','kind','count','errors'),row)) for row in src.execute('SELECT device,kind,COUNT(*),SUM(last_error IS NOT NULL) FROM tg_search_tasks GROUP BY device,kind') if row[0] in targets]
                 diagnosis['resident_resource_decisions']=[dict(zip(('device','accepted','reason','count'),row)) for row in src.execute('SELECT device,accepted,reason,COUNT(*) FROM tg_search_records GROUP BY device,accepted,reason') if row[0] in targets]
         diagnosis['imported_sources']=len(dest.meta('sources',{}))
+        diagnosis['assigned_source_profiles']={code:[{'channel':channel,'strategy':info.get('strategy_by_device',{}).get(code),'profile':dest.meta('profile:'+channel,'')[:1600]} for channel,info in dest.meta('sources',{}).items() if code in info.get('targets',[])] for code in targets}
     finally:dest.close()
     atomic_json(root/'diagnosis.json',diagnosis);publish_private(state_root)
     first=run(root,targets,max_requests=180,max_seconds=480)

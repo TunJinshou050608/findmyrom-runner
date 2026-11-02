@@ -47,6 +47,13 @@ def run(root,targets,*,max_requests=180,max_seconds=480,http_factory=SearchHTTP,
         try:all_names=aliases(http,store,targets)
         except WorkBudgetReached:outcome='budget_reached'
         except Exception as exc:emit({'event':'alias_catalogue_unavailable','error_type':type(exc).__name__})
+        if store.meta('scope_resolution_version')!='longest-model-v1':
+            for channel,info in store.meta('sources',{}).items():
+                context=store.meta('profile:'+channel,'')
+                for code in info.get('targets',[]):
+                    if code in targets and info.get('strategy_by_device',{}).get(code)!='history' and target_evidence({'text':''},code,all_names.get(code,[]),all_names,context):
+                        store.enqueue('admit',code,{'channel':channel,'depth':info.get('depth',0)},1)
+            store.set_meta('scope_resolution_version','longest-model-v1')
         def share_source(channel,context,depth):
             # An Android aggregator discovered while scanning one model is a
             # useful source for the other tracked models too. Compatibility
