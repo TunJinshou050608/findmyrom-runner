@@ -1,6 +1,10 @@
 name: On-demand image streaming lab
 on:
   workflow_dispatch:
+    inputs:
+      brands:
+        description: Fixed test cases (space separated)
+        default: google oplus vivo samsung
 permissions:
   contents: read
 concurrency:
@@ -23,10 +27,12 @@ jobs:
       - name: Test streaming contracts without external downloads
         run: python -m pytest -q tests/test_streaming_probe.py
       - name: Read only selected image ranges; discard output after hashing
+        env:
+          LAB_BRANDS: ${{ inputs.brands }}
         run: |
           mkdir -p "$RUNNER_TEMP/stream-results-${GITHUB_RUN_ID}"
           failed=0
-          for brand in google oplus vivo samsung; do
+          for brand in $LAB_BRANDS; do
             python -u -m fmr_extractor.streaming_probe --brand "$brand" --output "$RUNNER_TEMP/stream-results-${GITHUB_RUN_ID}/${brand}.json" || failed=1
           done
           exit "$failed"

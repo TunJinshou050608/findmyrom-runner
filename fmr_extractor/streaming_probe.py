@@ -39,7 +39,7 @@ ALLOWED = ('dl.google.com', 'allawnfs.com', 'allawnofs.com',
 
 
 class RangeReader(io.RawIOBase):
-    def __init__(self, url, client, headers=None, budget=BUDGET):
+    def __init__(self, url, client, headers=None, budget=BUDGET, refresh=None):
         parsed = urlsplit(url)
         host = (parsed.hostname or '').lower()
         if (not any(host == h or host.endswith('.'+h) for h in ALLOWED)
@@ -48,13 +48,14 @@ class RangeReader(io.RawIOBase):
                 or (parsed.scheme == 'http' and host != ALLOWED[-1])):
             raise ValueError('Test source outside fixed official CDN allowlist')
         self.url, self.client, self.headers = url, client, headers or {}
+        self.refresh = refresh
         self.budget, self.used, self.requests, self.position = budget, 0, 0, 0
         self.size, self.etag = None, None
         self.deadline = time.monotonic() + 480
         self.encodings = set()
         self.fetch(0, 1)
 
-    def fetch(self, start, length):
+    def fetch(self, start, length, _renewed=False):
         if (length <= 0 or start < 0 or length > self.budget-self.used
                 or time.monotonic() > self.deadline):
             raise ValueError('Range budget, offset or deadline exceeded')
@@ -64,6 +65,10 @@ class RangeReader(io.RawIOBase):
             headers['If-Match'] = self.etag
         self.requests += 1
         with self.client.stream('GET', self.url, headers=headers, follow_redirects=False, timeout=30) as r:
+            if r.status_code==401 and self.refresh and not _renewed:
+                r.close()
+                self.headers=self.refresh()
+                return self.fetch(start,length,_renewed=True)
             # Close an ignored Range BEFORE reading its multi-GB response body.
             if r.status_code != 206:
                 raise ValueError(f'Range HTTP {r.status_code}; body not consumed')
@@ -117,6 +122,7 @@ class DecryptedReader(io.RawIOBase):
     """AES ECB alignment is independent of ZIP's inner compression layer."""
     def __init__(self, parent, key):
         self.parent, self.key, self.position = parent, key, 0
+        self.cache_start,self.cache=0,b''
         if parent.size % 16: raise ValueError('Invalid AES container size')
         final = self.decrypt(parent.fetch(parent.size-16, 16))
         padding = final[-1]
@@ -140,7 +146,15 @@ class DecryptedReader(io.RawIOBase):
         if n <= 0: return b''
         start = self.position//16*16
         stop = (self.position+n+15)//16*16
+        if self.cache_start<=self.position and self.position+n<=self.cache_start+len(self.cache):
+            result=self.cache[self.position-self.cache_start:self.position-self.cache_start+n]
+            self.position+=len(result)
+            return result
+        # Small ZipExtFile reads must not create hundreds of FUS requests.
+        # Keep at most 1MiB plaintext; stop the read-ahead at encrypted EOF.
+        stop=min(self.parent.size,max(stop,start+1024*1024))
         data = self.decrypt(self.parent.fetch(start,stop-start))
+        self.cache_start,self.cache=start,data
         result = data[self.position-start:self.position-start+n]
         self.position += len(result)
         return result
@@ -208,11 +222,17 @@ def samsung_source(client, model='SM-S928B', region='EUX'):
     else:
         seed=logic(version,data.get('LOGIC_VALUE_FACTORY') or data['LOGIC_VALUE_HOME'])
     key=hashlib.md5(seed.encode()).digest()
-    root=xml({'BINARY_NAME':filename,'BINARY_SW_VERSION':version,'DEVICE_LOCAL_CODE':region,
-              'DEVICE_MODEL_TYPE':data['DEVICE_MODEL_TYPE'],'LOGIC_CHECK':logic(filename[-25:-9],nonce)})
-    request('NF_SmartDownloadBinaryInitForMass.do',ET.tostring(root,encoding='unicode'))
+    def init_download():
+        root=xml({'BINARY_NAME':filename,'BINARY_SW_VERSION':version,'DEVICE_LOCAL_CODE':region,
+                  'DEVICE_MODEL_TYPE':data['DEVICE_MODEL_TYPE'],'LOGIC_CHECK':logic(filename[-25:-9],nonce)})
+        request('NF_SmartDownloadBinaryInitForMass.do',ET.tostring(root,encoding='unicode'))
+    def refresh():
+        request('NF_SmartDownloadGenerateNonce.do')
+        init_download()
+        return headers()
+    init_download()
     url=f'http://cloud-neofussvr.samsungmobile.com/NF_SmartDownloadBinaryForMass.do?file={path}{filename}'
-    return url,headers(),key,{'model':model,'region':region,'version':version,'filename':filename}
+    return url,headers(),key,{'model':model,'region':region,'version':version,'filename':filename},refresh
 
 
 def payload_stream(remote, base, payload_size, target, metrics):
@@ -264,7 +284,10 @@ def payload_stream(remote, base, payload_size, target, metrics):
             if kind==14:
                 params=zstd.get_frame_parameters(compressed)
                 if params.window_size>64*1024*1024: raise ValueError('ZSTD window exceeds bound')
-                source=zstd.ZstdDecompressor(max_window_size=64*1024).stream_reader(io.BytesIO(compressed))
+                # The deployed C backend's streaming API enforces this value in
+                # bytes despite the published Python docs saying KiB. Always
+                # check the frame's actual window above as an independent cap.
+                source=zstd.ZstdDecompressor(max_window_size=64*1024*1024).stream_reader(io.BytesIO(compressed))
             elif kind==0: source=io.BytesIO(compressed)
             elif kind==1: source=bz2.BZ2File(io.BytesIO(compressed))
             else: source=lzma.LZMAFile(io.BytesIO(compressed))
@@ -345,6 +368,76 @@ VIVO='https://asia-sysupwsdl.vivoglobal.com/upgrade/official/officialFiles/PD235
 OPLUS='https://gauss-componentotacostmanual-cn.allawnfs.com/remove-f3beae86ff23858de919c5c568891ca7/component-ota/24/10/09/233fa60caa38462e97b29bfa8bc0c0e2.zip'
 
 
+def http_delivery_probe(remote,target):
+    """Real local HTTP delivery on the runner; no public port or resident daemon."""
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+    import socket
+    import threading
+    import secrets
+    ticket='/'+secrets.token_hex(16)
+    states=[]
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self,*args): pass
+        def do_GET(self):
+            if self.path!=ticket:
+                self.send_error(404)
+                return
+            state={'sent_bytes':0};states.append(state)
+            self.connection.setsockopt(socket.SOL_SOCKET,socket.SO_SNDBUF,65536)
+            self.connection.settimeout(20)
+            stream=image_stream(remote,target,state)
+            try:
+                first=next(stream)
+                self.send_response(200)
+                self.send_header('Content-Type','application/octet-stream')
+                self.send_header('Cache-Control','no-store')
+                if 'output_size' in state: self.send_header('Content-Length',str(state['output_size']))
+                self.end_headers()
+                self.wfile.write(first);state['sent_bytes']+=len(first)
+                for chunk in stream:
+                    self.wfile.write(chunk);state['sent_bytes']+=len(chunk)
+                state['status']='complete'
+            except (BrokenPipeError,ConnectionResetError): state['status']='client_disconnected'
+            except Exception as e: state.update(status='failed',error=type(e).__name__+': '+str(e))
+            finally:
+                stream.close()
+                state['done']=True
+                self.close_connection=True
+    server=HTTPServer(('127.0.0.1',0),Handler)
+    thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
+    url=f'http://127.0.0.1:{server.server_port}{ticket}'
+    counter=remote.parent if isinstance(remote,DecryptedReader) else remote
+    before=counter.used;t0=time.monotonic();digest=hashlib.sha256();received=0;first=None
+    result={}
+    try:
+        with httpx.Client(trust_env=False,timeout=60) as sink:
+            with sink.stream('GET',url) as response:
+                response.raise_for_status()
+                for chunk in response.iter_raw(65536):
+                    if first is None: first=round(time.monotonic()-t0,3)
+                    digest.update(chunk);received+=len(chunk)
+            result.update(bytes=received,sha256=digest.hexdigest(),first_byte_seconds=first,
+                          elapsed_seconds=round(time.monotonic()-t0,3),upstream_bytes=counter.used-before)
+            # HTTP reset after first received chunk. Wait for the producer to
+            # acknowledge disconnect, allowing a bounded in-flight write.
+            with sink.stream('GET',url) as response:
+                response.raise_for_status()
+                next(response.iter_raw(65536))
+                at_cancel=counter.used
+            limit=time.monotonic()+35
+            while len(states)<2 or not states[-1].get('done'):
+                if time.monotonic()>limit: raise TimeoutError('Producer did not stop after HTTP disconnect')
+                time.sleep(.02)
+            result['cancel']={'producer_status':states[-1]['status'],
+                              'extra_upstream_bytes':counter.used-at_cancel,
+                              'producer_stopped':True}
+        result['status']='passed' if states[0].get('status')=='complete' and received>0 else 'failed'
+        result['integrity']=states[0].get('integrity')
+    finally:
+        server.shutdown();server.server_close();thread.join(timeout=2)
+    return result
+
+
 def run_case(brand, targets, output):
     report={'brand':brand,'runner':__import__('os').environ.get('RUNNER_NAME'),
             'firmware_disk_bytes':0,'image_disk_bytes':0,'results':[]}
@@ -352,17 +445,18 @@ def run_case(brand, targets, output):
     try:
         with httpx.Client(timeout=30,follow_redirects=False) as client:
             if brand=='samsung':
-                url,headers,key,identity=samsung_source(client)
+                url,headers,key,identity,refresh=samsung_source(client)
                 report['source']=identity
             elif brand=='google':
-                page=bounded_get(client,'https://developers.google.com/android/images').decode()
+                page=bounded_get(client,'https://developers.google.com/android/images?hl=en',
+                                 cookies={'devsite_wall_acks':'nexus-image-tos'}).decode()
                 urls=re.findall(r'https://dl\.google\.com/dl/android/aosp/akita-[^"<>\s]+-factory-[^"<>\s]+\.zip',page)
                 if not urls: raise ValueError('No official Pixel 8a factory URL')
                 url=urls[0];headers={};key=None
                 report['source']={'filename':url.rsplit('/',1)[-1]}
             else: url=VIVO if brand=='vivo' else OPLUS;headers={};key=None
             report['source_host']=urlsplit(url).hostname
-            raw=RangeReader(url,client,headers)
+            raw=RangeReader(url,client,headers,refresh=refresh if brand=='samsung' else None)
             remote=DecryptedReader(raw,key) if key else raw
             report['firmware_size']=raw.size
             for target in targets:
@@ -392,11 +486,21 @@ def run_case(brand, targets, output):
                                         'upstream_bytes':after-before,'extra_bytes_after_close':raw.used-after}
             except Exception as e:
                 stream.close();report['cancel_probe']={'status':'failed','error':type(e).__name__+': '+str(e)}
+            if report['results'][0]['status']=='passed':
+                try:
+                    reference=next((r for r in report['results'] if brand=='samsung' and r['partition']=='boot' and r['status']=='passed'),report['results'][0])
+                    report['http_delivery']=http_delivery_probe(remote,reference['partition'])
+                    report['http_delivery']['partition']=reference['partition']
+                    if report['http_delivery']['sha256']!=reference['sha256']:
+                        raise ValueError('HTTP-delivered image differs from direct extraction')
+                except Exception as e:
+                    report['http_delivery']={'status':'failed','error':type(e).__name__+': '+str(e)}
     except Exception as e:
         report['error']=type(e).__name__+': '+str(e)
     report.update(elapsed_seconds=round(time.monotonic()-started,3),peak_rss_kib=resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
     if raw: report.update(upstream_bytes=raw.used,range_requests=raw.requests,content_encodings=sorted(raw.encodings))
-    report['status']='passed' if report['results'] and all(x['status']=='passed' for x in report['results']) and not report.get('error') else 'failed'
+    report['status']='passed' if (report['results'] and all(x['status']=='passed' for x in report['results'])
+        and not report.get('error') and report.get('http_delivery',{}).get('status','passed')=='passed') else 'failed'
     output.parent.mkdir(parents=True,exist_ok=True)
     output.write_text(json.dumps(report,ensure_ascii=False,indent=2)+'\n')
     print(json.dumps(report,ensure_ascii=False),flush=True)

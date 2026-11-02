@@ -8,7 +8,7 @@ import httpx
 import pytest
 import zstandard as zstd
 
-from fmr_extractor.streaming_probe import CHUNK, RangeReader, image_stream
+from fmr_extractor.streaming_probe import CHUNK, DecryptedReader, RangeReader, image_stream, http_delivery_probe
 
 
 def make_zip(entries):
@@ -81,9 +81,9 @@ def blob(k,data): return varint((k<<3)|2)+varint(len(data))+data
 
 
 def payload_zip(corrupt=False, kind=14, gap=False):
-    image=b'ANDROID!'+bytes(65536-8)
+    image=b'ANDROID!'+bytes(8*1024*1024-8)
     compressed=zstd.ZstdCompressor().compress(image)
-    extent=integer(1,1 if gap else 0)+integer(2,16)
+    extent=integer(1,1 if gap else 0)+integer(2,len(image)//4096)
     op=(integer(1,kind)+integer(2,0)+integer(3,len(compressed))+
         blob(6,extent)+blob(8,hashlib.sha256(compressed).digest()))
     expected=b'x'*32 if corrupt else hashlib.sha256(image).digest()
@@ -100,6 +100,42 @@ def test_payload_stream_verified_against_partition_sha256():
         metrics={}
         assert b''.join(image_stream(remote,'init_boot',metrics))==image
         assert metrics['sha256_verified']
+
+
+def test_actual_http_delivery_and_disconnection():
+    image,data=payload_zip()
+    remote,client=remote_for(data)
+    with closing(client):
+        result=http_delivery_probe(remote,'init_boot')
+        assert result['status']=='passed'
+        assert result['sha256']==hashlib.sha256(image).hexdigest()
+        assert result['cancel']['producer_stopped']
+
+
+def test_samsung_aligned_decryption_and_deflated_ap_stream():
+    import tarfile
+    import lz4.frame
+    from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+    image=b'ANDROID!'+bytes(CHUNK*2-8)
+    tar=io.BytesIO()
+    with tarfile.open(fileobj=tar,mode='w') as archive:
+        member=lz4.frame.compress(image,content_checksum=True)
+        info=tarfile.TarInfo('boot.img.lz4');info.size=len(member)
+        archive.addfile(info,io.BytesIO(member))
+    plain=make_zip([('AP_fixture.tar.md5',tar.getvalue(),zipfile.ZIP_DEFLATED)])
+    key=b'fmr-test-fixture'
+    padding=16-len(plain)%16
+    padded=plain+bytes([padding])*padding
+    encoder=Cipher(algorithms.AES(key),modes.ECB()).encryptor()
+    encrypted=encoder.update(padded)+encoder.finalize()
+    remote,client=remote_for(encrypted)
+    with closing(client):
+        decrypted=DecryptedReader(remote,key)
+        decrypted.seek(3)
+        assert decrypted.read(77)==plain[3:80]
+        metrics={}
+        assert b''.join(image_stream(decrypted,'boot',metrics))==image
+        assert metrics['ap_compression']==zipfile.ZIP_DEFLATED
 
 
 @pytest.mark.parametrize('kwargs,match',[
