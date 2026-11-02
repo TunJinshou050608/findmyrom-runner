@@ -1,5 +1,8 @@
 name: TG search · autonomous private trial and checkpoints
 on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/telegram_trial.yml']
   schedule:
     - cron: '*/10 * * * *'
   workflow_dispatch:
