@@ -39,7 +39,7 @@ ALLOWED = ('dl.google.com', 'allawnfs.com', 'allawnofs.com',
 
 
 class RangeReader(io.RawIOBase):
-    def __init__(self, url, client, headers=None, budget=BUDGET, refresh=None):
+    def __init__(self, url, client, headers=None, budget=BUDGET, refresh=None, prefetch=False):
         parsed = urlsplit(url)
         host = (parsed.hostname or '').lower()
         if (not any(host == h or host.endswith('.'+h) for h in ALLOWED)
@@ -49,6 +49,7 @@ class RangeReader(io.RawIOBase):
             raise ValueError('Test source outside fixed official CDN allowlist')
         self.url, self.client, self.headers = url, client, headers or {}
         self.refresh = refresh
+        self.prefetch,self.cache_start,self.cache=prefetch,0,b''
         self.budget, self.used, self.requests, self.position = budget, 0, 0, 0
         self.size, self.etag = None, None
         self.deadline = time.monotonic() + 480
@@ -113,7 +114,15 @@ class RangeReader(io.RawIOBase):
     def read(self, size=-1):
         length = self.size-self.position if size < 0 else min(size, self.size-self.position)
         if length <= 0: return b''
-        data = self.fetch(self.position, length)
+        if self.prefetch and self.cache_start<=self.position and self.position+length<=self.cache_start+len(self.cache):
+            data=self.cache[self.position-self.cache_start:self.position-self.cache_start+length]
+        else:
+            amount=min(self.size-self.position,max(length,1024*1024)) if self.prefetch and length>=4096 else length
+            amount=min(amount,self.budget-self.used)
+            if amount<length: raise ValueError('Range budget exceeded')
+            fetched=self.fetch(self.position,amount)
+            if self.prefetch: self.cache_start,self.cache=self.position,fetched
+            data=fetched[:length]
         self.position += len(data)
         return data
 
@@ -485,7 +494,7 @@ def run_case(brand, targets, output):
                 report['source']={'filename':url.rsplit('/',1)[-1]}
             else: url=VIVO if brand=='vivo' else OPLUS;headers={};key=None
             report['source_host']=urlsplit(url).hostname
-            raw=RangeReader(url,client,headers,refresh=refresh if brand=='samsung' else None)
+            raw=RangeReader(url,client,headers,refresh=refresh if brand=='samsung' else None,prefetch=brand=='google')
             remote=DecryptedReader(raw,key) if key else raw
             report['firmware_size']=raw.size
             for target in targets:

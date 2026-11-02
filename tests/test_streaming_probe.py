@@ -69,6 +69,18 @@ def test_only_oplus_utf8_header_is_tolerated():
         remote_for(b'abc',encoding='UTF-8')
 
 
+def test_bounded_read_ahead_avoids_repeated_google_range_round_trips():
+    data=bytes(range(256))*8192
+    remote,client=remote_for(data)
+    remote.prefetch=True
+    with closing(client):
+        assert remote.read(65536)==data[:65536]
+        requests=remote.requests
+        assert remote.read(65536)==data[65536:131072]
+        assert remote.requests==requests
+        assert remote.used<=1024*1024+1
+
+
 def varint(n):
     out=bytearray()
     while n>=128: out.append((n&127)|128);n>>=7

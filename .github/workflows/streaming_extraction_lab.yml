@@ -12,6 +12,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   probe:
+    if: github.ref == 'refs/heads/main'
     runs-on: [self-hosted, Linux, X64, findmyrom-metadata]
     timeout-minutes: 35
     environment: production
