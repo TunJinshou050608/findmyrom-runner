@@ -1,0 +1,95 @@
+name: TG full inventory evidence audit · 2008 records
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/telegram_full_audit.yml'
+      - 'fmr_tg_scanner/quality_full_audit.py'
+      - 'tests/test_quality_full_audit.py'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: telegram-full-inventory-audit
+  cancel-in-progress: false
+jobs:
+  audit:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: runner
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: TunJinshou050608/findmyrom-tg01-test
+          path: state
+          fetch-depth: 0
+          ssh-key: ${{ secrets.GH_TG_TEST_SSH_KEY }}
+          persist-credentials: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r runner/requirements.txt
+      - name: Assert frozen filtering target and acquisition sources unchanged
+        working-directory: runner
+        run: |
+          python - <<'PY'
+          import subprocess
+          base='cdf7f3b94c3cdb1fd2cc0eeb42ca5e5aa1cf70b3'
+          paths=subprocess.check_output(['git','ls-tree','-r','--name-only',base],text=True).splitlines()
+          protected=[p for p in paths if p.startswith('fmr_tg_scanner/') or p.startswith('.github/workflows/telegram_')]
+          subprocess.run(['git','diff','--exit-code',base,'HEAD','--',*protected],check=True)
+          PY
+      - name: Independent auditor regression checks
+        working-directory: runner
+        run: python -m unittest discover -s tests -p test_quality_full_audit.py -v
+      - name: Check every frozen input and output with network disabled
+        working-directory: runner
+        run: |
+          python - <<'PY'
+          import hashlib,json,os,runpy,socket,sqlite3,subprocess,sys
+          from pathlib import Path
+          state=Path('../state').resolve()
+          raw_ref='0d2842ff6c5afa2f60eb886cf554e597aab48da5'
+          quality_ref='d0402297fa298fc0c6a3e43a3291b9ffe1491f3f'
+          work=Path('/tmp/fmr-full-audit');work.mkdir(exist_ok=True)
+          def blob(ref,path):return subprocess.check_output(['git','show',ref+':'+path],cwd=state)
+          raw=[];screened=[];hashes={}
+          for i in range(51):
+              for ref,pattern,items in [(raw_ref,'audits/alioth-20261102/records-',raw),
+                    (quality_ref,'audits/alioth-20261102/quality-v1/screened-',screened)]:
+                  path=pattern+str(i).zfill(3)+'.json';data=blob(ref,path)
+                  hashes[ref+':'+path]=hashlib.sha256(data).hexdigest();items.extend(json.loads(data))
+          if len(raw)!=2008 or len(screened)!=2008:raise ValueError('Incomplete frozen inventory')
+          (work/'raw.json').write_text(json.dumps(raw,ensure_ascii=False))
+          (work/'screened.json').write_text(json.dumps(screened,ensure_ascii=False))
+          (work/'source.sqlite').write_bytes(blob(raw_ref,'search-v3/search.sqlite'))
+          db=sqlite3.connect('file:'+str(work/'source.sqlite')+'?mode=ro',uri=True)
+          catalogue=json.loads(db.execute("SELECT value FROM tg_search_meta WHERE key='device_aliases_v3'").fetchone()[0])
+          db.close();(work/'catalogue.json').write_text(json.dumps(catalogue,ensure_ascii=False))
+          dest=state/'audits/alioth-20261102/full-test-v1';dest.mkdir(parents=True,exist_ok=True)
+          manifest={'raw_ref':raw_ref,'quality_ref':quality_ref,'target_filter_code':'cdf7f3b94c3cdb1fd2cc0eeb42ca5e5aa1cf70b3',
+              'auditor_code':os.environ['GITHUB_SHA'],'input_hashes':hashes,'catalogue_codes':len(catalogue),
+              'filter_and_acquisition_unchanged':True,'socket_connections_disabled':True}
+          (dest/'manifest.json').write_text(json.dumps(manifest,indent=2))
+          def blocked(*a,**k):raise RuntimeError('Network forbidden in full evidence audit')
+          socket.create_connection=blocked;socket.socket.connect=blocked;socket.socket.connect_ex=blocked
+          sys.argv=['quality_full_audit','--input',str(work/'raw.json'),'--screened',str(work/'screened.json'),
+                    '--catalogue',str(work/'catalogue.json'),'--output',str(dest)]
+          runpy.run_module('fmr_tg_scanner.quality_full_audit',run_name='__main__')
+          PY
+      - name: Save ALL per-record verdicts privately
+        if: always()
+        working-directory: runner
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from fmr_tg_scanner.watch import publish_private
+          publish_private(Path('../state').resolve())
+          PY
+
