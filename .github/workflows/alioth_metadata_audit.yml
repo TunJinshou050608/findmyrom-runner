@@ -1,0 +1,181 @@
+name: Alioth metadata audit · no firmware downloads
+on:
+  push:
+    paths: ['.github/workflows/alioth_metadata_audit.yml']
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: alioth-metadata-audit
+  cancel-in-progress: false
+jobs:
+  audit:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: runner
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: TunJinshou050608/findmyrom-tg01-test
+          path: state
+          ssh-key: ${{ secrets.GH_TG_TEST_SSH_KEY }}
+          persist-credentials: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r runner/requirements.txt
+      - name: Audit every alioth record using text metadata only
+        working-directory: runner
+        run: |
+          cat > /tmp/alioth_metadata_audit.py <<'PY'
+          import collections,hashlib,json,re,sqlite3,subprocess,time,zlib,sys
+          from pathlib import Path
+          from urllib.parse import urlsplit
+          import httpx
+          from fmr_tg_scanner.html_parser import parse_tg_channel_page,DOM
+          from fmr_tg_scanner.watch import publish_private
+          root=Path('../state').resolve()
+          snapshot=subprocess.check_output(['git','rev-parse','HEAD'],cwd=root,text=True).strip()
+          out=root/'audits'/'alioth-20261102'
+          out.mkdir(parents=True,exist_ok=True)
+          source=json.loads((root/'search-v3/products.json').read_text())
+          rows=[]
+          for rec in source['products']:
+              p=rec.get('package',rec)
+              if p.get('device_codename',rec.get('device'))!='alioth':continue
+              e=rec.get('evidence',{})
+              rows.append(dict(url=p.get('target_post_url') or p.get('tg_post_url') or rec.get('target_post_url'),
+                channel=p.get('channel_username'),mid=p.get('msg_id'),kind=p.get('resource_kind'),
+                project=p.get('project_name'),title=p.get('package_name') or rec.get('title'),
+                version=p.get('build_version_tag'),android=p.get('android_version'),
+                date=p.get('published_timestamp'),maintainer=p.get('maintainer_handle'),
+                signature=p.get('sender_author_signature'),sender=p.get('sender_username'),
+                original=p.get('original_post_url'),forwarded=p.get('is_forwarded'),
+                hash=p.get('raw_text_hash'),evidence=e,classification=rec.get('classification'),
+                attachment=p.get('file_attachment_name'),text=None,size_labels=[],link_hosts=[],
+                live_status='pending'))
+          rows.sort(key=lambda r:(r['channel'],r['mid']))
+          def counts(values):return dict(collections.Counter(values).most_common())
+          def summary():
+              hashes=collections.defaultdict(list); titles=collections.defaultdict(list)
+              for r in rows:
+                  if r['hash']:hashes[r['hash']].append(r['url'])
+                  key=(str(r['kind']),str(r['project']).lower(),str(r['version']),re.sub(r'\s+',' ',str(r['title']).lower()))
+                  titles[key].append(r['url'])
+              return dict(snapshot=snapshot,total=len(rows),distinct_message_urls=len(set(r['url'] for r in rows)),
+                channels=counts(r['channel'] for r in rows),resource_kinds=counts(r['kind'] for r in rows),
+                projects=counts(r['project'] for r in rows),classifications=counts(r['classification'] for r in rows),
+                evidence_kinds=counts(r['evidence'].get('kind') for r in rows),
+                version_missing=sum(not r['version'] for r in rows),maintainer_missing=sum(not r['maintainer'] for r in rows),
+                sizes_missing=sum(not r['size_labels'] for r in rows),live_status=counts(r['live_status'] for r in rows),
+                identical_text_excess=sum(len(v)-1 for v in hashes.values()),identical_text_groups=[v for v in hashes.values() if len(v)>1],
+                same_title_project_version_excess=sum(len(v)-1 for v in titles.values()),
+                same_title_project_version_groups=[dict(key=list(k),urls=v) for k,v in titles.items() if len(v)>1],
+                firmware_requests=0,file_url_requests=0,D1_requests=0)
+          def save():
+              for i in range(0,len(rows),40):
+                  (out/f'records-{i//40:03}.json').write_text(json.dumps(rows[i:i+40],ensure_ascii=False,indent=2))
+              (out/'summary.json').write_text(json.dumps(summary(),ensure_ascii=False,indent=2))
+              lines=['id|channel|kind|project|version|android|title|maintainer|date|status|sizes']
+              for i,r in enumerate(rows):
+                  fields=[i,r['channel'],r['kind'],r['project'],r['version'],r['android'],r['title'],r['maintainer'],r['date'],r['live_status'],','.join(r['size_labels'])]
+                  lines.append('|'.join(str(x).replace('\n',' ').replace('|','/') for x in fields))
+              for i in range(0,len(rows),250):
+                  (out/f'inventory-{i//250:02}.txt').write_text(lines[0]+'\n'+'\n'.join(lines[1+i:1+min(i+250,len(rows))]))
+              publish_private(root)
+          save()
+          wanted={(r['channel'],r['mid']):r for r in rows}
+          def apply_message(m,html=None,live=False):
+              r=wanted.get((m['channel_username'],m['msg_id']))
+              if r is None:return
+              text=m['text']
+              if live or r['text'] is None:
+                  r['text']=text
+                  r['live_status']='live_exact' if live else 'cached_exact'
+                  r['observed_date']=m.get('published_timestamp')
+                  r['observed_signature']=m.get('sender_author_signature')
+                  r['observed_sender']=m.get('sender_username')
+                  r['observed_attachment']=m.get('file_attachment_name')
+                  r['observed_forward']=m.get('forwarded_from_url')
+                  r['link_hosts']=sorted({urlsplit(u).hostname for u in m['links'] if urlsplit(u).hostname})
+                  r['observed_links']=[u for u in m['links'] if urlsplit(u).scheme=='https']
+                  r['size_labels']=re.findall(r'(?i)\b\d+(?:\.\d+)?\s*(?:GiB|MiB|KiB|GB|MB|KB)\b',text)
+                  r['text_hash_match']=hashlib.sha256(text.encode()).hexdigest()==r['hash']
+          # Read only the existing public-page cache. No search judgments are reused.
+          db=sqlite3.connect('file:'+str(root/'search-v3/search.sqlite')+'?mode=ro',uri=True)
+          for url,body in db.execute("SELECT url,body FROM tg_http_cache WHERE url LIKE 'https://t.me/%'"):
+              try:
+                  path=urlsplit(url).path.strip('/').split('/')
+                  channel=path[1] if path[0]=='s' else path[0]
+                  if channel not in {r['channel'] for r in rows}:continue
+                  html=zlib.decompress(body).decode()
+                  page=parse_tg_channel_page('<section class="tgme_widget_history">'+html+'</section>',channel)
+                  for m in page['messages']:apply_message(m)
+              except Exception:continue
+          db.close()
+          save()
+          # Group floors into public text pages; never follow any file link or HTTP redirect.
+          client=httpx.Client(timeout=20,follow_redirects=False,headers={'User-Agent':'Mozilla/5.0 (compatible; FindMyROM metadata audit)','Accept':'text/html'})
+          requests=0;transferred=0;deadline=time.monotonic()+1800;last=0
+          def fetch(url):
+              global requests,transferred,last
+              p=urlsplit(url)
+              if p.scheme!='https' or p.hostname!='t.me' or not (re.fullmatch(r'/s/[a-z][a-z0-9_]{3,31}',p.path) or re.fullmatch(r'/[a-z][a-z0-9_]{3,31}/[1-9][0-9]*',p.path)):raise ValueError('Not a Telegram metadata path')
+              if requests>=1200 or time.monotonic()>deadline:raise TimeoutError('Audit metadata budget reached')
+              time.sleep(max(0,last+1.1-time.monotonic()));last=time.monotonic();requests+=1
+              with client.stream('GET',url) as resp:
+                  if resp.status_code!=200:raise ValueError('HTTP '+str(resp.status_code))
+                  if 'text/html' not in resp.headers.get('content-type',''):raise ValueError('Non-HTML blocked')
+                  b=bytearray()
+                  for part in resp.iter_bytes(32768):
+                      b.extend(part);transferred+=len(part)
+                      if len(b)>2*1024*1024:raise ValueError('Metadata size limit')
+                  return b.decode(errors='replace')
+          # Refresh all records, including those already found in cache.
+          remaining=set(wanted)
+          for channel in sorted({r['channel'] for r in rows}):
+              while any(c==channel for c,m in remaining):
+                  mid=max(m for c,m in remaining if c==channel)
+                  try:
+                      html=fetch(f'https://t.me/s/{channel}?before={mid+1}')
+                      page=parse_tg_channel_page(html,channel)
+                      for m in page['messages']:
+                          apply_message(m,live=True);remaining.discard((channel,m['msg_id']))
+                      if (channel,mid) in remaining:
+                          html=fetch(f'https://t.me/{channel}/{mid}?embed=1&mode=tme')
+                          page=parse_tg_channel_page('<section class="tgme_widget_history">'+html+'</section>',channel)
+                          for m in page['messages']:
+                              apply_message(m,live=True);remaining.discard((channel,m['msg_id']))
+                          if (channel,mid) in remaining:
+                              wanted[channel,mid]['live_status']='exact_floor_unavailable'
+                              remaining.discard((channel,mid))
+                  except Exception as e:
+                      wanted[channel,mid]['live_error']=type(e).__name__+': '+str(e)
+                      remaining.discard((channel,mid))
+                  if requests%25==0:
+                      print(json.dumps(dict(phase='metadata-audit',requests=requests,remaining=len(remaining),bytes=transferred)),flush=True)
+                  if requests%100==0:save()
+                  if time.monotonic()>deadline or requests>=1200:break
+              if time.monotonic()>deadline or requests>=1200:break
+          client.close()
+          # Group duplicates from independently reread text, without declaring repeated titles identical binaries.
+          textgroups=collections.defaultdict(list)
+          for r in rows:
+              if r['text']:textgroups[hashlib.sha256(r['text'].encode()).hexdigest()].append(r['url'])
+          (out/'live-run.json').write_text(json.dumps(dict(snapshot=snapshot,requests=requests,response_bytes=transferred,
+             refreshed=sum(r['live_status']=='live_exact' for r in rows),unprocessed=len(remaining),
+             identical_live_text_excess=sum(len(v)-1 for v in textgroups.values()),groups=[v for v in textgroups.values() if len(v)>1],
+             firmware_downloads=0,file_requests=0),ensure_ascii=False,indent=2))
+          save()
+          print(json.dumps(dict(phase='complete',total=len(rows),requests=requests,remaining=len(remaining),firmware_downloads=0)),flush=True)
+          PY
+          PYTHONPATH=. python -u /tmp/alioth_metadata_audit.py
+      - name: Public aggregate status
+        if: always()
+        run: echo 'Metadata-only alioth audit. Detailed inventory and source evidence saved only in the existing private test repository. No firmware, images, file-link requests or D1 access.' >> "$GITHUB_STEP_SUMMARY"
