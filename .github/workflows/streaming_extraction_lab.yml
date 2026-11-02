@@ -1,0 +1,44 @@
+name: On-demand image streaming lab
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: streaming-extraction-lab
+  cancel-in-progress: false
+jobs:
+  probe:
+    runs-on: [self-hosted, Linux, X64, findmyrom-metadata]
+    timeout-minutes: 35
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Prepare isolated Python environment
+        run: |
+          python3 -m venv "$RUNNER_TEMP/stream-lab-${GITHUB_RUN_ID}"
+          printf '%s\n' "$RUNNER_TEMP/stream-lab-${GITHUB_RUN_ID}/bin" >> "$GITHUB_PATH"
+      - run: python -m pip install httpx cryptography zstandard lz4 pytest
+      - name: Test streaming contracts without external downloads
+        run: python -m pytest -q tests/test_streaming_probe.py
+      - name: Read only selected image ranges; discard output after hashing
+        run: |
+          mkdir -p "$RUNNER_TEMP/stream-results-${GITHUB_RUN_ID}"
+          failed=0
+          for brand in google oplus vivo samsung; do
+            python -u -m fmr_extractor.streaming_probe --brand "$brand" --output "$RUNNER_TEMP/stream-results-${GITHUB_RUN_ID}/${brand}.json" || failed=1
+          done
+          exit "$failed"
+      - name: Save metrics only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: streaming-metrics-${{ github.run_id }}
+          path: ${{ runner.temp }}/stream-results-${{ github.run_id }}/*.json
+          retention-days: 7
+          if-no-files-found: warn
+      - name: Clean isolated lab files
+        if: always()
+        run: |
+          rm -rf -- "$RUNNER_TEMP/stream-lab-${GITHUB_RUN_ID}" "$RUNNER_TEMP/stream-results-${GITHUB_RUN_ID}"
