@@ -169,10 +169,11 @@ async function download(request,brand,target){
 
 export default {
   async fetch(request,env) {
-    const token=request.headers.get('Authorization')||'';
-    const expected='Bearer '+env.LAB_TOKEN;
-    if(Date.now()>Number(env.LAB_EXPIRES)||token.length!==expected.length||
-       !timingSafeEqual(Buffer.from(token),Buffer.from(expected)))return new Response('Not found',{status:404});
+    const token=Buffer.from(request.headers.get('Authorization')||'');
+    const expected=Buffer.from('Bearer '+(env.LAB_TOKEN||'')),expires=Number(env.LAB_EXPIRES);
+    if(typeof env.LAB_TOKEN!=='string'||env.LAB_TOKEN.length<32||!Number.isFinite(expires)||
+       Date.now()>expires||token.length!==expected.length||
+       !timingSafeEqual(token,expected))return new Response('Not found',{status:404});
     const path=new URL(request.url).pathname.split('/');
     if(path.at(-3)==='download'){try{return await download(request,path.at(-2),path.at(-1));}catch(e){console.log(JSON.stringify({stage:'prepare',error:String(e)}));return Response.json({error:String(e)},{status:422});}}
     return Response.json({

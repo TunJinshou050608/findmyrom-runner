@@ -21,7 +21,9 @@ jobs:
         with:
           persist-credentials: false
       - name: Validate codec adapters without dynamic code generation
-        run: node --disallow-code-generation-from-strings labs/cf-stream/test-codecs.mjs
+        run: |
+          node --disallow-code-generation-from-strings labs/cf-stream/test-codecs.mjs
+          node --disallow-code-generation-from-strings labs/cf-stream/test-auth.mjs
       - name: Exercise real Cloudflare Worker; hash and discard images
         env:
           CF_STREAM_LAB_TOKEN: ${{ secrets.CF_STREAM_LAB_TOKEN }}
