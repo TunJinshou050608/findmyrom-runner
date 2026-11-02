@@ -1,0 +1,64 @@
+name: TG resources · full quality audit and one-time D1 publication
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/telegram_quality_publish.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: tg01-annibale-private-trial
+  cancel-in-progress: false
+jobs:
+  audit_publish:
+    if: github.ref == 'refs/heads/main'
+    runs-on: [self-hosted, findmyrom-metadata]
+    timeout-minutes: 90
+    environment: production
+    env:
+      FMR_CATALOGUE_STATE_DIR: ${{ vars.FMR_CATALOGUE_STATE_DIR || '/var/lib/findmyrom/catalogue-v3' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: runner
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: TunJinshou050608/findmyrom-tg01-test
+          path: state
+          ssh-key: ${{ secrets.GH_TG_TEST_SSH_KEY }}
+          persist-credentials: true
+      - name: Prepare container Python environment
+        shell: bash
+        run: |
+          python3 -m venv "$RUNNER_TEMP/fmr-tg-quality"
+          printf '%s\n' "$RUNNER_TEMP/fmr-tg-quality/bin" >> "$GITHUB_PATH"
+      - run: python -m pip install -r runner/requirements.txt
+      - name: Audit every existing observation using saved source evidence
+        working-directory: runner
+        run: python -u -m fmr_tg_scanner.quality_audit --state-dir ../state
+      - name: Save full audit decisions before publication
+        working-directory: runner
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from fmr_tg_scanner.watch import publish_private
+          publish_private(Path('../state').resolve())
+          PY
+      - name: Publish the full qualified cohort into existing production resources
+        working-directory: runner
+        env:
+          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+          CF_D1_DATABASE_ID: ${{ secrets.CF_D1_DATABASE_ID }}
+          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          SIGN_PRIVATE_KEY_HEX: ${{ secrets.SIGN_PRIVATE_KEY_HEX }}
+        run: python -u -m fmr_tg_scanner.quality_audit --state-dir ../state --publish-only --publish
+      - name: Save publication counts and verification receipts
+        if: always()
+        working-directory: runner
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from fmr_tg_scanner.watch import publish_private
+          publish_private(Path('../state').resolve())
+          PY

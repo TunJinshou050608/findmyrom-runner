@@ -80,17 +80,22 @@ def index_search(http,provider,query):
 
 
 def name_candidates(code,names):
-    stems=[code]
+    stems=[code] if re.fullmatch('[a-z][a-z0-9_]{3,31}',code) else []
+    # Site IDs are keys, not Telegram usernames. Actual codenames/model aliases
+    # may still supply legitimate candidates for namespaced multi-vendor IDs.
+    if '-' in code:
+        short=code.split('-',1)[1]
+        if re.fullmatch('[a-z][a-z0-9_]{3,31}',short):stems.append(short)
     for label in names[:4]:
         name=re.sub('[^a-z0-9]','',label.lower())
         if re.fullmatch('[a-z][a-z0-9]{3,21}',name):stems.append(name)
     stems=list(dict.fromkeys(stems))
     # Interleave catalogue-derived model spellings across suffixes: testing
     # plural-only names misses otherwise identical singular Update channels.
-    found=[code]
+    found=list(stems)
     for suffix in ('updates','update','_updates','_update','globalupdates','roms'):
         found.extend(stem+suffix for stem in stems)
-    return list(dict.fromkeys(v for v in found if len(v)<=32))[:12]
+    return list(dict.fromkeys(v for v in found if re.fullmatch('[a-z][a-z0-9_]{3,31}',v)))[:12]
 
 
 def profile_context(html):

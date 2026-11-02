@@ -39,6 +39,8 @@ def run(root,targets,*,max_requests=180,max_seconds=480,http_factory=SearchHTTP,
             print(json.dumps(public),flush=True)
     store=SearchStore(root/'search.sqlite');http=http_factory(store,emit,max_requests=max_requests,max_seconds=max_seconds)
     store.migrate_message_delivery()
+    from .frontier_repair import repair
+    invalid_tasks_retired=repair(store)
     from .taxonomy import VERSION as taxonomy_version
     if store.meta('taxonomy_version') != taxonomy_version:
         store.set_meta('message_contract_cache_replay',{})
@@ -381,6 +383,7 @@ def run(root,targets,*,max_requests=180,max_seconds=480,http_factory=SearchHTTP,
             'delivery_type':'telegram_message','telegram_posts':len(posts),'new_telegram_posts':new_products,
             'taxonomy_version':taxonomy_version,'publishable_products':len(publishable),
             'access_policy_retagged':access_retagged,
+            'invalid_channel_tasks_retired':invalid_tasks_retired,
             'unresolved_targets':[code for code in targets if not counts.get(code)],'coverage_ok':all(counts.get(code,0) for code in targets),
             'device_funnel':{code:dict(values) for code,values in device_funnel.items()},
             'http_requests':http.requests,'cache_hits':http.cache_hits,'response_bytes':http.bytes,'http_errors':http.errors,

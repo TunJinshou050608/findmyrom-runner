@@ -51,7 +51,8 @@ def classify(message, package, *, device_names=(), accepted=False, llm_output=No
     text = message.get('text', '')
     heading = extract_clean_heading(text)
     # Release labels apply to the main resource, not companion install instructions.
-    scope = heading + '\n' + '\n'.join(line for line in text.splitlines() if re.match(
+    leading_tags='\n'.join(line for line in text.splitlines()[:3] if re.fullmatch(r'\s*(?:#[A-Za-z0-9_-]+\s*)+',line))
+    scope = heading + '\n' + leading_tags + '\n' + '\n'.join(line for line in text.splitlines() if re.match(
         r'(?i)^\s*(?:status|build type|stage|variant|android|version|build|updated|release date|system base|based on|branch)\s*[:：-]', line))
     evidence = {}
     def record(field, value, quote=None, source='rule'):
