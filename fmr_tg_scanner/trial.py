@@ -123,34 +123,6 @@ def audit(db,targets,classification):
         'maintainer_handles':sum(bool(r['maintainer_handle']) for r in rows),'cursors':cursors}
 
 
-def write_status(root,report,db):
-    def label(value):
-        return str(value or '未提供').replace('\\','\\\\').replace('[','\\[').replace(']','\\]').replace('<','&lt;').replace('>','&gt;').replace('\n',' ')
-    lines=['# TG 采集结果', '',f"更新时间：{report['timestamp']}（UTC）",f"运行：{report['run_id']}", '',
-        f"合格资源：{report['packages']}；原始记录：{report['records_stored']}；审计错误：{len(report['errors'])}。", '',
-        '这里只索引消息中的包名和链接，没有下载或验证固件内容。目录及未明确引用见 candidates/。', '']
-    for row in db.query('SELECT * FROM tg_discovered_packages ORDER BY channel_username,msg_id'):
-        if qualification(row)!='package':continue
-        lines += ['## '+label(row['package_name']), '', '机型：'+label(row['device_codename']),
-            '发出者：'+label(row.get('sender_username'))+'；数字 ID：'+label(row.get('sender_id'))]
-        if post_ref(row['tg_post_url']):lines.append('[查看 Telegram 原消息]('+row['tg_post_url']+')')
-        for index,url in enumerate(json.loads(row['download_links_json']),1):
-            if safe_url(url):lines.append(f'- [下载链接 {index}]('+url.replace('(','%28').replace(')','%29')+')')
-        lines.append('')
-    lines += ['## 注意事项','']+['- '+label(warning) for warning in report.get('warnings',[])]
-    path=root/'reports/latest.md';path.parent.mkdir(parents=True,exist_ok=True)
-    tmp=path.with_suffix('.md.tmp');tmp.write_text('\n'.join(lines)+'\n');tmp.replace(path)
-
-
-def select_sources(registry,now,limit):
-    """Refresh one strong source while giving old/unvisited sources fair service."""
-    due=[ch for ch,info in registry.items() if info.get('next_scan_at',0)<=now]
-    fair=sorted(due,key=lambda ch:(registry[ch].get('last_scan_at',0),-registry[ch].get('quality_score',0),ch))
-    if limit<2 or not fair:return fair[:limit]
-    preferred=min(due,key=lambda ch:(-registry[ch].get('quality_score',0),registry[ch].get('last_scan_at',0),ch))
-    return [preferred]+[ch for ch in fair if ch!=preferred][:limit-1]
-
-
 def run(state_dir,*,fetcher=None,discoverer=None):
     root=Path(state_dir);config=json.loads((root/'config.json').read_text())
     targets=set(config.get('target_codenames') or config.get('site_device_codenames') or []) or None
@@ -243,7 +215,7 @@ def run(state_dir,*,fetcher=None,discoverer=None):
     repair_existing(db,registry,recording,targets,event_sink)
     if not db.query('SELECT COUNT(*) AS n FROM tg_discovered_packages')[0]['n']:channel_limit=10
     log({'event':'batch_started','targets':sorted(targets) if targets else 'site_catalogue','max_pages_per_channel':pages,'channel_budget':channel_limit,'llm_enabled':False})
-    selected=select_sources(registry,now,channel_limit)
+    selected=sorted((ch for ch,info in registry.items() if info.get('next_scan_at',0)<=now),key=lambda ch:(-registry[ch].get('quality_score',0),registry[ch].get('last_scan_at',0),ch))[:channel_limit]
     try:
         for channel in selected:
             try:
@@ -276,7 +248,7 @@ def run(state_dir,*,fetcher=None,discoverer=None):
             batch_counts=dict(counters),batch_results=results,source_count=len(registry),targets=sorted(targets) if targets else None)
         if batch_failures:report['warnings'].append('Some channels failed; their committed pages are retained and retries are delayed.')
         if counters.get('reason:unsupported_preview'):report['warnings'].append('Telegram omitted content from some public previews; those floors are logged as unsupported, not claimed as extracted.')
-        atomic_json(root/'reports'/f'{run_id}.json',report);atomic_json(root/'reports/latest.json',report);write_status(root,report,db)
+        atomic_json(root/'reports'/f'{run_id}.json',report);atomic_json(root/'reports/latest.json',report)
         log({'event':'batch_audited','ok':report['ok'],'packages':report['packages'],'errors':len(report['errors']),'channel_failures':len(batch_failures)})
         return report
     finally:

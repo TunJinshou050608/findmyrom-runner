@@ -397,3 +397,365 @@ def test_paranoid_android_release_without_file_link_uses_dedicated_profile():
     result,reason=analyse(msg,'liuqin',names['liuqin'],names,'Xiaomi Pad 6 Pro | Updates')
     assert reason=='accepted' and result['package']['project_name']=='Paranoid Android'
     assert result['package']['target_post_url']=='https://t.me/testchannel/12'
+
+
+def test_community_official_roms_accepted():
+    for proj in ['DerpFest', 'AxionOS', 'RisingOS', 'VoltageOS']:
+        msg = parse_tg_channel_page(page(text=f'#{proj} Official Android 15 #alioth\nDownload from SourceForge'), 'testchannel')['messages'][0]
+        result, reason = analyse(msg, 'alioth', [], {'alioth': []})
+        assert reason == 'accepted'
+        assert result['classification'] == 'community_official'
+        assert result['package']['resource_kind'] == 'rom'
+
+
+def test_mainstream_official_roms_excluded():
+    for proj in ['Evolution X', 'crDroid', 'PixelOS', 'LineageOS']:
+        msg = parse_tg_channel_page(page(text=f'#{proj} Official Android 15 #alioth\nDownload from SourceForge'), 'testchannel')['messages'][0]
+        result, reason = analyse(msg, 'alioth', [], {'alioth': []})
+        assert reason == 'excluded_mainstream_official_rom'
+        assert result['classification'] == 'mainstream_official'
+
+
+def test_mainstream_unofficial_roms_accepted():
+    for proj in ['Evolution X', 'crDroid', 'PixelOS', 'LineageOS']:
+        msg = parse_tg_channel_page(page(text=f'#{proj} Unofficial Android 15 #alioth\nDownload from SourceForge'), 'testchannel')['messages'][0]
+        result, reason = analyse(msg, 'alioth', [], {'alioth': []})
+        assert reason == 'accepted'
+        assert result['classification'] == 'unofficial'
+
+
+def test_aviumui_notes_stripping():
+    text = """AviumUI-16.2.1 | Community | Android 16 | POCO F8 PRO [ANNIBALE]
+Updated: 25/06/'26
+Notes:
+• Flash using twrp or which recovery you want use
+Download: https://sourceforge.net/project/files/avium.zip"""
+    msg = parse_tg_channel_page(page(text=text), 'testchannel')['messages'][0]
+    result, reason = analyse(msg, 'annibale', [], {'annibale': []})
+    assert reason == 'accepted'
+    assert result['package']['resource_kind'] == 'rom'
+    assert result['package']['project_name'] == 'AviumUI'
+
+
+def test_awakenos_credits_stripping():
+    text = """AwakenOS v3.0 | Community | Android 14 [ALIOTH]
+Updated: 10/10/'24
+Credits:
+• Thanks to @dev for kernel source
+Download: https://sourceforge.net/project/files/awaken.zip"""
+    msg = parse_tg_channel_page(page(text=text), 'testchannel')['messages'][0]
+    result, reason = analyse(msg, 'alioth', [], {'alioth': []})
+    assert reason == 'accepted'
+    assert result['package']['resource_kind'] == 'rom'
+    assert result['package']['project_name'] == 'AwakenOS'
+
+
+def test_non_release_posts_rejected():
+    cases = [
+        'Xiaomi smartphones offer the Worst Charging Solution\nFailing to boot after battery goes to 0% update',
+        'We have important news to share!\nOur custom ROM list has been evolving over the months',
+        'From now on use skk recovery latest one for all my roms.',
+        'MiuiCamera Leica Port (Magisk Module)\nTested on alioth with magisk update',
+    ]
+    for text in cases:
+        msg = parse_tg_channel_page(page(text=text), 'testchannel')['messages'][0]
+        result, reason = analyse(msg, 'alioth', [], {'alioth': []})
+        assert reason == 'not_a_release' and result is None
+
+
+def test_screenshot_channel_rejected():
+    html = page(text='PixelOS - UNOFFICIAL\nBy @dev\nDownload: https://sourceforge.net/test.zip').replace('testchannel/', 'aliothscreenshots/')
+    msg = parse_tg_channel_page(html, 'aliothscreenshots')['messages'][0]
+    result, reason = analyse(msg, 'alioth', [], {'alioth': []})
+    assert reason == 'not_a_release' and result is None
+
+
+def test_cross_device_topaz_rejected_for_liuqin():
+    html = page(text='Paranoid Android Topaz Unofficial\nDownload\nHow to flash').replace('testchannel/', 'xiaomipad6proupdates/')
+    msg = parse_tg_channel_page(html, 'xiaomipad6proupdates')['messages'][0]
+    msg['links'] = []
+    msg['link_items'] = []
+    names = {'liuqin': ['Xiaomi Pad 6 Pro'], 'topaz': ['Redmi Note 12 4G']}
+    result, reason = analyse(msg, 'liuqin', names['liuqin'], names, 'Xiaomi Pad 6 Pro | Updates\nOfficial updates channel for Xiaomi Pad 6 Pro (liuqin)')
+    assert result is None and reason == 'wrong_or_unproved_device'
+
+
+def test_hashtag_heading_skips_indexing_tags_to_extract_clean_title():
+    text = """#CherishOS #Official #T #ROM #Alioth
+CherishOS v4.10 - OFFICIAL | Android 13
+Updated: 01/08/'23
+Download: https://sourceforge.net/files/download"""
+    msg = parse_tg_channel_page(page(text=text).replace('alioth-12.zip', 'download'), 'testchannel')['messages'][0]
+    result, reason = analyse(msg, 'alioth', [], {'alioth': []})
+    assert reason == 'accepted'
+    pkg = result['package']
+    assert not pkg['package_name'].startswith('#')
+    assert 'CherishOS v4.10 - OFFICIAL | Android 13' in pkg['package_name']
+    assert pkg['project_name'] == 'CherishOS'
+    assert pkg['android_version'] == '13'
+    assert pkg['build_version_tag'] == 'v4.10'
+
+
+def test_letter_codename_android_versions_detected():
+    cases = [
+        ('#LunarisAOSP #Unofficial #T #alioth\nLunaris 3.0\nDownload: https://sourceforge.net/rom.zip', '13'),
+        ('#VoltageOS #U #alioth\nVoltage 3.2\nDownload: https://sourceforge.net/rom.zip', '14'),
+        ('#RisingOS #V #alioth\nRising 5.1\nDownload: https://sourceforge.net/rom.zip', '15'),
+        ('#AxionOS #Baklava #annibale\nAxion 2.9\nDownload: https://sourceforge.net/rom.zip', '16'),
+    ]
+    for text, expected_ver in cases:
+        msg = parse_tg_channel_page(page(text=text), 'testchannel')['messages'][0]
+        result, _ = analyse(msg, 'alioth' if 'alioth' in text else 'annibale', [], {'alioth': [], 'annibale': []})
+        assert result['package']['android_version'] == expected_ver
+
+
+def test_project_version_and_maintainer_without_at_sign():
+    text = """LunarisAOSP 3.12 | Community | Android 16 | POCO F8 PRO [ANNIBALE]
+Updated: 12/07/'26
+🔸Maintainer: SMGReborn
+Download: https://sourceforge.net/annibale/lunaris.zip"""
+    msg = parse_tg_channel_page(page(text=text), 'testchannel')['messages'][0]
+    result, reason = analyse(msg, 'annibale', [], {'annibale': []})
+    assert reason == 'accepted'
+    pkg = result['package']
+    assert pkg['build_version_tag'] == '3.12'
+    assert pkg['maintainer_display_name'] == 'SMGReborn'
+    assert pkg['maintainer_handle'] == '@smgreborn'
+
+
+def test_kernel_not_misclassified_as_stock_miui():
+    text = """#Kernel #Metallic #R #S #T #Miui #Aosp #Alioth
+RealKing V11.2-Rise | Android 11/12/13
+Updated: 02/05/'23
+By @Rohail33
+Download: https://www.pling.com/p/1858015/"""
+    msg = parse_tg_channel_page(page(text=text).replace('alioth-12.zip', 'kernel.zip'), 'testchannel')['messages'][0]
+    result, reason = analyse(msg, 'alioth', [], {'alioth': []})
+    assert reason == 'accepted'
+    pkg = result['package']
+    assert pkg['resource_kind'] == 'kernel'
+    assert pkg['project_name'] in ('RealKing', 'Kernel')
+    assert pkg['maintainer_handle'] == '@rohail33'
+
+
+def test_custom_miui_rom_accepted():
+    text = """MIUIVN V14.0.6.0
+Ported from Xiaomi 13 for Poco F3
+Download: https://sourceforge.net/miuivn.zip"""
+    msg = parse_tg_channel_page(page(text=text), 'testchannel')['messages'][0]
+    result, reason = analyse(msg, 'alioth', ['POCO F3'], {'alioth': ['POCO F3']})
+    assert reason == 'accepted'
+    assert result['classification'] == 'custom_or_port'
+
+
+def test_farewell_and_advisory_rejected():
+    advisory = "If anyone faced max CPU freq 3.18Ghz not working on MYUI latest\nCurrently flash N0 Kernel\nDownload: https://sourceforge.net/kernel.zip"
+    msg1 = parse_tg_channel_page(page(text=advisory), 'testchannel')['messages'][0]
+    assert analyse(msg1, 'alioth', [], {'alioth': []})[1] == 'not_a_release'
+
+    farewell = "It was a long journey. Recently I'm going with many difficulties... so it's time to say goodbye to alioth community."
+    msg2 = parse_tg_channel_page(page(text=farewell), 'testchannel')['messages'][0]
+    assert analyse(msg2, 'alioth', [], {'alioth': []})[1] == 'not_a_release'
+
+
+def test_canonical_build_fingerprint_deduplication():
+    from fmr_tg_scanner.search_store import SearchStore
+    store = SearchStore(':memory:')
+    p1 = {
+        'device_codename': 'alioth',
+        'resource_kind': 'rom',
+        'project_name': 'DerpFest',
+        'build_version_tag': '13 Tango',
+        'package_name': 'DerpFest 13 Tango - OFFICIAL',
+        'delivery_type': 'telegram_message',
+        'tg_post_url': 'https://t.me/author_channel/10',
+    }
+    p2 = {
+        'device_codename': 'alioth',
+        'resource_kind': 'rom',
+        'project_name': 'DerpFest',
+        'build_version_tag': '13 Tango',
+        'package_name': 'DerpFest 13 Tango - OFFICIAL',
+        'delivery_type': 'telegram_message',
+        'tg_post_url': 'https://t.me/repost_channel/999',
+    }
+    assert store.fingerprint(p1) == store.fingerprint(p2)
+
+
+def test_llm_disambiguates_novel_community_official_rom():
+    from fmr_tg_scanner.llm_fallback import merge
+    text = """#SkylineUI #Official #ROM #T
+SkylineUI - OFFICIAL | Android 13
+Updated: 04/05/23'
+▪️Download [1.7GB]
+By @Yohan_Black
+Download: https://drive.google.com/file/d/123/view"""
+    msg = parse_tg_channel_page(page(text=text), 'testchannel')['messages'][0]
+    
+    # 1. Pure rules without LLM: unproved scope for novel ROM declaring official
+    res_rule, reason_rule = analyse(msg, 'alioth', [], {'alioth': []})
+    assert reason_rule == 'official_rom_scope_unproved'
+    assert res_rule['accepted'] is False
+
+    # 2. With LLM disambiguation: rescues community official ROM
+    def mock_llm(t, **kwargs):
+        return {
+            'accepted': True,
+            'classification': 'community_official',
+            'project_name': 'SkylineUI',
+            'android_version': '13',
+            'maintainer_handle': '@Yohan_Black',
+            'resource_kind': 'rom'
+        }
+    res_llm, reason_llm = analyse(msg, 'alioth', [], {'alioth': []}, llm_callable=mock_llm)
+    assert reason_llm == 'accepted'
+    assert res_llm['accepted'] is True
+    assert res_llm['package']['project_name'] == 'SkylineUI'
+    assert res_llm['package']['android_version'] == '13'
+    assert res_llm['package']['maintainer_handle'] == '@yohan_black'
+
+
+def test_llm_disambiguates_mainstream_unofficial_build():
+    text = """PixelOS | Android 17
+Device: Poco F8 Pro / Redmi K90 ( annibale )
+Updated: 02/10/2026
+By: @ramshell688
+Download: https://pixeldrain.com/u/123
+Changelog: Fixed Dolby Vision."""
+    msg = parse_tg_channel_page(page(text=text), 'testchannel')['messages'][0]
+
+    # Without LLM: mainstream status unproved
+    res_rule, reason_rule = analyse(msg, 'annibale', [], {'annibale': []})
+    assert reason_rule == 'mainstream_release_status_unproved'
+
+    # With LLM: recognized as community unofficial build
+    def mock_llm(t, **kwargs):
+        return {
+            'accepted': True,
+            'classification': 'unofficial',
+            'project_name': 'PixelOS',
+            'android_version': '17',
+            'maintainer_handle': '@ramshell688'
+        }
+    res_llm, reason_llm = analyse(msg, 'annibale', [], {'annibale': []}, llm_callable=mock_llm)
+    assert reason_llm == 'accepted'
+    assert res_llm['classification'] == 'unofficial'
+    assert res_llm['package']['project_name'] == 'PixelOS'
+    assert res_llm['package']['maintainer_handle'] == '@ramshell688'
+
+
+def test_llm_rejects_and_never_modifies_immutable_provenance():
+    from fmr_tg_scanner.llm_fallback import merge
+    pkg = {
+        'project_name': 'Custom ROM',
+        'device_codename': 'alioth',
+        'resource_kind': 'rom',
+        'download_links_json': '["https://sourceforge.net/legit.zip"]',
+        'tg_post_url': 'https://t.me/chan/10',
+        'original_post_url': 'https://t.me/chan/10',
+        'raw_text_hash': 'abcdef123456',
+        'rule_confidence': 0.5,
+        'maintainer_handle': None,
+        'android_version': None
+    }
+    # LLM returns metadata plus malicious/hallucinated link modifications
+    llm_output = {
+        'project_name': 'AwakenOS',
+        'android_version': '14',
+        'maintainer_handle': '@dev_lead',
+        'download_links_json': '["https://malicious.com/virus.zip"]',
+        'raw_text_hash': 'hacked_hash',
+        'tg_post_url': 'https://t.me/fake/999'
+    }
+    merged = merge(pkg, llm_output)
+    # Allowed metadata gaps are filled
+    assert merged['project_name'] == 'AwakenOS'
+    assert merged['android_version'] == '14'
+    assert merged['maintainer_handle'] == '@dev_lead'
+    assert merged['extraction_method'] == 'rule_plus_llm'
+    # Provenance and links remain strictly unchanged
+    assert merged['download_links_json'] == '["https://sourceforge.net/legit.zip"]'
+    assert merged['tg_post_url'] == 'https://t.me/chan/10'
+    assert merged['raw_text_hash'] == 'abcdef123456'
+
+
+def test_llm_grounding_guard_blocks_hallucinated_entities():
+    from fmr_tg_scanner.llm_fallback import merge
+    pkg = {
+        'project_name': 'Custom ROM',
+        'device_codename': 'alioth',
+        'resource_kind': 'rom',
+        'rule_confidence': 0.5,
+        'maintainer_handle': None,
+        'build_version_tag': None,
+    }
+    raw_post_text = "New SkyLine build for alioth is ready. Compiled by @real_builder. Download here."
+    # LLM hallucinates an unmentioned project name, maintainer, and version tag
+    hallucinated_output = {
+        'project_name': 'ParanoidAndroid',  # Not in text
+        'maintainer_handle': '@fake_imposter',  # Not in text
+        'build_version_tag': 'v99.0-super',  # Not in text
+    }
+    merged = merge(pkg, hallucinated_output, text=raw_post_text)
+    # Hallucinated values MUST be dropped because they cannot be grounded in the raw text
+    assert merged['project_name'] == 'Custom ROM'  # Kept original, rejected ParanoidAndroid
+    assert merged['maintainer_handle'] is None      # Dropped fake_imposter
+    assert merged['build_version_tag'] is None      # Dropped v99.0
+
+    # Legitimate values that ARE present in raw_post_text are accepted
+    legit_output = {
+        'project_name': 'SkyLine',
+        'maintainer_handle': '@real_builder',
+    }
+    merged_legit = merge(pkg, legit_output, text=raw_post_text)
+    assert merged_legit['project_name'] == 'SkyLine'
+    assert merged_legit['maintainer_handle'] == '@real_builder'
+
+
+def test_dynamic_project_learning_cache_prevents_redundant_llm_calls():
+    from fmr_tg_scanner import search_policy
+    search_policy.DYNAMIC_COMMUNITY_PROJECTS.clear()
+    
+    msg1_text = """#CloverProject #Official #ROM
+CloverProject - OFFICIAL | Android 14
+Updated: 01/01/24
+By @clover_dev
+Download: https://drive.google.com/file/d/111"""
+    msg1 = parse_tg_channel_page(page(text=msg1_text), 'testchannel')['messages'][0]
+
+    llm_calls = 0
+    def mock_llm(t, **kwargs):
+        nonlocal llm_calls
+        llm_calls += 1
+        return {
+            'accepted': True,
+            'classification': 'community_official',
+            'project_name': 'CloverProject',
+            'android_version': '14',
+            'maintainer_handle': '@clover_dev'
+        }
+
+    # First call: triggers LLM and learns the project
+    res1, reason1 = analyse(msg1, 'alioth', [], {'alioth': []}, llm_callable=mock_llm)
+    assert reason1 == 'accepted'
+    assert llm_calls == 1
+    assert 'cloverproject' in search_policy.DYNAMIC_COMMUNITY_PROJECTS
+
+    # Second call: new build with different date, different link, different version
+    # Must NOT call LLM because project is now in dynamic cache!
+    msg2_text = """#CloverProject #Official #ROM
+CloverProject - OFFICIAL | Android 14 v2.5
+Updated: 02/02/24
+By @clover_dev
+Download: https://mega.nz/file/222"""
+    msg2 = parse_tg_channel_page(page(text=msg2_text), 'testchannel')['messages'][0]
+    res2, reason2 = analyse(msg2, 'alioth', [], {'alioth': []}, llm_callable=mock_llm)
+    assert reason2 == 'accepted'
+    # LLM calls MUST STILL BE 1 (Cache Hit!)
+    assert llm_calls == 1
+    assert res2['package']['project_name'] == 'CloverProject'
+
+
+
+
+

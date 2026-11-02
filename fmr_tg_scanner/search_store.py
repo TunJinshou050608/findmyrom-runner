@@ -67,7 +67,8 @@ class SearchStore(SQLiteDB):
                      (time.time()+delay,error,task['attempts']+1 if error else 0,json.dumps(payload if payload is not None else task['payload'],sort_keys=True),time.time(),task['key']))
     def fingerprint(self,package):
         if package.get('delivery_type')=='telegram_message':
-            return hashlib.sha256(json.dumps([package['device_codename'],package['tg_post_url']],sort_keys=True).encode()).hexdigest()
+            version=package.get('build_version_tag') or package.get('file_attachment_name') or package.get('package_name') or package.get('tg_post_url')
+            return hashlib.sha256(json.dumps([package['device_codename'],package['resource_kind'],package['project_name'].lower(),version],sort_keys=True).encode()).hexdigest()
         links=json.loads(package['download_links_json'])
         version=package.get('build_version_tag') or package.get('file_attachment_name') or package.get('package_name') or package['tg_post_url']
         return hashlib.sha256(json.dumps([package['device_codename'],package['resource_kind'],package['project_name'].lower(),version,sorted(links)],sort_keys=True).encode()).hexdigest()

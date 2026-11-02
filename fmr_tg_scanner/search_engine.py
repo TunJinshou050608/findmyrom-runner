@@ -16,13 +16,14 @@ from .html_parser import parse_tg_channel_page,ChannelUnavailableError
 from .message_reader import read_message
 from .search_discovery import aliases,index_search,name_candidates,profile_context,linked_channels,project_repositories,project_links,text_telegram_links,project_owner_links,project_release_links,query_aliases
 from .search_http import SearchHTTP,WorkBudgetReached
-from .search_policy import analyse,target_evidence
+from .search_policy import analyse,target_evidence,DYNAMIC_COMMUNITY_PROJECTS
 from .search_store import SearchStore
 from .trial import atomic_json
 from .rule_extractor import post_ref
+from . import llm_fallback
 
 
-def run(root,targets,*,max_requests=180,max_seconds=480,http_factory=SearchHTTP,mode='adaptive'):
+def run(root,targets,*,max_requests=180,max_seconds=480,http_factory=SearchHTTP,mode='adaptive',enable_llm=True,max_llm_calls=50,llm_callable=None):
     root=Path(root);root.mkdir(parents=True,exist_ok=True)
     if not 1<=len(targets)<=500 or not all(re.fullmatch('[a-z0-9_-]{3,24}',v) for v in targets):raise ValueError('Invalid target codenames')
     if not 1<=max_requests<=2000 or not 10<=max_seconds<=1800:raise ValueError('Invalid batch budget')
@@ -38,6 +39,7 @@ def run(root,targets,*,max_requests=180,max_seconds=480,http_factory=SearchHTTP,
             print(json.dumps(public),flush=True)
     store=SearchStore(root/'search.sqlite');http=http_factory(store,emit,max_requests=max_requests,max_seconds=max_seconds)
     store.migrate_message_delivery()
+    DYNAMIC_COMMUNITY_PROJECTS.update(store.meta('dynamic_community_projects', []))
     stopped=threading.Event()
     def heartbeat():
         while not stopped.wait(30):print(json.dumps({'event':'search_heartbeat','requests':http.requests,'new_qualified_products':new_products,'elapsed_seconds':round(time.monotonic()-started)}),flush=True)
@@ -124,6 +126,23 @@ def run(root,targets,*,max_requests=180,max_seconds=480,http_factory=SearchHTTP,
                 store.enqueue('head',code,{'channel':channel,'depth':depth},8)
             emit({'event':'source_admitted','channel':channel,'device':code,'strategy':strategy})
             return True
+        llm_calls_used=0
+        def bounded_llm(text,target=None,rule_reason=None):
+            nonlocal llm_calls_used
+            if not enable_llm or (not llm_callable and not os.environ.get('LLM_API_KEY')):return None
+            h=hashlib.sha256(text.encode()).hexdigest()
+            cached=store.meta('llm:'+h)
+            if cached is not None:return cached
+            if llm_calls_used>=max_llm_calls:return None
+            llm_calls_used+=1
+            fn=llm_callable or llm_fallback.disambiguate
+            try:res=fn(text,target=target,rule_reason=rule_reason)
+            except TypeError:res=fn(text)
+            if isinstance(res,dict):
+                store.set_meta('llm:'+h,res)
+                if DYNAMIC_COMMUNITY_PROJECTS:
+                    store.set_meta('dynamic_community_projects',sorted(list(DYNAMIC_COMMUNITY_PROJECTS)))
+            return res
         def message(code,msg,source,depth=0,routed=False):
             nonlocal new_products,first_product
             if not routed:
@@ -133,7 +152,7 @@ def run(root,targets,*,max_requests=180,max_seconds=480,http_factory=SearchHTTP,
                         store.enqueue('admit',other,{'channel':msg['channel_username'],'depth':depth,'reason':'observed_device_post'},15)
             events['messages_considered']+=1
             device_funnel[code]['messages_considered']+=1
-            result,reason=analyse(msg,code,all_names.get(code,[]),all_names,store.meta('profile:'+msg['channel_username'],''))
+            result,reason=analyse(msg,code,all_names.get(code,[]),all_names,store.meta('profile:'+msg['channel_username'],''),llm_callable=bounded_llm)
             if result is None:
                 events['rejected:'+reason]+=1;device_funnel[code]['rejected:'+reason]+=1
                 if reason=='not_a_resource' and depth<3 and target_evidence(msg,code,all_names.get(code,[]),all_names):
@@ -300,7 +319,15 @@ def run(root,targets,*,max_requests=180,max_seconds=480,http_factory=SearchHTTP,
         rows=store.query('SELECT * FROM tg_search_records ORDER BY device,channel,msg_id')
         unique={}
         for row in rows:
-            if row['accepted']:unique.setdefault(row['fingerprint'],row)
+            if row['accepted']:
+                fp=row['fingerprint']
+                if fp not in unique:
+                    unique[fp]=row
+                else:
+                    curr_orig=json.loads(unique[fp]['payload']).get('origin_type')
+                    new_orig=json.loads(row['payload']).get('origin_type')
+                    if curr_orig!='author_direct' and new_orig=='author_direct':
+                        unique[fp]=row
         products=[{'package':json.loads(row['payload']),'evidence':json.loads(row['evidence']),'classification':row['classification']} for row in unique.values()]
         posts=[{'device_codename':v['package']['device_codename'],'project_name':v['package']['project_name'],'resource_kind':v['package']['resource_kind'],'title':v['package']['package_name'],'target_post_url':v['package']['tg_post_url'],'original_post_url':v['package']['original_post_url'],'classification':v['classification']} for v in products]
         atomic_json(root/'products.json',{'delivery_type':'telegram_message','posts':posts,'products':products})

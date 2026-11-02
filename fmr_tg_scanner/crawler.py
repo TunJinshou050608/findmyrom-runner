@@ -129,7 +129,7 @@ def scan_channel(db_client, channel_username: str, default_codename=None, max_pa
                     state['llm_attempted']=state['llm_attempted'][-2000:]
                     db.execute("INSERT INTO tg_scan_cursors(channel_username,scan_state_json) VALUES (?,?) ON CONFLICT(channel_username) DO UPDATE SET scan_state_json=excluded.scan_state_json",(channel,json.dumps(state,sort_keys=True)))
                     stats['llm_calls_used']+=1
-                    try:package=llm_fallback.merge(package,(llm_callable or llm_fallback.completion)(msg['text']))
+                    try:package=llm_fallback.merge(package,(llm_callable or llm_fallback.completion)(msg['text']),text=msg['text'])
                     except Exception:pass
                 if package.get('device_codename') or package['extraction_method']=='rule_plus_llm':
                     packages.append(package);saved+=1
