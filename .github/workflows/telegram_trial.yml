@@ -33,11 +33,12 @@ jobs:
           path: state
           ssh-key: ${{ secrets.GH_TG_TEST_SSH_KEY }}
           persist-credentials: true
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-          cache: pip
-          cache-dependency-path: runner/requirements.txt
+      - name: Prepare isolated Python environment in local container
+        shell: bash
+        run: |
+          python3 -c 'import sys; assert sys.version_info >= (3,11), "Python 3.11+ required"'
+          python3 -m venv "$RUNNER_TEMP/fmr-tg-python"
+          printf '%s\n' "$RUNNER_TEMP/fmr-tg-python/bin" >> "$GITHUB_PATH"
       - run: python -m pip install -r runner/requirements.txt
       - name: Scan finite pages and inspect actual products
         working-directory: runner
@@ -71,11 +72,11 @@ jobs:
           python - <<'PY'
           import json,os
           from pathlib import Path
-          import httpx
           path=Path('state/monitor_state.json')
           if not path.exists():raise SystemExit(0)
           status=json.loads(path.read_text())
           if not status.get('handoff_ready') or status.get('session_run_id')!=os.environ['GITHUB_RUN_ID']:raise SystemExit(0)
+          import httpx
           repo=os.environ['GITHUB_REPOSITORY']
           with httpx.Client(timeout=30,follow_redirects=False) as client:
               response=client.post('https://api.github.com/repos/'+repo+'/actions/workflows/telegram_trial.yml/dispatches',headers={'Authorization':'Bearer '+os.environ['GH_WORKFLOW_TOKEN'],'Accept':'application/vnd.github+json'},json={'ref':'main'})

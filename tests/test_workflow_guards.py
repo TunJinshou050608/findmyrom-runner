@@ -34,6 +34,8 @@ def test_tg_retrieval_is_only_scheduled_on_local_metadata_runners():
         workflow=yaml.safe_load((root/name).read_text())
         for job in workflow['jobs'].values():
             assert job['runs-on']==['self-hosted','findmyrom-metadata']
+            assert not any(str(step.get('uses','')).startswith('actions/setup-python') for step in job['steps'])
+            assert any('python3 -m venv' in step.get('run','') for step in job['steps'])
     for name in ('telegram_trial.yml','telegram_search_lab.yml'):
         workflow=yaml.safe_load((root/name).read_text())
         assert 'FMR_CATALOGUE_STATE_DIR' in next(iter(workflow['jobs'].values()))['env']

@@ -92,6 +92,8 @@ def test_model_cannot_invent_free_access_or_override_paid_gate():
     assert tags('Free download. Paid build.',llm_output=output)['access']=='paid'
     output['taxonomy']['rom_family']={'value':'manufacturer_port','evidence':'this quote is absent'}
     assert tags('NovelProject',package={'project_name':'NovelProject'},llm_output=output)['rom_family']=='pending'
+    output['taxonomy']['access']={'value':['free'],'evidence':'Free download'}
+    assert tags('Public download',llm_output=output)['access']=='unknown'
 
 
 def test_taxonomy_is_persisted_with_candidate_and_product(tmp_path):

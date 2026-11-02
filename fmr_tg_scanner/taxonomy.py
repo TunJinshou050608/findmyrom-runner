@@ -139,6 +139,9 @@ def classify(message, package, *, device_names=(), accepted=False, llm_output=No
     project_version = None
     quote = match(r'\b(?:project\s+version|version|ver)\s*[:：-]\s*v?([\w.-]+)',scope)
     if quote:project_version=re.split(r'[:：-]\s*',quote,maxsplit=1)[-1].lstrip('v')
+    if project_version is None:
+        found=re.search(r'\bv(\d+(?:\.[\w-]+)+)\b',heading,re.I)
+        if found:project_version=found[1]
     build_id = None
     found = re.search(r'(?im)^\s*(?:build\s*(?:id|number|no\.?)|构建编号)\s*[:：-]\s*([\w.-]+)',text)
     if found:build_id=found[1]
@@ -157,7 +160,7 @@ def classify(message, package, *, device_names=(), accepted=False, llm_output=No
     current={'rom_family':family,'system_base':base,'access':access}
     for field, choices in allowed.items():
         item=model.get(field) if isinstance(model,dict) else None
-        if not isinstance(item,dict) or item.get('value') not in choices:continue
+        if not isinstance(item,dict) or not isinstance(item.get('value'),str) or item['value'] not in choices:continue
         value,quote=item['value'],item.get('evidence')
         if not isinstance(quote,str) or not quote or quote not in text:continue
         if current[field] not in ('pending','unknown'):continue

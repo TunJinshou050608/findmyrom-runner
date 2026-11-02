@@ -36,9 +36,12 @@ jobs:
           path: state
           ssh-key: ${{ secrets.GH_TG_TEST_SSH_KEY }}
           persist-credentials: true
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
+      - name: Prepare isolated Python environment in local container
+        shell: bash
+        run: |
+          python3 -c 'import sys; assert sys.version_info >= (3,11), "Python 3.11+ required"'
+          python3 -m venv "$RUNNER_TEMP/fmr-tg-python"
+          printf '%s\n' "$RUNNER_TEMP/fmr-tg-python/bin" >> "$GITHUB_PATH"
       - run: python -m pip install -r runner/requirements.txt
       - name: Read TG metadata; never access D1 or download firmware
         working-directory: runner
