@@ -152,7 +152,7 @@ def test_cold_discovery_produces_resource_and_restart_reuses_state(tmp_path,monk
 def test_live_trial_false_positives_become_regressions(text,url,reason):
     msg=parse_tg_channel_page(page(text=text).replace('https://sourceforge.net/project/files/alioth-12.zip',url),'testchannel')['messages'][0]
     result,actual=analyse(msg,'liuqin',[],{'liuqin':[]})
-    assert actual==reason and not result['accepted']
+    assert actual==reason and (result is None or not result['accepted'])
 
 
 def test_multi_device_profile_does_not_prove_target():
@@ -210,14 +210,16 @@ def test_official_companion_resource_survives_rom_mentions(heading,kind):
     assert reason=='accepted' and result['package']['resource_kind']==kind
 
 
-def test_multidevice_post_does_not_mix_download_targets():
+def test_multidevice_announcement_delivers_its_message_for_each_declared_model():
     html=page(text='#alioth #liuqin Evolution X unofficial Android 15')
     html=html.replace('Download</a>','Download</a><a href="https://sourceforge.net/files/EvolutionX_liuqin-15.zip">Download</a>')
     html=html.replace('project/files/alioth-12.zip','files/EvolutionX_alioth-15.zip')
     msg=parse_tg_channel_page(html,'testchannel')['messages'][0]
     result,reason=analyse(msg,'alioth',[],{'alioth':[],'liuqin':[]})
     assert reason=='accepted'
-    assert json.loads(result['package']['download_links_json'])==['https://sourceforge.net/files/EvolutionX_alioth-15.zip']
+    assert json.loads(result['package']['download_links_json'])==[]
+    assert result['package']['target_post_url']=='https://t.me/testchannel/12'
+    assert result['package']['delivery_type']=='telegram_message'
 
 
 def test_shared_aggregator_reaches_model_without_own_channel(tmp_path,monkeypatch):
@@ -295,3 +297,51 @@ def test_private_checkpoint_rebases_two_disjoint_writers(tmp_path,monkeypatch):
     assert publish_private(second)
     assert (second/'resident.json').exists()
     assert git('-C',second,'show','origin/main:experiment.json').stdout=='{"ok":true}'
+
+
+def test_alias_device_proof_counts_for_opaque_cloud_package(tmp_path):
+    from fmr_tg_scanner.search_discovery import aliases,query_aliases
+    db=SearchStore(tmp_path/'state.sqlite');db.set_meta('device_aliases_v3',{'liuqin':['Xiaomi Pad 6 Pro']})
+    names=aliases(None,db,['liuqin'])
+    assert '小米平板6Pro' in query_aliases(names['liuqin'])
+    msg=parse_tg_channel_page(page(text='Lunaris unofficial Android 15 for 小米平板6Pro').replace('https://sourceforge.net/project/files/alioth-12.zip','https://drive.google.com/file/d/opaque-id/view'),'testchannel')['messages'][0]
+    result,reason=analyse(msg,'liuqin',names['liuqin'],names)
+    assert reason=='accepted' and result['package']['rule_confidence']>=.8;db.close()
+
+
+def test_exact_floor_reader_uses_public_preview_when_embed_has_no_message():
+    urls=[]
+    def fetch(url):
+        urls.append(url)
+        return '<html>Message unavailable in embed</html>' if 'embed=1' in url else page(ids=(12,))
+    msg,url=read_message(fetch,'testchannel',12)
+    assert msg['msg_id']==12 and url=='https://t.me/s/testchannel?before=13'
+    assert len(urls)==2
+
+
+def test_reference_only_post_is_followed_to_actual_package(tmp_path,monkeypatch):
+    from fmr_tg_scanner.search_engine import run
+    monkeypatch.setenv('FMR_TEST_NO_SLEEP','1')
+    def response(req):
+        if req.url.host=='raw.githubusercontent.com':body='alioth: ["POCO F3"]'
+        elif req.url.host=='api.github.com':body='{"items":[]}'
+        elif req.url.path=='/s/aliothupdates':body=page(ids=(1,),text='#alioth ROM release is here').replace('testchannel/','aliothupdates/').replace('https://sourceforge.net/project/files/alioth-1.zip','https://t.me/actualreleases/123')
+        elif req.url.path=='/actualreleases/123':body=page(ids=(123,),text='#alioth Lunaris unofficial Android 15').replace('testchannel/','actualreleases/')
+        else:body='<html></html>'
+        return httpx.Response(200,headers={'content-type':'text/html'},text=body)
+    def factory(*args,**kwargs):return SearchHTTP(*args,**kwargs,client=httpx.Client(transport=httpx.MockTransport(response)))
+    result=run(tmp_path,['alioth'],max_requests=80,max_seconds=30,http_factory=factory)
+    assert result['per_device']=={'alioth':2}
+    saved=json.loads((tmp_path/'products.json').read_text())['products']
+    assert {p['package']['tg_post_url'] for p in saved}=={'https://t.me/actualreleases/123','https://t.me/aliothupdates/1'}
+
+
+def test_release_delivers_message_without_file_links_or_attachment():
+    html=page(text='#ishtar AviumUI unofficial ROM Android 16 release<br>Updated: 2026/07/18<br>Download and support in this post')
+    html=html.replace('<a href="https://sourceforge.net/project/files/alioth-12.zip">Download</a>','')
+    msg=parse_tg_channel_page(html,'testchannel')['messages'][0]
+    assert not msg['links'] and not msg['has_tg_attachment']
+    result,reason=analyse(msg,'ishtar',['Xiaomi 13 Ultra'],{'ishtar':['Xiaomi 13 Ultra']})
+    assert reason=='accepted'
+    assert result['package']['target_post_url']=='https://t.me/testchannel/12'
+    assert result['package']['download_links_json']=='[]'

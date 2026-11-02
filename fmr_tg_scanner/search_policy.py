@@ -3,7 +3,7 @@ import json
 import re
 from urllib.parse import urlsplit,unquote
 from .rule_extractor import extract_package_by_rules,PROJECTS
-from .trial import qualification,MAINSTREAM
+from .trial import MAINSTREAM
 
 EXTRA_PROJECTS=[('BlissROM',r'\bBliss\s*ROM\b|#BlissROM'),('Project Elixir',r'Project\s*Elixir'),('Xtended',r'\bXtended\b'),('AlphaDroid',r'AlphaDroid'),('ColtOS',r'ColtOS'),('Bootleggers',r'Bootleggers'),('PixelExperience',r'Pixel\s*Experience|#PEX\b'),('PixelPlusUI',r'Pixel\s*Plus\s*UI'),('AOSPA',r'\bAOSPA\b'),('OxygenOS',r'OxygenOS'),('ColorOS',r'ColorOS'),('OriginOS',r'OriginOS')]
 MAINSTREAM_ROMS=MAINSTREAM|{'pixelexperience','pixelplusui','blissrom','project elixir','xtended','alphadroid','coltos','aospa'}
@@ -23,8 +23,7 @@ def target_evidence(message,target,names,all_names,profile=''):
     explicit={part.lower() for groups in tokens for part in groups if part and (part.lower() in all_names or part.lower()==target)}
     if explicit and target not in explicit:return None
     if len(explicit)>1:
-        if not path_token(files,target):return None
-        return {'kind':'target_in_download_path','value':target,'multi_device_post':True}
+        return {'kind':'explicit_multi_device_post','value':target,'multi_device_post':True,'listed_devices':sorted(explicit)}
     if target in explicit:return {'kind':'explicit_codename','value':target}
     if path_token(files,target):return {'kind':'target_in_download_path','value':target}
     donors=re.findall(r'(?im)(?:ported|extracted|taken|based)\s+from\s*[:：-]?\s*([^\n]+)|^\s*(?:donor|base device|source device)\s*[:：-]\s*([^\n]+)',text)
@@ -71,19 +70,21 @@ def primary_release(package,message):
 def analyse(message,target,names,all_names,profile=''):
     evidence=target_evidence(message,target,names,all_names,profile)
     if evidence is None:return None,'wrong_or_unproved_device'
-    package=extract_package_by_rules(message)
+    text=message.get('text','');head='\n'.join(text.splitlines()[:4])
+    resource_signal=bool(re.search(r'(?i)\b(?:rom|kernel|recovery|twrp|orangefox|ofrp|boot|fastboot|init_boot|gsi)\b|刷机包|内核|第三方系统',head) or any(re.search(pattern,head,re.I) for _,pattern in [*PROJECTS,*EXTRA_PROJECTS]))
+    if re.search(r'(?i)security warning|scam alert|malware|phishing',head):return None,'not_a_release'
+    release_signal=bool(re.search(r'(?i)\b(?:release|released|build|updated?|download|version|unofficial|official|community|port|changelog|gapps|vanilla)\b|发布|下载|更新|移植|适配',text) or message.get('has_tg_attachment'))
+    if not resource_signal or not release_signal:return None,'not_a_resource'
+    if re.search(r'(?i)^(?:can |could |does |is there |how |anyone |when |求|请问|有没有)',head.strip()):return None,'not_a_release'
+    if re.search(r'[?？]',text.splitlines()[0]) and not re.search(r'(?i)\b(?:released?|updated?|build|changelog)\b|发布|更新',head):return None,'not_a_release'
+    package=extract_package_by_rules(message,default_codename=target,post_only=True)
     if package is None:return None,'not_a_resource'
     package['device_codename']=target
-    if evidence.get('multi_device_post'):
-        attachment_target=path_token(package.get('file_attachment_name') or '',target)
-        links=[u for u in json.loads(package['download_links_json']) if path_token(unquote(urlsplit(u).path),target) or (attachment_target and u==package['tg_post_url'])]
-        if not links:return None,'ambiguous_multi_device_downloads'
-        package['download_links_json']=json.dumps(links,ensure_ascii=False)
-        if not attachment_target:package.update(file_attachment_name=None,has_tg_attachment=0)
-        filename=unquote(urlsplit(links[0]).path).rstrip('/').split('/')[-1]
-        if re.search(r'(?i)\.(?:zip|img|tgz|7z)(?:\.gz)?$',filename):package['package_name']=filename
+    package['delivery_type']='telegram_message';package['target_post_url']=package['tg_post_url']
     text=message.get('text','');heading=primary_release(package,message)
-    links=json.loads(package['download_links_json'])
+    # Link text may help classify an OEM announcement, but external files are
+    # neither a deliverable nor an eligibility requirement and are never fetched.
+    links=message.get('links',[])
     paths=' '.join(unquote(urlsplit(u).path) for u in links)
     stock_filename=bool(re.search(r'(?i)(?:miui_[A-Z0-9]+_|[a-z0-9]+_images_(?:OS\d|V\d))',paths))
     generic_image=bool(re.search(r'(?i)\bGSI\b',heading) or re.search(r'(?i)(?:ErfanGSI|NipponGSI|/Generic[ /%-]|[-_]AB[-_]\d)',paths))
@@ -93,6 +94,7 @@ def analyse(message,target,names,all_names,profile=''):
     if stock_filename or oem_link:label='stock_official'
     elif re.search(r'(?i)\bunofficial\b|#unofficial|\bcommunity\b|^\s*(?:status|build type)\s*[:：-]\s*unofficial',heading):label='unofficial'
     elif re.search(r'(?i)\bport(?:ed)?\b|\bcustom\b',heading):label='custom_or_port'
+    elif re.search(r'(?i)new\s+(?:OS|MIUI|HyperOS)\s+(?:fastboot|recovery)\s+update|(?:hyperos|miui)\s*(?:\d+)?\s*version\s*[:=]',text):label='stock_official'
     elif package['project_name'].lower() in ('hyperos','miui'):label='stock_official'
     elif package['resource_kind']=='rom' and package['project_name'].lower() in MAINSTREAM_ROMS and official:label='mainstream_official'
     elif package['resource_kind']=='rom' and official:label='official_project_unclassified'
@@ -111,7 +113,6 @@ def analyse(message,target,names,all_names,profile=''):
     if generic_image:reason='generic_image_donor_is_not_target'
     elif re.search(r'(?i)\bengineering\s+ROM\b',heading):reason='excluded_engineering_firmware'
     elif re.search(r'(?i)security warning|scam alert|malware|phishing',heading) and not re.search(r'(?i)\b(?:release|build|version)\b',heading):reason='not_a_release'
-    elif qualification(package)!='package':reason='unresolved_download_reference'
     elif label=='stock_official':reason='excluded_stock_firmware'
     elif label=='mainstream_official':reason='excluded_mainstream_official_rom'
     elif label=='official_project_unclassified':reason='official_rom_scope_unproved'

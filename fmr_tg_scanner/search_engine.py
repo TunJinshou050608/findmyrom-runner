@@ -8,6 +8,7 @@ from pathlib import Path
 import re
 import time
 import threading
+import zlib
 from urllib.parse import urlsplit
 
 from .channel_search import search_page
@@ -18,6 +19,7 @@ from .search_http import SearchHTTP,WorkBudgetReached
 from .search_policy import analyse,target_evidence
 from .search_store import SearchStore
 from .trial import atomic_json
+from .rule_extractor import post_ref
 
 
 def run(root,targets,*,max_requests=180,max_seconds=480,http_factory=SearchHTTP,mode='adaptive'):
@@ -35,6 +37,7 @@ def run(root,targets,*,max_requests=180,max_seconds=480,http_factory=SearchHTTP,
             public={key:value[key] for key in ('event','kind','reason','accepted','new','count','device','messages','matched_products','status') if key in value}
             print(json.dumps(public),flush=True)
     store=SearchStore(root/'search.sqlite');http=http_factory(store,emit,max_requests=max_requests,max_seconds=max_seconds)
+    store.migrate_message_delivery()
     stopped=threading.Event()
     def heartbeat():
         while not stopped.wait(30):print(json.dumps({'event':'search_heartbeat','requests':http.requests,'new_qualified_products':new_products,'elapsed_seconds':round(time.monotonic()-started)}),flush=True)
@@ -72,6 +75,8 @@ def run(root,targets,*,max_requests=180,max_seconds=480,http_factory=SearchHTTP,
             if not store.query('SELECT 1 FROM tg_search_records WHERE device=? AND accepted=1 LIMIT 1',(code,)):
                 for word in ('rom','recovery','kernel','xiaomi'):
                     store.enqueue('project',code,{'query':code,'search_query':code+' '+word,'discovery_revision':2},4)
+                for alias in query_aliases(all_names.get(code,[])):
+                    if re.search(r'[\u4e00-\u9fff]',alias):store.enqueue('index',code,{'provider':'lyzem','query':alias},4)
             # Index discovery and direct channel candidates interleave with
             # retrieval; they cannot consume the whole batch before any scan.
             for index,channel in enumerate(name_candidates(code,all_names.get(code,[]))):
@@ -121,6 +126,12 @@ def run(root,targets,*,max_requests=180,max_seconds=480,http_factory=SearchHTTP,
             result,reason=analyse(msg,code,all_names.get(code,[]),all_names,store.meta('profile:'+msg['channel_username'],''))
             if result is None:
                 events['rejected:'+reason]+=1;device_funnel[code]['rejected:'+reason]+=1
+                if reason=='not_a_resource' and depth<3 and target_evidence(msg,code,all_names.get(code,[]),all_names):
+                    references={post_ref(url) for url in msg.get('links',[])}-{None}
+                    for channel,mid in sorted(references)[:3]:
+                        if (channel,mid)!=(msg['channel_username'],msg['msg_id']):
+                            store.enqueue('post',code,{'channel':channel,'msg_id':mid,'depth':depth+1},5)
+                            emit({'event':'reference_enqueued','device':code,'from_post':msg['tg_post_url'],'to_post':f'https://t.me/{channel}/{mid}'})
                 if device_funnel[code]['rejected:'+reason]<=3:emit({'event':'rejection_sample','device':code,'reason':reason,'channel':msg['channel_username'],'msg_id':msg['msg_id'],'text':msg['text'][:1600],'links':msg.get('links',[])[:5]})
                 return False
             package=result['package'];evidence={**result['evidence'],'source_url':source,'message_identity_verified':True,
@@ -130,6 +141,10 @@ def run(root,targets,*,max_requests=180,max_seconds=480,http_factory=SearchHTTP,
             changed=store.save(package,evidence,result['classification'],reason,result['accepted'])
             device_funnel[code]['accepted_observations' if result['accepted'] else 'rejected:'+reason]+=1
             if result['accepted']:
+                if depth<3:
+                    for reference in sorted({post_ref(url) for url in msg.get('links',[])}-{None})[:3]:
+                        channel,mid=reference
+                        if reference!=(msg['channel_username'],msg['msg_id']):store.enqueue('post',code,{'channel':channel,'msg_id':mid,'depth':depth+1},5)
                 per_device[code]+=1
                 if changed and not already_product:
                     new_products+=1
@@ -147,6 +162,26 @@ def run(root,targets,*,max_requests=180,max_seconds=480,http_factory=SearchHTTP,
             emit({'event':'resource_decision','device':code,'channel':msg['channel_username'],'msg_id':msg['msg_id'],
                   'accepted':result['accepted'],'new':changed,'reason':reason,'classification':result['classification'],'package':package,'evidence':evidence,'observed_text':msg['text'][:16000]})
             return result['accepted']
+        replay=store.meta('message_contract_cache_replay',{})
+        if not replay.get('complete'):
+            cached=store.query("SELECT url,body FROM tg_http_cache WHERE url LIKE 'https://t.me/%' AND url>? ORDER BY url LIMIT 20",(replay.get('after',''),))
+            for row in cached:
+                p=urlsplit(row['url']);match=re.fullmatch(r'/s/([a-z][a-z0-9_]{3,31})',p.path)
+                exact=re.fullmatch(r'/([a-z][a-z0-9_]{3,31})/([1-9][0-9]*)',p.path)
+                if match or exact:
+                    channel=(match or exact)[1]
+                    try:
+                        html=zlib.decompress(row['body']).decode()
+                        if exact:html='<section class="tgme_widget_history">'+html+'</section>'
+                        page=parse_tg_channel_page(html,channel)
+                        for msg in page['messages']:
+                            if exact and msg['msg_id']!=int(exact[2]):continue
+                            for code in targets:
+                                if target_evidence(msg,code,all_names.get(code,[]),all_names,store.meta('profile:'+channel,'')):message(code,msg,row['url'],routed=True)
+                        emit({'event':'cached_page_rechecked','channel':channel,'messages':len(page['messages']),'external_requests':0})
+                    except ChannelUnavailableError:pass
+                replay['after']=row['url']
+            replay['complete']=len(cached)<20;store.set_meta('message_contract_cache_replay',replay)
         last_heartbeat=time.monotonic();task=None
         while time.monotonic()-started<max_seconds:
             if time.monotonic()-last_heartbeat>=30:
@@ -173,7 +208,7 @@ def run(root,targets,*,max_requests=180,max_seconds=480,http_factory=SearchHTTP,
                 elif kind=='post':
                     msg,url=read_message(lambda url:http.get(url,ttl=86400),payload['channel'],payload['msg_id'])
                     count=int(message(code,msg,url,depth))
-                    if count:store.enqueue('admit',code,{'channel':payload['channel'],'depth':depth},15)
+                    if count or re.search(r'(?i)android|\brom\b|kernel|recovery|twrp',msg['text']):store.enqueue('admit',code,{'channel':payload['channel'],'depth':depth},15)
                     delay=7*86400
                 elif kind=='project':
                     for repository in project_repositories(http,code,payload.get('search_query')):
@@ -257,13 +292,15 @@ def run(root,targets,*,max_requests=180,max_seconds=480,http_factory=SearchHTTP,
         for row in rows:
             if row['accepted']:unique.setdefault(row['fingerprint'],row)
         products=[{'package':json.loads(row['payload']),'evidence':json.loads(row['evidence']),'classification':row['classification']} for row in unique.values()]
-        atomic_json(root/'products.json',{'products':products})
+        posts=[{'device_codename':v['package']['device_codename'],'project_name':v['package']['project_name'],'resource_kind':v['package']['resource_kind'],'title':v['package']['package_name'],'target_post_url':v['package']['tg_post_url'],'original_post_url':v['package']['original_post_url'],'classification':v['classification']} for v in products]
+        atomic_json(root/'products.json',{'delivery_type':'telegram_message','posts':posts,'products':products})
         atomic_json(root/'candidates.json',{'candidates':[{'package':json.loads(r['payload']),'evidence':json.loads(r['evidence']),'reason':r['reason']} for r in rows if not r['accepted']]})
         todo=store.query("SELECT kind,status,COUNT(*) AS count FROM tg_search_tasks GROUP BY kind,status")
         counts=Counter(v['package']['device_codename'] for v in products)
         report={'engine':'tg_search_v3','mode':mode,'ok':not failures or len(failures)<processed,'has_products':bool(products),'activity':'new_products' if new_products else 'no_new_products','outcome':outcome,'targets':targets,
             'policy_version':hashlib.sha256(Path(__file__).with_name('search_policy.py').read_bytes()).hexdigest()[:16],
             'new_qualified_products':new_products,'packages':len(products),'stored_observations':len(rows),'per_device':{code:counts.get(code,0) for code in targets},
+            'delivery_type':'telegram_message','telegram_posts':len(posts),'new_telegram_posts':new_products,
             'unresolved_targets':[code for code in targets if not counts.get(code)],'coverage_ok':all(counts.get(code,0) for code in targets),
             'device_funnel':{code:dict(values) for code,values in device_funnel.items()},
             'http_requests':http.requests,'cache_hits':http.cache_hits,'response_bytes':http.bytes,'http_errors':http.errors,

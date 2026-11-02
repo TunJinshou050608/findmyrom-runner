@@ -53,12 +53,12 @@ def handle(value):
     return '@'+v if re.fullmatch(r'[a-z0-9_]{4,32}',v) and v not in GENERIC else None
 
 
-def extract_package_by_rules(msg_dict: dict, default_codename=None):
+def extract_package_by_rules(msg_dict: dict, default_codename=None, *, post_only=False):
     m=msg_dict;text=m.get('text','');channel=m['channel_username'];url=m['tg_post_url']
     labels={}
     for item in m.get('link_items',[]):labels[item['url']]=labels.get(item['url'],'')+' '+item.get('label','')
     links=[]
-    for link in m.get('links',[])+re.findall(r'https?://[^\s<>"\']+',text):
+    for link in ([] if post_only else m.get('links',[])+re.findall(r'https?://[^\s<>"\']+',text)):
         link=link.rstrip('.,);')
         if not safe_url(link):continue
         u=urlsplit(link)
@@ -70,8 +70,8 @@ def extract_package_by_rules(msg_dict: dict, default_codename=None):
         if not download_evidence(link,labels.get(link,'')):continue
         if link not in links:links.append(link)
     attachment=m.get('has_tg_attachment',False) and bool(re.search(r'(?i)\.(zip|tgz|tar(?:\.(gz|xz|zst))?|img(?:\.gz)?|bin|7z)$',m.get('file_attachment_name') or ''))
-    if attachment:links.append(url)
-    if not links or (len(text)<25 and not re.search(r'\.(?:zip|img|tgz)(?:\.gz)?$',m.get('file_attachment_name') or '',re.I)) or not re.search(WORDS,text+' '+(m.get('file_attachment_name') or ''),re.I):return None
+    if attachment and not post_only:links.append(url)
+    if (not links and not post_only) or (len(text)<25 and not re.search(r'\.(?:zip|img|tgz)(?:\.gz)?$',m.get('file_attachment_name') or '',re.I)) or not re.search(WORDS,text+' '+(m.get('file_attachment_name') or ''),re.I):return None
     match=re.search(MAINTAINER_REGEX,text)
     maintainer=handle(match[1]) if match else None
     if not maintainer:
@@ -117,7 +117,7 @@ def extract_package_by_rules(msg_dict: dict, default_codename=None):
     elif project or re.search(r'(?i)\brom\b',heading):kind='rom'
     if kind=='rom':
         links=[link for link in links if not re.search(r'(?i)\b(recovery|boot|vbmeta)\b',labels.get(link,'')) and not re.search(r'(?i)(orangefox|twrp|init_boot|vendor_boot|vbmeta)',urlsplit(link).path)]
-        if not links:return None
+        if not links and not post_only:return None
     recognized=bool(project or re.search(r'\b(?:rom|recovery|kernel|firmware|boot|init_boot|vbmeta)\b',combined,re.I))
     if not project and recognized:project={'boot_image':'Boot image','kernel':'Kernel','firmware':'Firmware','recovery':'Recovery','rom':'Custom ROM'}[kind]
     title=heading[:40]

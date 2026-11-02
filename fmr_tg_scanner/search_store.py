@@ -62,9 +62,23 @@ class SearchStore(SQLiteDB):
         self.execute("UPDATE tg_search_tasks SET status='ready',next_at=?,last_error=?,attempts=?,payload=?,updated=? WHERE key=?",
                      (time.time()+delay,error,task['attempts']+1 if error else 0,json.dumps(payload if payload is not None else task['payload'],sort_keys=True),time.time(),task['key']))
     def fingerprint(self,package):
+        if package.get('delivery_type')=='telegram_message':
+            return hashlib.sha256(json.dumps([package['device_codename'],package['tg_post_url']],sort_keys=True).encode()).hexdigest()
         links=json.loads(package['download_links_json'])
         version=package.get('build_version_tag') or package.get('file_attachment_name') or package.get('package_name') or package['tg_post_url']
         return hashlib.sha256(json.dumps([package['device_codename'],package['resource_kind'],package['project_name'].lower(),version,sorted(links)],sort_keys=True).encode()).hexdigest()
+    def migrate_message_delivery(self):
+        if self.meta('delivery_contract')=='telegram_message_v1':return
+        self.execute('BEGIN IMMEDIATE')
+        try:
+            for row in self.query('SELECT * FROM tg_search_records'):
+                p=json.loads(row['payload']);p.update(delivery_type='telegram_message',target_post_url=p['tg_post_url'],download_links_json='[]')
+                self.execute('UPDATE tg_search_records SET payload=?,fingerprint=? WHERE key=?',(json.dumps(p,sort_keys=True,ensure_ascii=False),self.fingerprint(p),row['key']))
+                if row['reason'] in ('unresolved_download_reference','ambiguous_multi_device_downloads'):
+                    key=self.enqueue('post',p['device_codename'],{'channel':p['channel_username'],'msg_id':p['msg_id'],'depth':0},2)
+                    self.execute("UPDATE tg_search_tasks SET next_at=0,status='ready' WHERE key=?",(key,))
+            self.set_meta('delivery_contract','telegram_message_v1');self.execute('COMMIT')
+        except BaseException:self.execute('ROLLBACK');raise
     def save(self,package,evidence,classification,reason,accepted):
         key=f"{package['device_codename']}|{package['channel_username']}|{package['msg_id']}"
         fingerprint=self.fingerprint(package)

@@ -14,5 +14,9 @@ def read_message(fetch,channel,msg_id):
     # identity must still match exactly. Wrapping never manufactures a floor.
     page=parse_tg_channel_page('<section class="tgme_widget_history">'+html+'</section>',channel)
     matches=[m for m in page['messages'] if m['msg_id']==msg_id]
-    if len(matches)!=1:raise MessageIdentityError('Requested message absent from embed')
+    if len(matches)!=1:
+        url=f'https://t.me/s/{channel}?before={msg_id+1}'
+        page=parse_tg_channel_page(fetch(url),channel)
+        matches=[m for m in page['messages'] if m['msg_id']==msg_id]
+    if len(matches)!=1:raise MessageIdentityError('Requested message absent from both public views')
     return matches[0],url
