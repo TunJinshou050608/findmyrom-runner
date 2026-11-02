@@ -44,6 +44,21 @@ class IndependentAuditTests(unittest.TestCase):
         a = audit.EvidenceAuditor({"base": ["Example Pad 8"], "pro": ["Example Pad 8 Pro"]})
         self.assertEqual(a.devices("Example Pad 8 Pro"), {"pro"})
 
+    def test_port_from_is_donor_too(self):
+        a = audit.EvidenceAuditor({"marble": ["POCO F5"]})
+        state, reason, _ = a.device_roles("*Port from marble.", "", "POCO F3 / Redmi K40 updates")
+        self.assertEqual(state, "supported")
+        self.assertIn("Single-device profile", reason)
+
+    def test_project_name_collision_does_not_declare_device(self):
+        a = audit.EvidenceAuditor({"clover": ["Mi Pad 4"]})
+        self.assertEqual(a.devices("Clover Project v2.0"), set())
+
+    def test_question_mark_emoji_is_uncertainty(self):
+        state, reason, _ = audit.EvidenceAuditor().device_roles("apollo ✅\nalioth ❓", "", "")
+        self.assertEqual(state, "unknown")
+        self.assertIn("uncertain", reason)
+
 
 if __name__ == "__main__":
     unittest.main()

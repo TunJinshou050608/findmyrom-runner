@@ -46,6 +46,11 @@ class EvidenceAuditor:
             for end in range(start, min(start + 8, len(words))):
                 value += words[end]
                 if value in self.lookup:
+                    # A project label is not a device declaration just because
+                    # its word also happens to be a catalogue codename.
+                    if end == start and ((start and words[start-1] == "project")
+                        or (end + 1 < len(words) and words[end+1] == "project")):
+                        continue
                     spans.append((start, end, self.lookup[value]))
         maximal = [s for s in spans if not any(
             a <= s[0] and b >= s[1] and (a < s[0] or b > s[1]) for a, b, _ in spans)]
@@ -56,7 +61,7 @@ class EvidenceAuditor:
         citations = []
         for index, line in enumerate(text.splitlines()):
             # Donor clauses end before an explicit recipient clause.
-            match = re.search(r"(?i)\b(?:ported?|taken|extracted|based)\s+from\b|移植自|提取自", line)
+            match = re.search(r"(?i)\b(?:port(?:ed)?|taken|extracted|based)\s+from\b|移植自|提取自", line)
             if match:
                 before = line[:match.start()]
                 if index < 3 or re.search(r"(?i)\b(?:for|device)\b", before):
@@ -69,9 +74,13 @@ class EvidenceAuditor:
                 continue
             if re.match(r"(?i)^\W*(?:follow|join|credits?|thanks|support|subscribe)\b", line):
                 continue
+            if index < 3 and re.search(r"(?i)\bport\b", line) and not re.search(r"(?i)\bfor\b", line):
+                # "Moto S30 Pro Port" can name a donor; it cannot establish a
+                # different recipient without additional role evidence.
+                continue
             if index < 3 or re.search(r"(?i)\b(?:for|devices?|only|supported|works on|usable on)\b|适配|仅限", line) or line.startswith("#"):
                 matches = self.devices(line)
-                if "?" in line or "？" in line:
+                if any(mark in line for mark in ("?", "？", "❓", "❔")):
                     uncertain |= matches
                 else:
                     direct |= matches
@@ -80,14 +89,14 @@ class EvidenceAuditor:
         file_devices = self.devices(attachment)
         direct |= file_devices
         profile_devices = self.devices(profile)
+        if self.target in uncertain and self.target not in direct:
+            return "unknown", "Compatibility is explicitly uncertain", citations
         if direct and self.target not in direct:
             return "contradiction", "Explicit recipient/attachment identifies another device", citations
         if self.target in donor and self.target not in direct:
             return "contradiction", "Target appears as donor, not recipient", citations
         if self.target in direct:
             return "supported", "Explicit recipient, tag or attachment", citations
-        if self.target in uncertain:
-            return "unknown", "Compatibility is explicitly uncertain", citations
         if profile_devices == {self.target}:
             return "supported", "Single-device profile; not independent author verification", [profile]
         return "unknown", "No independent target-role evidence", citations
@@ -220,7 +229,8 @@ def audit_one(row, decision, auditor, profiles, canonical_rows):
         size_errors or "No binary or attachment-size probe was performed")
     status = decision["status"]
     if status == "accepted":
-        put("decision_support", "fail" if checks["device_role"] == "fail" or
+        explicitly_uncertain = notes["device_role"]["assessment"] == "Compatibility is explicitly uncertain"
+        put("decision_support", "fail" if explicitly_uncertain or checks["device_role"] == "fail" or
             checks["primary_resource"] == "fail" else "unknown" if checks["device_role"] == "unknown"
             or checks["primary_resource"] == "unknown" else "pass")
     elif status == "candidate":
