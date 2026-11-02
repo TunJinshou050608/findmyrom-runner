@@ -6,7 +6,7 @@ from .rule_extractor import extract_package_by_rules,PROJECTS
 from .trial import MAINSTREAM
 
 EXTRA_PROJECTS=[('BlissROM',r'\bBliss\s*ROM\b|#BlissROM'),('Project Elixir',r'Project\s*Elixir'),('Xtended',r'\bXtended\b'),('AlphaDroid',r'AlphaDroid'),('ColtOS',r'ColtOS'),('Bootleggers',r'Bootleggers'),('PixelExperience',r'Pixel\s*Experience|#PEX\b'),('PixelPlusUI',r'Pixel\s*Plus\s*UI'),('AOSPA',r'\bAOSPA\b'),('OxygenOS',r'OxygenOS'),('ColorOS',r'ColorOS'),('OriginOS',r'OriginOS')]
-MAINSTREAM_ROMS=MAINSTREAM|{'pixelexperience','pixelplusui','blissrom','project elixir','xtended','alphadroid','coltos','aospa'}
+MAINSTREAM_ROMS=MAINSTREAM|{'pixelexperience','pixelplusui','blissrom','project elixir','xtended','alphadroid','coltos','aospa','paranoid android'}
 _profile_catalogue=None
 _profile_patterns=[]
 _profile_cache={}

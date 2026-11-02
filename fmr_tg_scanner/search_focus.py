@@ -29,7 +29,7 @@ def focus(state_root,targets):
         diagnosis['assigned_source_profiles']={code:[{'channel':channel,'strategy':info.get('strategy_by_device',{}).get(code),'profile':dest.meta('profile:'+channel,'')[:1600]} for channel,info in dest.meta('sources',{}).items() if code in info.get('targets',[])] for code in targets}
     finally:dest.close()
     atomic_json(root/'diagnosis.json',diagnosis);publish_private(state_root)
-    first=run(root,targets,max_requests=180,max_seconds=480)
+    first=run(root,targets,max_requests=60,max_seconds=240)
     atomic_json(root/'first_batch.json',first);publish_private(state_root)
     second=run(root,targets,max_requests=90,max_seconds=240)
     atomic_json(root/'continuation.json',second)

@@ -10,7 +10,7 @@ CODENAME_FIELD_REGEX=r'(?i)(?:device|codename|for)\s*[:：\-]?\s*[^\n\(\)]*\(([a
 HASHTAG_CODENAME_REGEX=r'#([a-zA-Z][a-zA-Z0-9_]{2,20})\b'
 WORDS=r'rom|boot|twrp|orangefox|ofrp|kernel|firmware|lineage|crdroid|pixelos|evolution|hyperos|miui|aosp|flash|recovery|magisk|kernelsu|vbmeta|build|update|android'
 GENERIC=set('android telegram gmail rom recovery kernel firmware boot init_boot stock unofficial official stable beta update updates release releases aosp lineageos crdroid pixelos evolutionx orangefox twrp magisk kernelsu gapps vanilla hyperos miui'.split())
-PROJECTS=[('AxionOS',r'axion(?:os|aosp)?'),('Evolution X',r'evolution\s*x|evox'),('OrangeFox',r'orangefox|ofrp'),('crDroid',r'crdroid'),('LineageOS',r'lineage(?:os)?'),('PixelOS',r'pixelos'),('TWRP',r'twrp'),('HyperOS',r'hyperos'),('MIUI',r'miui'),('Lunaris',r'lunaris'),('Project Infinity X',r'project\s*infinity\s*x|projectinfinityx'),('MistOS',r'mistos'),('RisingOS',r'risingos')]
+PROJECTS=[('Paranoid Android',r'paranoid\s*android|\baospa\b'),('AxionOS',r'axion(?:os|aosp)?'),('Evolution X',r'evolution\s*x|evox'),('OrangeFox',r'orangefox|ofrp'),('crDroid',r'crdroid'),('LineageOS',r'lineage(?:os)?'),('PixelOS',r'pixelos'),('TWRP',r'twrp'),('HyperOS',r'hyperos'),('MIUI',r'miui'),('Lunaris',r'lunaris'),('Project Infinity X',r'project\s*infinity\s*x|projectinfinityx'),('MistOS',r'mistos'),('RisingOS',r'risingos')]
 
 def download_evidence(url,label=''):
     host=(urlsplit(url).hostname or '').lower();path=urlsplit(url).path

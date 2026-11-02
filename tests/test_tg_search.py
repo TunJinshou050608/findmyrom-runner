@@ -388,3 +388,12 @@ def test_longer_model_names_do_not_make_dedicated_channel_ambiguous():
     assert analyse(msg,'pipa',names['pipa'],names,'Xiaomi Pad 6 Pro Updates')[0] is None
     msg['text']='TWRP recovery released for Xiaomi Pad 6'
     assert analyse(msg,'liuqin',names['liuqin'],names,'Xiaomi Pad 6 Pro Updates')[0] is None
+
+
+def test_paranoid_android_release_without_file_link_uses_dedicated_profile():
+    msg=parse_tg_channel_page(page(text='Paranoid Android Topaz Unofficial<br>Download<br>How to flash'),'testchannel')['messages'][0]
+    msg['links']=[];msg['link_items']=[]
+    names={'liuqin':['Xiaomi Pad 6 Pro'],'pipa':['Xiaomi Pad 6']}
+    result,reason=analyse(msg,'liuqin',names['liuqin'],names,'Xiaomi Pad 6 Pro | Updates')
+    assert reason=='accepted' and result['package']['project_name']=='Paranoid Android'
+    assert result['package']['target_post_url']=='https://t.me/testchannel/12'

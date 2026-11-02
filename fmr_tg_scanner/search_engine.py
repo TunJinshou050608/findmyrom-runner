@@ -66,6 +66,8 @@ def run(root,targets,*,max_requests=180,max_seconds=480,http_factory=SearchHTTP,
             for other in targets:
                 if other not in known:store.enqueue('query',other,{'channel':channel,'query':other,'depth':depth,'state':{},'reason':'shared_android_source'},6)
         for channel,info in store.meta('sources',{}).items():
+            for code,strategy in info.get('strategy_by_device',{}).items():
+                if code in targets and strategy=='history':store.enqueue('history',code,{'channel':channel,'depth':info.get('depth',0),'state':{}},2)
             share_source(channel,store.meta('profile:'+channel,''),info.get('depth',0))
         if store.meta('retrieval_mode')!=mode:
             for channel,info in store.meta('sources',{}).items():
@@ -113,7 +115,7 @@ def run(root,targets,*,max_requests=180,max_seconds=480,http_factory=SearchHTTP,
             share_source(channel,context,depth)
             if strategy=='history':
                 store.execute("UPDATE tg_search_tasks SET status='dormant' WHERE device=? AND kind='query' AND json_extract(payload,'$.channel')=?",(code,channel))
-                store.enqueue('history',code,{'channel':channel,'depth':depth,'state':{}},10)
+                store.enqueue('history',code,{'channel':channel,'depth':depth,'state':{}},2)
                 if mode=='adaptive':store.enqueue('head',code,{'channel':channel,'depth':depth},8)
             else:
                 key=store.enqueue('query',code,{'channel':channel,'query':code,'depth':depth,'state':{}},10)
