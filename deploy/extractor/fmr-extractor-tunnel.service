@@ -1,0 +1,49 @@
+[Unit]
+Description=FindMyROM dedicated outbound extraction tunnel
+After=network-online.target fmr-extractor.service
+Wants=network-online.target fmr-extractor.service
+
+[Service]
+Type=simple
+User=fmr-tunnel
+Group=fmr-tunnel
+Slice=fmr-extraction.slice
+EnvironmentFile=/etc/fmr-extractor/tunnel.env
+Environment=GOMEMLIMIT=48MiB GOMAXPROCS=1
+UnsetEnvironment=HTTP_PROXY HTTPS_PROXY ALL_PROXY http_proxy https_proxy all_proxy
+ExecStart=/opt/fmr-extractor/bin/cloudflared --no-autoupdate tunnel --protocol http2 --edge-ip-version 4 run
+Restart=on-failure
+RestartSec=10
+MemoryHigh=64M
+MemoryMax=96M
+MemorySwapMax=0
+OOMScoreAdjust=800
+Nice=15
+TasksMax=24
+LimitNOFILE=128
+UMask=0077
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectProc=invisible
+ProcSubset=pid
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+LockPersonality=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+TemporaryFileSystem=/etc:ro /run:ro /var:ro /opt:ro /usr/local/etc:ro
+BindReadOnlyPaths=/opt/fmr-extractor/bin/cloudflared /etc/ssl/certs /opt/fmr-extractor/runtime/resolv.conf:/etc/resolv.conf /opt/fmr-extractor/runtime/hosts:/etc/hosts /opt/fmr-extractor/runtime/nsswitch.conf:/etc/nsswitch.conf
+InaccessiblePaths=-/srv -/mnt -/media
+LogRateLimitIntervalSec=30s
+LogRateLimitBurst=10
+
+[Install]
+WantedBy=multi-user.target

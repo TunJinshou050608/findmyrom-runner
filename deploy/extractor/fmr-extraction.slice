@@ -1,0 +1,9 @@
+[Unit]
+Description=FindMyROM extraction resource budget
+
+[Slice]
+CPUQuota=60%
+CPUWeight=10
+MemoryHigh=352M
+MemoryMax=448M
+TasksMax=48

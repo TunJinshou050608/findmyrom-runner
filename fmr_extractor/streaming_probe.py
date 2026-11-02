@@ -179,7 +179,7 @@ def bounded_get(client, url, limit=4*1024*1024, **kwargs):
         return bytes(out)
 
 
-def samsung_source(client, model='SM-S928B', region='EUX'):
+def samsung_source(client, model='SM-S928B', region='EUX', expected_version=None):
     """FUS adaptation: topjohnwu/samloader-rs, Apache-2.0; existing license in docs/licenses.
 
     Kept separate from production's deliberately metadata-only SmartFUS client.
@@ -213,6 +213,8 @@ def samsung_source(client, model='SM-S928B', region='EUX'):
         return root
     version_xml=bounded_get(client,f'https://fota-cloud-dn.ospserver.net/firmware/{region}/{model}/version.xml',headers={'User-Agent':'Kies2.0_FUS'})
     version=normalize_version(ET.fromstring(version_xml).findtext('./firmware/version/latest'))
+    if expected_version is not None and expected_version not in (version, version.split('/')[0]):
+        raise ValueError('Requested Samsung version is not currently available; refusing substitution')
     request('NF_SmartDownloadGenerateNonce.do')
     root=xml({'ACCESS_MODE':'1','BINARY_NATURE':'1','REQUEST_TYPE':'2','LOGIC_CHECK':logic(version,nonce),
               'BINARY_SW_VERSION':version,'BINARY_LOCAL_CODE':region,'BINARY_MODEL_NAME':model})
@@ -226,6 +228,8 @@ def samsung_source(client, model='SM-S928B', region='EUX'):
     if not re.fullmatch(r'[A-Za-z0-9_.-]+\.enc[24]',filename) or not re.fullmatch(r'/[A-Za-z0-9_/-]+/',path):
         raise ValueError('Invalid FUS filename/path')
     version=data.get('BINARY_SW_VERSION',version)
+    if expected_version is not None and expected_version not in (version, version.split('/')[0]):
+        raise ValueError('FUS returned a different version')
     if filename.endswith('.enc2'):
         seed=f'{region}:{model}:{version}'
     else:

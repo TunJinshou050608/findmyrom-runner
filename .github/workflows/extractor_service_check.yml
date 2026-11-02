@@ -1,0 +1,27 @@
+name: Isolated extraction service check
+on:
+  push:
+    paths:
+      - 'fmr_extractor/service.py'
+      - 'fmr_extractor/streaming_probe.py'
+      - 'tests/test_extractor_service.py'
+      - '.github/workflows/extractor_service_check.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  contracts:
+    runs-on: [self-hosted, Linux, X64, findmyrom-metadata]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Test service and HTTP delivery without downloading firmware
+        run: |
+          python3 -m venv "$RUNNER_TEMP/fmr-service-${GITHUB_RUN_ID}"
+          "$RUNNER_TEMP/fmr-service-${GITHUB_RUN_ID}/bin/python" -m pip install -r requirements.txt
+          "$RUNNER_TEMP/fmr-service-${GITHUB_RUN_ID}/bin/python" -m pytest -q tests/test_extractor_service.py tests/test_streaming_probe.py
+      - name: Clean isolated environment
+        if: always()
+        run: rm -rf -- "$RUNNER_TEMP/fmr-service-${GITHUB_RUN_ID}"
