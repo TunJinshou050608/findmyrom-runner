@@ -53,6 +53,9 @@ jobs:
           CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
           SIGN_PRIVATE_KEY_HEX: ${{ secrets.SIGN_PRIVATE_KEY_HEX }}
         run: python -u -m fmr_tg_scanner.quality_audit --state-dir ../state --publish-only --publish
+      - name: Verify existing device pages and release verification links
+        working-directory: runner
+        run: python -u -m fmr_tg_scanner.quality_audit --state-dir ../state --verify-site
       - name: Save publication counts and verification receipts
         if: always()
         working-directory: runner

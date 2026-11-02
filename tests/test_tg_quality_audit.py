@@ -85,3 +85,19 @@ def test_channel_guesses_are_telegram_usernames_and_old_invalid_tasks_retire(tmp
     assert db.due(['asus-zenfone-8']) is None
     assert db.due(['alioth']) is not None
     db.close()
+
+
+def test_existing_site_pages_are_checked_against_the_full_publication_cohort(tmp_path,monkeypatch):
+    import httpx
+    from fmr_tg_scanner.quality_audit import resource_token,verify_site
+    out=prepare(tmp_path/'state',monkeypatch)
+    products=json.loads((out/'qualified.json').read_text())['products']
+    token=resource_token(products[0]['package'])
+    atomic_json(out/'publication_result.json',{'enabled_devices':['alioth']})
+    def response(request):
+        body=f'<a href="/verify/{token}">Visit release</a>' if '/devices/' in request.url.path else 'Verify release'
+        return httpx.Response(200,text=body)
+    with httpx.Client(transport=httpx.MockTransport(response)) as client:
+        assert verify_site(out,client=client)['verified_resources']==1
+    with httpx.Client(transport=httpx.MockTransport(lambda r:httpx.Response(200,text='Missing records'))) as client:
+        with pytest.raises(RuntimeError,match='token set mismatch'):verify_site(out,client=client,sleeper=lambda _:None)

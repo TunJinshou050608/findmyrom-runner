@@ -258,7 +258,8 @@ def analyse(message, target, names, all_names, profile='', *, llm_callable=None)
         'bkt-sgp-miui-ota-update-alisgp.oss-ap-southeast-1.aliyuncs.com'
     ) for u in links)
     project_base = re.sub(r'(?i)(?:rom|os)$', '', package['project_name']).strip()
-    status_text = heading + '\n' + re.sub(r'[_-]', ' ', message.get('file_attachment_name') or '')
+    leading_tags='\n'.join(line for line in text.splitlines()[:3] if re.fullmatch(r'\s*(?:#[A-Za-z0-9_-]+\s*)+',line))
+    status_text = heading + '\n' + leading_tags + '\n' + re.sub(r'[_-]', ' ', message.get('file_attachment_name') or '')
     official = bool(
         re.search(r'(?i)\bofficial\b', status_text) or
         (len(project_base) > 3 and re.search(r'(?i)\b' + re.escape(project_base) + r'\s*(?:ROM|OS)?\s+Official\s+Channel\b', text)) or

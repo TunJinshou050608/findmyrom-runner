@@ -248,6 +248,16 @@ def publish(out,db,key):
     legacy={r['public_token']:r for r in db.query('SELECT public_token,device_codename,target_post_url,metadata_json FROM custom_resources') if json.loads(r['metadata_json']).get('audit_version')==AUDIT_VERSION}
     updates=','.join(c+'=excluded.'+c for c in columns.split(',') if c!='public_token')
     sql='INSERT INTO custom_resources('+columns+') VALUES ('+','.join('?' for _ in columns.split(','))+') ON CONFLICT(public_token) DO UPDATE SET '+updates+' WHERE custom_resources.maintainer_opted_out=0'
+    keep={resource_token(item['package']) for item in ready}
+    keep.update('cr_'+hashlib.sha256((item['package']['device_codename']+'|'+item['package']['tg_post_url']).encode()).hexdigest()[:24] for item in ready)
+    withdrawals=[r for r in db.query('SELECT * FROM custom_resources') if json.loads(r['metadata_json']).get('audit_version')==AUDIT_VERSION and r['public_token'] not in keep and not r['maintainer_opted_out']]
+    atomic_json(out/'withdrawn_previous_audit_rows.json',{'reason':'failed corrected full audit','rows':withdrawals})
+    if withdrawals and db.mode=='cloudflare_d1':
+        from .watch import publish_private
+        publish_private(out.parents[1].resolve())
+    for offset in range(0,len(withdrawals),40):
+        chunk=withdrawals[offset:offset+40]
+        db.execute_batch([('DELETE FROM custom_resources WHERE public_token=? AND maintainer_opted_out=0 AND json_extract(metadata_json,\'$.audit_version\')=?',(r['public_token'],AUDIT_VERSION)) for r in chunk])
     expected={};committed=0
     for offset in range(0,len(ready),40):
         chunk=ready[offset:offset+40];statements=[]
@@ -274,6 +284,7 @@ def publish(out,db,key):
         chunk=visible_devices[offset:offset+50]
         db.execute('UPDATE devices SET phase2_roms_enabled=1 WHERE codename IN ('+','.join('?' for _ in chunk)+')',chunk)
     result={'audit_run_id':run_id,'qualified_before_D1_device_check':len(products),'published_and_verified':len(result_rows),
+            'withdrawn_previous_audit_records':len(withdrawals),
             'excluded_missing_production_device_or_quality':len(excluded),'enabled_devices':visible_devices,'signatures_verified':True,
             'completed_at':datetime.now(timezone.utc).isoformat(),'retrieval_remains_paused':True}
     atomic_json(out/'publication_result.json',result)
@@ -282,9 +293,45 @@ def publish(out,db,key):
     return result
 
 
+def verify_site(out, client=None, sleeper=time.sleep):
+    import httpx
+    out=Path(out)
+    result=json.loads((out/'publication_result.json').read_text())
+    products=json.loads((out/'qualified.json').read_text())['products']
+    by_device={}
+    for item in products:
+        p=item['package'];by_device.setdefault(p['device_codename'],[]).append(item)
+    own=client is None
+    client=client or httpx.Client(timeout=30,follow_redirects=False,headers={'User-Agent':'Mozilla/5.0 (compatible; FindMyROM publication verifier)'})
+    checks=[]
+    try:
+        for code in result['enabled_devices']:
+            items=by_device[code];expected={resource_token(i['package']) for i in items}
+            tab='roms' if any(i['package']['taxonomy']['resource_type']=='rom' for i in items) else 'recoveries'
+            url='https://findmyrom.com/devices/'+code+'?tab='+tab
+            for attempt in range(2):
+                response=client.get(url);response.raise_for_status()
+                observed=set(re.findall(r'/verify/(cr_[A-Za-z0-9_-]{10,13})(?![A-Za-z0-9_-])',response.text))
+                if observed==expected:break
+                if attempt==0:sleeper(35)
+            if observed!=expected:raise RuntimeError('Published page token set mismatch for '+code)
+            sample=sorted(expected)[0]
+            response=client.get('https://findmyrom.com/verify/'+sample);response.raise_for_status()
+            checks.append({'device':code,'page_url':url,'visible_release_links':len(observed),'sample_verify_page_status':response.status_code})
+        report={'verified_resources':sum(c['visible_release_links'] for c in checks),'verified_devices':len(checks),'checks':checks}
+        atomic_json(out/'website_verification.json',report)
+        print(json.dumps({'event':'website_verification_finished',**report}),flush=True)
+        return report
+    finally:
+        if own:client.close()
+
+
 def main():
-    parser=argparse.ArgumentParser();parser.add_argument('--state-dir',required=True);parser.add_argument('--publish',action='store_true');parser.add_argument('--publish-only',action='store_true');args=parser.parse_args()
+    parser=argparse.ArgumentParser();parser.add_argument('--state-dir',required=True);parser.add_argument('--publish',action='store_true');parser.add_argument('--publish-only',action='store_true');parser.add_argument('--verify-site',action='store_true');args=parser.parse_args()
     root=Path(args.state_dir)
+    if args.verify_site:
+        verify_site(root/'audits'/('full-quality-'+os.environ.get('GITHUB_RUN_ID','local')))
+        return
     out=root/'audits'/('full-quality-'+os.environ.get('GITHUB_RUN_ID','local')) if args.publish_only else audit(root)
     if args.publish:
         from fmr_core.d1_client import D1Client

@@ -835,3 +835,12 @@ def test_existing_fingerprints_migrate_without_deleting_observations(tmp_path):
     assert len(db.query('SELECT DISTINCT fingerprint FROM tg_search_records'))==2
     assert db.meta('delivery_contract')=='telegram_message_v2'
     db.close()
+
+
+def test_mainstream_official_leading_hashtag_is_excluded_but_unofficial_is_retained():
+    for status,expected in [('Official','excluded_mainstream_official_rom'),('Unofficial','accepted')]:
+        text=f'#EvolutionX #{status} #ROM #alioth\nEvolution X v7.8 | Android 13\nBy @real_builder\nDownload'
+        msg=parse_tg_channel_page(page(text=text),'testchannel')['messages'][0]
+        result,reason=analyse(msg,'alioth',[],{'alioth':[]})
+        assert reason==expected
+        assert result['accepted']==(status=='Unofficial')
