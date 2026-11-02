@@ -13,8 +13,8 @@ def tags(text, **kwargs):
 
 
 @pytest.mark.parametrize('text,status',[
-    ('Download: https://example.org/rom.zip','unknown'),
-    ('Donations welcome. Buy me a coffee.','unknown'),
+    ('Download: https://example.org/rom.zip','free'),
+    ('Donations welcome. Buy me a coffee.','free'),
     ('Free download. Optional donations welcome.','free'),
     ('免费使用，接受自愿捐赠','free'),
     ('无需付费','free'),('不收费','free'),
@@ -28,7 +28,7 @@ def test_access_evidence_and_publication_gate(text,status):
     assert result['access']==status
     assert result['publication']['eligible']==(status=='free')
     quote=result['evidence']['access']['evidence']
-    assert quote is None or quote in text
+    assert quote is None or quote in text or result['evidence']['access']['source']=='user_policy'
 
 
 def test_author_labels_and_companion_files_are_distinct():
@@ -87,13 +87,13 @@ def test_site_device_id_is_distinct_from_actual_codename():
 
 def test_model_cannot_invent_free_access_or_override_paid_gate():
     output={'accepted':True,'taxonomy':{'access':{'value':'free','evidence':'Download link'}}}
-    assert tags('Download link',llm_output=output)['access']=='unknown'
+    assert tags('Download link',llm_output=output)['evidence']['access']['source']=='user_policy'
     output['taxonomy']['access']['evidence']='Free download'
     assert tags('Free download. Paid build.',llm_output=output)['access']=='paid'
     output['taxonomy']['rom_family']={'value':'manufacturer_port','evidence':'this quote is absent'}
     assert tags('NovelProject',package={'project_name':'NovelProject'},llm_output=output)['rom_family']=='pending'
     output['taxonomy']['access']={'value':['free'],'evidence':'Free download'}
-    assert tags('Public download',llm_output=output)['access']=='unknown'
+    assert tags('Public download',llm_output=output)['access']=='free'
 
 
 def test_taxonomy_is_persisted_with_candidate_and_product(tmp_path):
@@ -106,3 +106,38 @@ def test_taxonomy_is_persisted_with_candidate_and_product(tmp_path):
     payload=json.loads(db.query('SELECT payload FROM tg_search_records')[0]['payload'])
     assert payload['taxonomy']['schema_version']==VERSION and payload['taxonomy']['publication']['eligible']
     db.close()
+
+
+@pytest.mark.parametrize('package,text',[
+    ({'channel_username':'EliteDevelopment'},'Free download'),
+    ({'channel_username':'regularupdates','original_channel_username':'EliteROMs'},'Download'),
+    ({'original_post_url':'https://t.me/EliteDevelopment/123'},'Download'),
+    ({},'EliteRomLite 23.8.28 for alioth'),
+    ({},'Download: https://www.elitedevelopment.com.pk/rom.zip'),
+    ({},'Public Releases Channel: @EliteDevelopment'),
+])
+def test_elite_origin_and_reposts_never_enter_default_free_publication(package,text):
+    result=tags(text,package=package)
+    assert result['access']=='unknown'
+    assert not result['publication']['eligible']
+    assert 'excluded_elite_source' in result['publication']['blockers']
+    from fmr_tg_scanner.taxonomy import apply_access_policy
+    assert apply_access_policy(result,package=package)==result
+
+
+def test_generic_elite_word_does_not_exclude_unrelated_resources():
+    result=tags('Project Radiant Unofficial Android 11\nBy Elite @darkphnx',package={'channel_username':'pocof3globalupdates'})
+    assert result['access']=='free' and result['publication']['eligible']
+
+
+def test_existing_classification_access_is_retagged_idempotently():
+    from fmr_tg_scanner.taxonomy import apply_access_policy
+    old={'schema_version':'release-taxonomy-v1','access':'unknown','release_stage':'beta',
+         'publication':{'eligible':False,'blockers':['access_unknown']}}
+    new=apply_access_policy(old,package={'channel_username':'aresupdates'})
+    assert new['access']=='free' and new['publication']['eligible']
+    assert new['release_stage']=='beta' and old['access']=='unknown'
+    assert apply_access_policy(new,package={'channel_username':'aresupdates'})==new
+    old['publication']['blockers'].append('gsi_compatibility_requires_review')
+    assert not apply_access_policy(old)['publication']['eligible']
+    assert apply_access_policy({})=={}

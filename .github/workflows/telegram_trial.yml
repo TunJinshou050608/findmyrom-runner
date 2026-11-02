@@ -11,7 +11,8 @@ permissions:
   actions: write
 concurrency:
   group: tg01-annibale-private-trial
-  cancel-in-progress: false
+  # A deployed configuration replaces the old resident; cron preserves it.
+  cancel-in-progress: ${{ github.event_name == 'push' }}
 jobs:
   trial:
     if: github.ref == 'refs/heads/main' && (vars.FMR_TG_TRIAL_ENABLED == 'true')

@@ -99,12 +99,8 @@ def test_export_jsonl_and_bridge_sync_to_sp07_custom_resources(db,tmp_path,monke
     db.execute("INSERT INTO brands(id,name,bl_unlock_status) VALUES ('xiaomi','Xiaomi','easy')")
     db.execute("INSERT INTO devices(codename,brand_id,marketing_name) VALUES ('marble','xiaomi','POCO F5')")
     private,public=generate_keypair();monkeypatch.setenv('SIGN_PRIVATE_KEY_HEX',private)
-    # Public links alone do not establish free access.
-    assert export_to_custom_resources(db)['skipped']==5
-    from fmr_tg_scanner.taxonomy import classify
-    for package in db.query('SELECT * FROM tg_discovered_packages'):
-        taxonomy=classify({'text':'Free download'},package,accepted=True)
-        db.execute('UPDATE tg_discovered_packages SET taxonomy_json=? WHERE id=?',(json.dumps(taxonomy),package['id']))
+    # TG releases now use the explicit user policy default, without an author claim.
+    assert all(json.loads(r['taxonomy_json'])['access']=='free' for r in db.query('SELECT taxonomy_json FROM tg_discovered_packages'))
     assert export_to_custom_resources(db)['inserted']==5
     assert export_to_custom_resources(db)['unchanged']==5
     for row in db.query('SELECT * FROM custom_resources'):

@@ -4,8 +4,11 @@ import json
 import re
 from datetime import datetime
 from .rule_extractor import PROJECTS, extract_clean_heading
+from urllib.parse import urlsplit
+from copy import deepcopy
 
-VERSION = 'release-taxonomy-v1'
+VERSION = 'release-taxonomy-v2'
+ACCESS_POLICY = 'tg-default-free-except-elite-v1'
 GENERIC = {'custom rom', 'rom', 'kernel', 'recovery', 'firmware', 'boot image', 'resource'}
 BASES = {'HyperOS': r'\bhyper\s*os\b', 'MIUI': r'\bmiui\b',
          'One UI': r'\bone\s*ui\b', 'OxygenOS': r'\boxygen\s*os\b',
@@ -186,9 +189,58 @@ def classify(message, package, *, device_names=(), accepted=False, llm_output=No
     if excluded:blockers.append('excluded_model_requires_review')
     if form=='gsi':blockers.append('gsi_compatibility_requires_review')
     if llm_output is not None and llm_output.get('accepted') is False:blockers.append('model_disagreement')
-    return {'schema_version':VERSION,'access':access,'resource_type':kind,'devices':device,
+    result = {'schema_version':VERSION,'access':access,'resource_type':kind,'devices':device,
             'rom_family':family if kind=='rom' else None,'system_base':base,'project':project,
             'maintenance':{'maintainer_id':maintainer_id,'branch_id':branch_id,'branch_name':branch_name,'identity_verified':False},
             'project_recognition':recognition,'versions':versions,'build_variants':variants,
             'package_form':form,'release_stage':stage,'evidence':evidence,
             'publication':{'eligible':not blockers,'blockers':blockers}}
+    return apply_access_policy(result, message=message, package=package)
+
+
+def elite_source(message, package):
+    """Only source identifiers/known brand markers, never a bare 'elite' adjective."""
+    for obj in (message, package):
+        for field in ('channel_username','original_channel_username'):
+            value=obj.get(field) or ''
+            if 'elite' in value.lower():return value
+        for field in ('original_post_url','forwarded_from_url','tg_post_url'):
+            url=obj.get(field) or ''
+            parsed=urlsplit(url)
+            if parsed.hostname in ('t.me','telegram.me'):
+                channel=parsed.path.strip('/').removeprefix('s/').split('/')[0]
+                if 'elite' in channel.lower():return url
+    text=message.get('text','')
+    branded=match(r'\bEliteRom(?:Lite|NG)?\b|@EliteDevelopment\b',text+'\n'+(package.get('package_name') or '')+'\n'+(package.get('project_name') or ''))
+    if branded:return branded
+    links=[*message.get('links',[]),*re.findall(r'https?://[^\s<>]+',text)]
+    for url in links:
+        try:host=(urlsplit(url).hostname or '').lower()
+        except ValueError:continue
+        if host=='elitedevelopment.com.pk' or host.endswith('.elitedevelopment.com.pk'):return url
+    return None
+
+
+def apply_access_policy(taxonomy, *, message=None, package=None):
+    """Retag existing classified records without crawling or changing other decisions."""
+    if taxonomy.get('schema_version') not in ('release-taxonomy-v1',VERSION):return taxonomy
+    result=deepcopy(taxonomy)
+    message=message or {};package=package or {}
+    elite=elite_source(message,package)
+    # A stored verdict may retain source evidence that is absent from the compact payload.
+    if not elite and 'excluded_elite_source' in result.get('publication',{}).get('blockers',[]):
+        elite=result.get('evidence',{}).get('access',{}).get('evidence') or 'retained_elite_source_verdict'
+    access=result.get('access','unknown')
+    evidence=result.setdefault('evidence',{})
+    if elite:
+        if access!='paid':access='unknown'
+        evidence['access']={'value':access,'source':'user_policy','evidence':elite}
+    elif access=='unknown':
+        access='free'
+        evidence['access']={'value':'free','source':'user_policy','evidence':ACCESS_POLICY}
+    blockers=[b for b in result.get('publication',{}).get('blockers',[]) if not b.startswith('access_') and b!='excluded_elite_source']
+    if access!='free':blockers.append('access_'+access)
+    if elite:blockers.append('excluded_elite_source')
+    result.update(schema_version=VERSION,access=access,access_policy_version=ACCESS_POLICY,
+                  publication={'eligible':not blockers,'blockers':blockers})
+    return result

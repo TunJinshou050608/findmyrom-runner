@@ -345,6 +345,17 @@ def run(root,targets,*,max_requests=180,max_seconds=480,http_factory=SearchHTTP,
             task=None
         else:outcome='time_budget_reached'
         rows=store.query('SELECT * FROM tg_search_records ORDER BY device,channel,msg_id')
+        from .taxonomy import apply_access_policy
+        access_retagged=0
+        for row in rows:
+            package=json.loads(row['payload'])
+            old=package.get('taxonomy',{})
+            updated=apply_access_policy(old,package=package)
+            if updated!=old:
+                package['taxonomy']=updated
+                store.save(package,json.loads(row['evidence']),row['classification'],row['reason'],bool(row['accepted']))
+                row['payload']=json.dumps(package,sort_keys=True,ensure_ascii=False)
+                access_retagged+=1
         unique={}
         for row in rows:
             if row['accepted']:
@@ -369,6 +380,7 @@ def run(root,targets,*,max_requests=180,max_seconds=480,http_factory=SearchHTTP,
             'new_qualified_products':new_products,'packages':len(products),'stored_observations':len(rows),'per_device':{code:counts.get(code,0) for code in targets},
             'delivery_type':'telegram_message','telegram_posts':len(posts),'new_telegram_posts':new_products,
             'taxonomy_version':taxonomy_version,'publishable_products':len(publishable),
+            'access_policy_retagged':access_retagged,
             'unresolved_targets':[code for code in targets if not counts.get(code)],'coverage_ok':all(counts.get(code,0) for code in targets),
             'device_funnel':{code:dict(values) for code,values in device_funnel.items()},
             'http_requests':http.requests,'cache_hits':http.cache_hits,'response_bytes':http.bytes,'http_errors':http.errors,

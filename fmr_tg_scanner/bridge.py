@@ -12,9 +12,10 @@ def export_to_custom_resources(db_client):
     result={'inserted':0,'updated':0,'unchanged':0,'skipped':0}
     rows=db.query('SELECT * FROM tg_discovered_packages ORDER BY channel_username,msg_id')
     for row in rows:
-        from .taxonomy import VERSION
+        from .taxonomy import VERSION,apply_access_policy
         try:taxonomy=json.loads(row.get('taxonomy_json') or '{}')
         except (TypeError,ValueError):taxonomy={}
+        taxonomy=apply_access_policy(taxonomy,package=row)
         if taxonomy.get('schema_version')!=VERSION or taxonomy.get('access')!='free' or taxonomy.get('publication',{}).get('eligible') is not True:
             result['skipped']+=1;continue
         code=row['device_codename'];url=row['original_post_url'] or row['tg_post_url']
