@@ -35,7 +35,7 @@
 
 ## 安装与回滚
 
-将专用部署包上传 VPS，解压后执行 bash install.sh。需要 Linux x86_64、Python >=3.10（含 venv）、systemd >=247、curl、sha256sum；缺依赖时安装器停止，不自动安装/升级系统软件。独立 cloudflared 固定 2026.10.7 并校验官方发布 SHA256。
+将专用部署包上传 VPS，解压后执行 bash install.sh。需要 Linux x86_64、Python >=3.10（含 venv）、systemd >=247、启用 CPU/内存控制器的 cgroup v2、curl、sha256sum；缺依赖时安装器停止，不自动安装/升级系统软件。独立 cloudflared 固定 2026.10.7 并校验官方发布 SHA256。
 
 安装器只启动 fmr-extractor.service 和 fmr-extractor-tunnel.service；已有服务保持原状。第二次安装不会自动重启正在运行的服务；更新后可单独 restart 这两个服务。
 

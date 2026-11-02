@@ -9,7 +9,7 @@ if [ "$(id -u)" != 0 ]; then
   echo 'Run this installer as root.' >&2
   exit 1
 fi
-for tool in python3 curl sha256sum systemctl useradd install; do
+for tool in python3 curl sha256sum systemctl systemd systemd-analyze useradd install getent awk grep; do
   command -v "$tool" >/dev/null || { echo "Missing prerequisite: $tool" >&2; exit 1; }
 done
 if [ "$(uname -m)" != x86_64 ]; then echo 'This bundle targets Linux x86_64.' >&2; exit 1; fi
@@ -17,6 +17,9 @@ if [ "$(systemd --version | head -1 | awk '{print $2}')" -lt 247 ]; then
   echo 'systemd 247 or newer is required for filesystem/process isolation.' >&2; exit 1
 fi
 python3 -c 'import sys; assert sys.version_info >= (3,10), "Python 3.10 or newer required"'
+if [ ! -f /sys/fs/cgroup/cgroup.controllers ] || ! grep -qw memory /sys/fs/cgroup/cgroup.controllers || ! grep -qw cpu /sys/fs/cgroup/cgroup.controllers; then
+  echo 'cgroup v2 with CPU and memory controllers is required; refusing to run without resource isolation.' >&2; exit 1
+fi
 if [ ! -f agent.env ] || [ ! -f tunnel.env ]; then echo 'Missing deployment credentials.' >&2; exit 1; fi
 # Never reuse an existing arbitrary account with these names.
 for account in fmr-extractor fmr-tunnel; do
@@ -57,6 +60,7 @@ if [ ! -x /opt/fmr-extractor/bin/cloudflared ]; then
   install -m 0755 "$tmp_dir/cloudflared" /opt/fmr-extractor/bin/cloudflared
 fi
 install -m 0644 fmr-extraction.slice fmr-extractor.service fmr-extractor-tunnel.service /etc/systemd/system/
+systemd-analyze verify /etc/systemd/system/fmr-extractor.service /etc/systemd/system/fmr-extractor-tunnel.service
 systemctl daemon-reload
 systemctl enable --now fmr-extractor.service fmr-extractor-tunnel.service
 systemctl is-active fmr-extractor.service fmr-extractor-tunnel.service

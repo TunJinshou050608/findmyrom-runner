@@ -6,6 +6,7 @@ on:
       - 'fmr_extractor/streaming_probe.py'
       - 'tests/test_extractor_service.py'
       - '.github/workflows/extractor_service_check.yml'
+      - 'deploy/extractor/**'
   workflow_dispatch:
 permissions:
   contents: read
@@ -22,6 +23,12 @@ jobs:
           python3 -m venv "$RUNNER_TEMP/fmr-service-${GITHUB_RUN_ID}"
           "$RUNNER_TEMP/fmr-service-${GITHUB_RUN_ID}/bin/python" -m pip install -r requirements.txt
           "$RUNNER_TEMP/fmr-service-${GITHUB_RUN_ID}/bin/python" -m pytest -q tests/test_extractor_service.py tests/test_streaming_probe.py
+      - name: Check deployed website without downloading images
+        run: |
+          curl --fail --silent --show-error --max-time 30 https://findmyrom.com/ --output /dev/null
+          status=$(curl --silent --show-error --max-time 30 https://findmyrom.com/api/extract --output /dev/null --write-out '%{http_code}')
+          test "$status" = 403
+          printf 'Gateway rejects unsigned extraction requests: HTTP %s\n' "$status"
       - name: Clean isolated environment
         if: always()
         run: rm -rf -- "$RUNNER_TEMP/fmr-service-${GITHUB_RUN_ID}"
