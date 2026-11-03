@@ -63,9 +63,6 @@ jobs:
     - run: python -m pip install -r requirements.txt
     - name: 清理过期与超预算页面缓存，保留完整采集断点
       run: python -u -m fmr_ingest_stock.staged_catalogue maintain-cache --vendor samsung
-    - name: 实测当前三星 FUS 元数据并暂存确切版本（不下载固件）
-      if: github.event_name == 'push'
-      run: python -u -m fmr_ingest_stock.samsung_acceptance
     - name: 接续检查点采集（每30秒心跳，D1零请求）
       id: collect
       continue-on-error: true

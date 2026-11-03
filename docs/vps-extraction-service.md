@@ -82,3 +82,13 @@
 暂停自动更新：`systemctl disable --now fmr-extractor-update.timer`
 
 卸载定时器不会停止提取服务。网络失败或 GitHub 限流时仅本次检查失败，现有提取服务继续运行。
+
+## 三星正式链路（2026-11-03）
+
+103 上的三星采集器现在对确切四段版本执行 FUS nonce/Inform 元数据查询，重新排队旧的 requires_samsung_fus 记录。已确认的文件名、路径、大小、完整版本保存在内容寻址描述符中；FUS 明确拒绝的历史版本按 unavailable 退避，不替换为最新版。
+
+D1 仍只由 catalogue_publish.yml 写入。三星描述符与对应签名固件关联存入既有 crawler_sources；网站核对描述符哈希及固件签名后，将完整版本传到 VPS，避免使用用于数据库唯一键的格式化版本。
+
+VPS schema 4 支持三星 partition=full：动态 FUS 初始化、AES 解密并去除 PKCS#7，浏览器直接收到 ZIP。整包不创建临时固件文件；并发仍为 1，沿用输出限速，整包单独限制为 64 GiB / 12 小时。镜像提取的 250 MiB 上游预算、480 秒和准备文件上限保持原值。更新器固定模块哈希，并要求服务报告 samsung_full_stream。
+
+实测记录：Actions 41589174668，在 103 发起普通网站票据。SM-S928B/EUX 的 boot.img 完整交付 100663296 字节，下载 SHA-256 与准备回执相同；普通整包入口返回解密 ZIP，Content-Length=20198138129，读取前 65536 字节后关闭连接。整包未做 20 GB 全量下载，也没有在 103 保存镜像或固件文件。
