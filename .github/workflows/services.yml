@@ -1,8 +1,5 @@
 name: 服务 · 维护与检查
 'on':
-  push:
-    branches: [main]
-    paths: [.github/workflows/services.yml]
   schedule:
   - cron: '*/15 * * * *'
   - cron: 43 */6 * * *
@@ -18,7 +15,6 @@ name: 服务 · 维护与检查
         description: 选择维护任务
 permissions:
   contents: read
-  actions: write
 jobs:
   sony_bundle:
     if: github.ref == 'refs/heads/main' && ((github.event_name == 'workflow_dispatch' && inputs.service == 'sony_bundle') || (github.event_name == 'schedule' && github.event.schedule == '*/15 * * * *'))
@@ -96,20 +92,31 @@ jobs:
       group: public-jumper-index
       cancel-in-progress: false
   check:
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    runs-on: [self-hosted, Linux, X64, findmyrom-metadata]
-    timeout-minutes: 3
-    concurrency:
-      group: samsung-publication-handoff
-      cancel-in-progress: false
+    runs-on:
+    - self-hosted
+    - Linux
+    - X64
+    - findmyrom-metadata
+    timeout-minutes: 10
     steps:
-      - name: Confirm unified publication is active and hand off current Samsung backlog
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh api repos/TunJinshou050608/findmyrom-runner/actions/workflows/catalogue_publish.yml --jq '{name: .name, state: .state}'
-          workflow_state=$(gh api repos/TunJinshou050608/findmyrom-runner/actions/workflows/catalogue_publish.yml --jq '.state')
-          if [ "$workflow_state" != active ]; then
-            gh api --method PUT repos/TunJinshou050608/findmyrom-runner/actions/workflows/catalogue_publish.yml/enable
-          fi
-          gh workflow run catalogue_publish.yml --repo TunJinshou050608/findmyrom-runner --ref main -f scope=all
+    - uses: actions/checkout@v4
+      with:
+        persist-credentials: false
+    - name: Test service and HTTP delivery without downloading firmware
+      run: |
+        python3 -m venv "$RUNNER_TEMP/fmr-service-${GITHUB_RUN_ID}"
+        "$RUNNER_TEMP/fmr-service-${GITHUB_RUN_ID}/bin/python" -m pip install -r requirements.txt
+        "$RUNNER_TEMP/fmr-service-${GITHUB_RUN_ID}/bin/python" -m pytest -q tests/test_extractor_service.py tests/test_streaming_probe.py
+    - name: Check deployed website without downloading images
+      run: |
+        curl --fail --silent --show-error --max-time 30 https://findmyrom.com/ --output /dev/null
+        status=$(curl --silent --show-error --max-time 30 https://findmyrom.com/api/extract --output /dev/null --write-out '%{http_code}')
+        test "$status" = 403
+        printf 'Gateway rejects unsigned extraction requests: HTTP %s\n' "$status"
+    - name: Clean isolated environment
+      if: always()
+      run: rm -rf -- "$RUNNER_TEMP/fmr-service-${GITHUB_RUN_ID}"
+    if: github.ref == 'refs/heads/main' && ((github.event_name == 'workflow_dispatch' && inputs.service == 'check'))
+    concurrency:
+      group: extractor-service-check
+      cancel-in-progress: false
