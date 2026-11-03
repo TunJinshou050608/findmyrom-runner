@@ -18,6 +18,7 @@ name: 服务 · 维护与检查
         description: 选择维护任务
 permissions:
   contents: read
+  actions: write
 jobs:
   sony_bundle:
     if: github.ref == 'refs/heads/main' && ((github.event_name == 'workflow_dispatch' && inputs.service == 'sony_bundle') || (github.event_name == 'schedule' && github.event.schedule == '*/15 * * * *'))
@@ -97,12 +98,26 @@ jobs:
   check:
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: [self-hosted, Linux, X64, findmyrom-metadata]
-    timeout-minutes: 10
+    timeout-minutes: 12
     concurrency:
-      group: samsung-direct-archive-diagnosis
+      group: samsung-live-archive-recheck
       cancel-in-progress: false
     steps:
-      - name: Check the historical A54 container independently on 103
+      - name: Cancel only the hung Samsung acceptance run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api --method POST repos/TunJinshou050608/findmyrom-runner/actions/runs/41589883620/cancel
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          path: samsung-check-${{ github.run_id }}
+      - name: Prepare isolated environment
         run: |
-          cd /opt/findmyrom-actions-metadata-5/_work/findmyrom-runner/findmyrom-runner
-          /opt/findmyrom-actions-metadata-5/_work/_temp/fmr-service-41589883620/bin/python -u -m fmr_ingest_stock.samsung_delivery_acceptance --token fw_mf0OHSvjak7G --direct-only --model SM-A546B --region EUX --version A546BXXSIEZC3/A546BOXMIEZC3/A546BXXSIEZC3/A546BXXSIEZC3 --partition boot
+          python3 -m venv "$RUNNER_TEMP/samsung-check-${GITHUB_RUN_ID}"
+          "$RUNNER_TEMP/samsung-check-${GITHUB_RUN_ID}/bin/python" -m pip install -r "samsung-check-${GITHUB_RUN_ID}/requirements.txt"
+      - name: Historical Samsung image and complete ZIP live delivery
+        working-directory: samsung-check-${{ github.run_id }}
+        run: '"$RUNNER_TEMP/samsung-check-${GITHUB_RUN_ID}/bin/python" -u -m fmr_ingest_stock.samsung_delivery_acceptance --token fw_mf0OHSvjak7G --partition boot'
+      - name: Remove isolated test environment
+        if: always()
+        run: rm -rf -- "$RUNNER_TEMP/samsung-check-${GITHUB_RUN_ID}"
