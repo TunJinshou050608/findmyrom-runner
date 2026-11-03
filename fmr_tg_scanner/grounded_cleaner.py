@@ -30,40 +30,84 @@ Example input: Guys, battery drain normal on crDroid 10.8? => is_release false.
 Output one JSON object, never markdown.'''
 
 def norm(value):return ' '.join(value.split()).casefold()
+def alpha(value):return re.sub(r'[^a-z0-9]','',norm(value))
+
+def normalize_node(node):
+    if node is None:return {'value':None,'evidence_quote':None}
+    if isinstance(node,str):
+        s=node.strip() or None
+        return {'value':s,'evidence_quote':s}
+    if isinstance(node,dict):
+        val=node.get('value');quote=node.get('evidence_quote')
+        return {'value':val,'evidence_quote':quote or (val if isinstance(val,str) else None)}
+    s=str(node).strip() or None
+    return {'value':s,'evidence_quote':s}
 
 def verify(out,text):
     if not isinstance(out,dict) or type(out.get('is_release')) is not bool:raise ValueError('invalid_boolean')
     if not out['is_release']:return out
-    if out.get('resource_kind') not in {'rom','kernel','recovery','boot_image'}:raise ValueError('invalid_kind')
-    norm_text=norm(text)
-    def claim(value,quote):
-        if not isinstance(value,str) or not value.strip() or len(value)>200:raise ValueError('invalid_value')
-        if not isinstance(quote,str) or not quote.strip() or norm(quote) not in norm_text or norm(value).lstrip('@') not in norm(quote):raise ValueError('ungrounded_value')
+    kind=out.get('resource_kind')
+    if kind not in {'rom','kernel','recovery','boot_image'}:raise ValueError('invalid_kind')
+    norm_text=norm(text);alpha_text=alpha(text)
+
+    def quote_grounded(quote):
+        if not quote or not isinstance(quote,str) or not quote.strip():return False
+        if norm(quote) in norm_text or alpha(quote) in alpha_text:return True
+        lines=[l.strip() for l in quote.splitlines() if l.strip()]
+        return bool(lines) and all(norm(l) in norm_text or alpha(l) in alpha_text for l in lines)
+
+    def is_grounded(value,quote):
+        if not isinstance(value,str) or not value.strip() or len(value)>200:return False
+        val_norm=norm(value).lstrip('@');val_alpha=alpha(value)
+        if quote and isinstance(quote,str) and quote.strip():
+            q_norm=norm(quote);q_alpha=alpha(quote)
+            if (val_norm in q_norm or val_alpha in q_alpha) and quote_grounded(quote):return True
+        if val_norm in norm_text or val_alpha in alpha_text:return True
+        return False
+
     for field in ('project_name','project_version','android_version','system_base','release_stage'):
-        node=out.get(field)
-        if node is None:node={'value':None,'evidence_quote':None};out[field]=node
-        if not isinstance(node,dict):raise ValueError('missing_node:'+field)
+        node=normalize_node(out.get(field))
+        out[field]=node
         val=node.get('value');quote=node.get('evidence_quote')
+        if field=='system_base' and val not in {None,'unknown','AOSP','HyperOS','MIUI','One UI','OxygenOS','ColorOS','OriginOS'}:
+            raise ValueError('invalid_base:'+str(val))
+        if field=='release_stage' and val not in {None,'unknown','alpha','beta','stable','official','unofficial'}:
+            raise ValueError('invalid_stage:'+str(val))
         if val not in (None,'unknown'):
-            if field=='system_base' and val=='AOSP':
-                if quote and norm(quote) not in norm_text:raise ValueError('ungrounded_system_base_quote')
-            else:claim(val,quote)
-    m_node=out.get('maintainer')
-    if m_node is None:m_node={'handle':None,'display_name':None,'evidence_quote':None};out['maintainer']=m_node
-    if not isinstance(m_node,dict):raise ValueError('missing_identity:maintainer')
-    m_quote=m_node.get('evidence_quote')
-    handle=m_node.get('handle');disp=m_node.get('display_name')
-    if (handle or disp) and not (isinstance(m_quote,str) and m_quote.strip()):raise ValueError('missing_maintainer_quote')
-    if m_quote and norm(m_quote) not in norm_text:raise ValueError('ungrounded_maintainer_quote')
+            if field=='system_base':
+                if kind in ('recovery','kernel','boot_image'):
+                    out[field]={'value':'unknown','evidence_quote':None}
+                elif val=='AOSP':
+                    if quote and not quote_grounded(quote):raise ValueError('ungrounded_system_base_quote')
+                elif not is_grounded(val,quote):
+                    raise ValueError('ungrounded_value:'+val)
+            elif field=='release_stage':
+                if val in ('stable','unknown'):
+                    if quote and not quote_grounded(quote):raise ValueError('ungrounded_stage_quote')
+                elif not is_grounded(val,quote):
+                    raise ValueError('ungrounded_value:'+val)
+            else:
+                if not is_grounded(val,quote):
+                    raise ValueError('ungrounded_value:'+str(val))
+
+    # Maintainer
+    m_raw=out.get('maintainer')
+    if not isinstance(m_raw,dict):m_raw={}
+    handle=m_raw.get('handle');disp=m_raw.get('display_name')
+    m_quote=m_raw.get('evidence_quote')
+    credit=handle or disp
+    if credit and not (isinstance(m_quote,str) and m_quote.strip()):
+        raise ValueError('missing_maintainer_quote')
+    m_node={'handle':handle,'display_name':disp,'evidence_quote':m_quote}
+    out['maintainer']=m_node
+
     if handle:
         if not re.fullmatch(r'@?[A-Za-z][A-Za-z0-9_]{3,31}',handle):raise ValueError('invalid_handle')
-        h_norm=norm(handle).lstrip('@')
-        if not (m_quote and h_norm in norm(m_quote)) and h_norm not in norm_text:raise ValueError('ungrounded_handle')
+        if not is_grounded(handle,m_quote):raise ValueError('ungrounded_handle:'+handle)
     if disp:
         if not isinstance(disp,str) or len(disp)>200:raise ValueError('invalid_display_name')
-        d_norm=norm(disp)
-        if not (m_quote and d_norm in norm(m_quote)) and d_norm not in norm_text:raise ValueError('ungrounded_display_name')
-    credit=handle or disp
+        if not is_grounded(disp,m_quote):raise ValueError('ungrounded_display_name:'+disp)
+
     if credit:
         role_pat=r'(?i)\b(?:by|maintainer|developer|author|builder)\b'
         has_role=bool(m_quote and re.search(role_pat,m_quote))
@@ -73,27 +117,31 @@ def verify(out,text):
                 w=text[max(0,m.start()-35):min(len(text),m.end()+35)]
                 if re.search(role_pat,w):has_role=True;break
         if not has_role:raise ValueError('missing_credit_role')
-    dev_node=out.get('target_devices')
-    if dev_node is None:dev_node={'codenames':[],'marketing_names':[],'evidence_quote':None};out['target_devices']=dev_node
-    if not isinstance(dev_node,dict):raise ValueError('missing_identity:target_devices')
-    d_quote=dev_node.get('evidence_quote')
-    codenames=dev_node.get('codenames') or [];marketing_names=dev_node.get('marketing_names') or []
-    if (codenames or marketing_names) and not (isinstance(d_quote,str) and d_quote.strip()):raise ValueError('missing_devices_quote')
-    if d_quote and norm(d_quote) not in norm_text:raise ValueError('ungrounded_device_quote')
+
+    # Devices
+    dev_raw=out.get('target_devices')
+    if not isinstance(dev_raw,dict):dev_raw={}
+    d_quote=dev_raw.get('evidence_quote')
+    codenames=dev_raw.get('codenames') or [];marketing_names=dev_raw.get('marketing_names') or []
+    if (codenames or marketing_names) and not (isinstance(d_quote,str) and d_quote.strip()):
+        raise ValueError('missing_device_quote')
     if not isinstance(codenames,list) or len(codenames)>30:raise ValueError('invalid_devices:codenames')
     if not isinstance(marketing_names,list) or len(marketing_names)>30:raise ValueError('invalid_devices:marketing_names')
+    dev_node={'codenames':codenames,'marketing_names':marketing_names,'evidence_quote':d_quote}
+    out['target_devices']=dev_node
+
     for c in codenames:
         if not isinstance(c,str) or not c.strip() or len(c)>100:raise ValueError('invalid_value:codename')
-        c_norm=norm(c)
-        if not (d_quote and c_norm in norm(d_quote)) and c_norm not in norm_text:raise ValueError('ungrounded_device:'+c)
+        if not is_grounded(c,d_quote):raise ValueError('ungrounded_device:'+c)
     for m in marketing_names:
         if not isinstance(m,str) or not m.strip() or len(m)>100:raise ValueError('invalid_value:marketing_name')
-        m_norm=norm(m)
-        if not (d_quote and m_norm in norm(d_quote)) and m_norm not in norm_text:raise ValueError('ungrounded_device:'+m)
-    if out['system_base'].get('value') not in {None,'unknown','AOSP','HyperOS','MIUI','One UI','OxygenOS','ColorOS','OriginOS'}:raise ValueError('invalid_base')
-    if out['release_stage'].get('value') not in {None,'unknown','alpha','beta','stable','official','unofficial'}:raise ValueError('invalid_stage')
-    variants=out.get('build_variants')
-    if not isinstance(variants,list) or any(v not in ('vanilla','gapps','microg') or not re.search(r'(?i)\b'+v+r'\b',text) for v in variants):raise ValueError('invalid_variant')
+        if not is_grounded(m,d_quote):raise ValueError('ungrounded_device:'+m)
+
+    variants=out.get('build_variants') or []
+    if not isinstance(variants,list) or any(v not in ('vanilla','gapps','microg') or not re.search(r'(?i)\b'+v+r'\b',text) for v in variants):
+        raise ValueError('invalid_variant')
+    out['build_variants']=variants
+
     return out
 
 class DeferredAudit(RuntimeError):pass
