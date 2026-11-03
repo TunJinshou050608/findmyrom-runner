@@ -15,7 +15,7 @@ from .website_order import read_order
 from .device_schedule import KEY as SCHEDULE_KEY, select, complete
 
 
-def produce(root):
+def produce(root, *, shard=None, shards=4):
     root=Path(root)
     config_path=root/'tg_search_config.json'
     config=json.loads(config_path.read_text()) if config_path.exists() else {'max_requests':100,'max_seconds':360}
@@ -23,6 +23,9 @@ def produce(root):
     config.pop('targets',None)
     config['target_source']='local_catalogue'
     names,sources=read_catalogue()
+    if shard is not None:
+        from .local_runtime import partition
+        names={code:labels for code,labels in names.items() if partition(code,shards)==shard}
     atomic_json(config_path,config)
     state_root=root/'search-v3';state_root.mkdir(exist_ok=True)
     store=SearchStore(state_root/'search.sqlite')

@@ -1,53 +1,48 @@
 name: TG · 清洗
 'on':
-  workflow_dispatch: null
-  workflow_run:
-    workflows:
-    - TG · 抓取
-    types:
-    - completed
+  push:
     branches:
     - main
+    paths:
+    - .github/workflows/telegram_clean.yml
+  schedule:
+  - cron: 13 */2 * * *
+  workflow_dispatch: null
 permissions:
   contents: read
-concurrency:
-  group: tg01-annibale-private-trial
-  cancel-in-progress: false
+  actions: write
 jobs:
   clean:
-    if: github.ref == 'refs/heads/main' && (github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_repository.full_name == github.repository))
+    if: github.ref == 'refs/heads/main'
     runs-on:
     - self-hosted
     - findmyrom-metadata
-    timeout-minutes: 90
+    timeout-minutes: 115
     environment: production
     env:
+      FMR_TG_STATE_DIR: ${{ vars.FMR_TG_STATE_DIR || format('{0}/tg-v4', vars.FMR_CATALOGUE_STATE_DIR || '/var/lib/findmyrom/catalogue-v3') }}
       FMR_CATALOGUE_STATE_DIR: ${{ vars.FMR_CATALOGUE_STATE_DIR || '/var/lib/findmyrom/catalogue-v3' }}
+      FMR_TG_LOCAL_RUNTIME: 'true'
+    name: 单独筛选器 · 一致性快照与质量审核
+    concurrency:
+      group: tg-local-cleaner
+      cancel-in-progress: false
     steps:
     - uses: actions/checkout@v4
       with:
-        path: runner
         persist-credentials: false
-    - uses: actions/checkout@v4
-      with:
-        repository: TunJinshou050608/findmyrom-tg01-test
-        path: state
-        ssh-key: ${{ secrets.GH_TG_TEST_SSH_KEY }}
-        persist-credentials: true
-    - name: Prepare local container Python
+    - name: Confirm local runner and prepare Python
       run: |-
-        python3 -m venv "$RUNNER_TEMP/fmr-tg-${GITHUB_RUN_ID}"
-        printf '%s\n' "$RUNNER_TEMP/fmr-tg-${GITHUB_RUN_ID}/bin" >> "$GITHUB_PATH"
-    - run: python -m pip install -r runner/requirements.txt
-    - name: Audit all saved evidence; no TG requests or D1 writes
-      working-directory: runner
-      run: python -u -m fmr_tg_scanner.quality_audit --state-dir ../state
-    - name: Save private checkpoints and receipts
-      if: always()
-      working-directory: runner
-      run: |-
-        python - <<'PYCODE'
-        from pathlib import Path
-        from fmr_tg_scanner.watch import publish_private
-        publish_private(Path('../state').resolve())
-        PYCODE
+        printf "Runner: %s; host: %s\n" "$RUNNER_NAME" "$(hostname)"
+        python3 -m venv "$RUNNER_TEMP/fmr-tg-local-${GITHUB_RUN_ID}"
+        printf '%s\n' "$RUNNER_TEMP/fmr-tg-local-${GITHUB_RUN_ID}/bin" >> "$GITHUB_PATH"
+    - run: python -m pip install -r requirements.txt
+    - name: Audit local snapshots; request unified publisher only when a batch changes
+      env:
+        GH_WORKFLOW_TOKEN: ${{ github.token }}
+      run: python -u -m fmr_tg_scanner.local_runtime clean --state-dir "$FMR_TG_STATE_DIR"
+    - name: Continue the independent cleaner
+      env:
+        GH_TOKEN: ${{ github.token }}
+        GH_REPO: ${{ github.repository }}
+      run: gh workflow run telegram_clean.yml --ref main

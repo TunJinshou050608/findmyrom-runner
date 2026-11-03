@@ -2,20 +2,26 @@ name: D1 · 统一发布
 'on':
   schedule:
   - cron: '*/10 * * * *'
-  workflow_dispatch: null
-  workflow_run:
-    workflows:
-    - TG · 清洗
-    types:
-    - completed
+  workflow_dispatch:
+    inputs:
+      scope:
+        type: choice
+        options:
+        - all
+        - tg
+        default: all
+        description: 官包与TG，或仅TG
+  push:
     branches:
     - main
+    paths:
+    - .github/workflows/catalogue_publish.yml
 permissions:
   contents: read
   actions: write
 jobs:
   publish:
-    if: github.ref == 'refs/heads/main' && vars.FMR_D1_WRITES_PAUSED != 'true' && github.event_name != 'workflow_run'
+    if: github.ref == 'refs/heads/main' && vars.FMR_D1_WRITES_PAUSED != 'true' && github.event_name != 'push' && inputs.scope != 'tg'
     runs-on: ${{ fromJSON(vars.FMR_PUBLISH_RUNNER || vars.FMR_CATALOGUE_RUNNER || '["self-hosted","findmyrom-metadata"]') }}
     timeout-minutes: 115
     environment: production
@@ -66,49 +72,34 @@ jobs:
       group: catalogue-d1-publisher
       cancel-in-progress: false
   telegram:
-    if: github.ref == 'refs/heads/main' && vars.FMR_D1_WRITES_PAUSED != 'true' && (github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_repository.full_name
-      == github.repository))
+    if: github.ref == 'refs/heads/main' && vars.FMR_D1_WRITES_PAUSED != 'true'
     runs-on:
     - self-hosted
     - findmyrom-metadata
-    timeout-minutes: 90
+    timeout-minutes: 30
     environment: production
     env:
+      FMR_TG_STATE_DIR: ${{ vars.FMR_TG_STATE_DIR || format('{0}/tg-v4', vars.FMR_CATALOGUE_STATE_DIR || '/var/lib/findmyrom/catalogue-v3') }}
       FMR_CATALOGUE_STATE_DIR: ${{ vars.FMR_CATALOGUE_STATE_DIR || '/var/lib/findmyrom/catalogue-v3' }}
-    name: TG · 发布最新清洗合格批次
+      FMR_TG_LOCAL_RUNTIME: 'true'
+    name: TG · 本地合格批次增量写入 D1
     concurrency:
-      group: tg01-annibale-private-trial
+      group: tg-local-d1-publication
       cancel-in-progress: false
     steps:
     - uses: actions/checkout@v4
       with:
-        path: runner
         persist-credentials: false
-    - uses: actions/checkout@v4
-      with:
-        repository: TunJinshou050608/findmyrom-tg01-test
-        path: state
-        ssh-key: ${{ secrets.GH_TG_TEST_SSH_KEY }}
-        persist-credentials: true
-    - name: Prepare local container Python
+    - name: Confirm local runner and prepare Python
       run: |-
-        python3 -m venv "$RUNNER_TEMP/fmr-tg-${GITHUB_RUN_ID}"
-        printf '%s\n' "$RUNNER_TEMP/fmr-tg-${GITHUB_RUN_ID}/bin" >> "$GITHUB_PATH"
-    - run: python -m pip install -r runner/requirements.txt
-    - name: Publish pending audited cohort and verify website; unchanged batches skip D1
-      working-directory: runner
+        printf "Runner: %s; host: %s\n" "$RUNNER_NAME" "$(hostname)"
+        python3 -m venv "$RUNNER_TEMP/fmr-tg-local-${GITHUB_RUN_ID}"
+        printf '%s\n' "$RUNNER_TEMP/fmr-tg-local-${GITHUB_RUN_ID}/bin" >> "$GITHUB_PATH"
+    - run: python -m pip install -r requirements.txt
+    - name: Publish locally audited resources; unchanged rows are not rewritten
       env:
         CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
         CF_D1_DATABASE_ID: ${{ secrets.CF_D1_DATABASE_ID }}
         CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
         SIGN_PRIVATE_KEY_HEX: ${{ secrets.SIGN_PRIVATE_KEY_HEX }}
-      run: python -u -m fmr_tg_scanner.pipeline --state-dir ../state
-    - name: Save private checkpoints and receipts
-      if: always()
-      working-directory: runner
-      run: |-
-        python - <<'PYCODE'
-        from pathlib import Path
-        from fmr_tg_scanner.watch import publish_private
-        publish_private(Path('../state').resolve())
-        PYCODE
+      run: python -u -m fmr_tg_scanner.local_runtime publish --state-dir "$FMR_TG_STATE_DIR"

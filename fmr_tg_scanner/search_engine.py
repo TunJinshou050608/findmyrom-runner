@@ -196,7 +196,7 @@ def run(root,targets,*,max_requests=180,max_seconds=480,http_factory=SearchHTTP,
                 return False
             package=result['package'];evidence={**result['evidence'],'source_url':source,'message_identity_verified':True,
                 'source_post_url':package['original_post_url'],'numeric_sender_id_observed':package.get('sender_id') is not None,
-                'author_identity_verified':False}
+                'author_identity_verified':False,'observed_text':msg['text']}
             already_product=bool(store.query('SELECT 1 FROM tg_search_records WHERE fingerprint=? AND accepted=1 LIMIT 1',(store.fingerprint(package),)))
             changed=store.save(package,evidence,result['classification'],reason,result['accepted'])
             device_funnel[code]['accepted_observations' if result['accepted'] else 'rejected:'+reason]+=1

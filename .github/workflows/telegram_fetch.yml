@@ -1,56 +1,109 @@
 name: TG · 抓取
 'on':
+  push:
+    branches:
+    - main
+    paths:
+    - .github/workflows/telegram_fetch.yml
+  schedule:
+  - cron: 11 */2 * * *
   workflow_dispatch: null
 permissions:
   contents: read
-concurrency:
-  group: tg01-annibale-private-trial
-  cancel-in-progress: false
+  actions: write
 jobs:
-  fetch:
-    if: github.ref == 'refs/heads/main' && vars.FMR_TG_FETCH_ENABLED == 'true'
+  initialize:
+    if: github.ref == 'refs/heads/main'
     runs-on:
     - self-hosted
     - findmyrom-metadata
-    timeout-minutes: 90
+    timeout-minutes: 20
     environment: production
     env:
+      FMR_TG_STATE_DIR: ${{ vars.FMR_TG_STATE_DIR || format('{0}/tg-v4', vars.FMR_CATALOGUE_STATE_DIR || '/var/lib/findmyrom/catalogue-v3') }}
       FMR_CATALOGUE_STATE_DIR: ${{ vars.FMR_CATALOGUE_STATE_DIR || '/var/lib/findmyrom/catalogue-v3' }}
+      FMR_TG_LOCAL_RUNTIME: 'true'
+    concurrency:
+      group: tg-local-initialize
+      cancel-in-progress: false
     steps:
     - uses: actions/checkout@v4
       with:
-        path: runner
         persist-credentials: false
-    - uses: actions/checkout@v4
+    - name: Confirm local runner and prepare Python
+      run: |-
+        printf "Runner: %s; host: %s\n" "$RUNNER_NAME" "$(hostname)"
+        python3 -m venv "$RUNNER_TEMP/fmr-tg-local-${GITHUB_RUN_ID}"
+        printf '%s\n' "$RUNNER_TEMP/fmr-tg-local-${GITHUB_RUN_ID}/bin" >> "$GITHUB_PATH"
+    - run: python -m pip install -r requirements.txt
+    - name: Check persistent container migration
+      id: local
+      run: if [ -f "$FMR_TG_STATE_DIR/initialized.json" ]; then echo "needed=false" >> "$GITHUB_OUTPUT"; else echo "needed=true" >> "$GITHUB_OUTPUT"; fi
+    - name: Read old checkpoints once; never push this repository
+      if: steps.local.outputs.needed == 'true'
+      uses: actions/checkout@v4
       with:
         repository: TunJinshou050608/findmyrom-tg01-test
-        path: state
+        path: old-state
         ssh-key: ${{ secrets.GH_TG_TEST_SSH_KEY }}
-        persist-credentials: true
-    - name: Prepare local container Python
+        persist-credentials: false
+    - name: Migrate and partition existing metadata on container disk
+      if: steps.local.outputs.needed == 'true'
+      run: python -u -m fmr_tg_scanner.local_runtime initialize --state-dir "$FMR_TG_STATE_DIR" --source-dir old-state
+  fetch:
+    if: github.ref == 'refs/heads/main'
+    runs-on:
+    - self-hosted
+    - findmyrom-metadata
+    timeout-minutes: 115
+    environment: production
+    env:
+      FMR_TG_STATE_DIR: ${{ vars.FMR_TG_STATE_DIR || format('{0}/tg-v4', vars.FMR_CATALOGUE_STATE_DIR || '/var/lib/findmyrom/catalogue-v3') }}
+      FMR_CATALOGUE_STATE_DIR: ${{ vars.FMR_CATALOGUE_STATE_DIR || '/var/lib/findmyrom/catalogue-v3' }}
+      FMR_TG_LOCAL_RUNTIME: 'true'
+    name: 采集分片 ${{ matrix.worker }} · 103 本地断点
+    needs: initialize
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        worker:
+        - 0
+        - 1
+        - 2
+        - 3
+    concurrency:
+      group: tg-local-worker-${{ matrix.worker }}
+      cancel-in-progress: false
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        persist-credentials: false
+    - name: Confirm local runner and prepare Python
       run: |-
-        python3 -m venv "$RUNNER_TEMP/fmr-tg-${GITHUB_RUN_ID}"
-        printf '%s\n' "$RUNNER_TEMP/fmr-tg-${GITHUB_RUN_ID}/bin" >> "$GITHUB_PATH"
-    - run: python -m pip install -r runner/requirements.txt
-    - name: One automatic device batch; metadata only
-      working-directory: runner
+        printf "Runner: %s; host: %s\n" "$RUNNER_NAME" "$(hostname)"
+        python3 -m venv "$RUNNER_TEMP/fmr-tg-local-${GITHUB_RUN_ID}"
+        printf '%s\n' "$RUNNER_TEMP/fmr-tg-local-${GITHUB_RUN_ID}/bin" >> "$GITHUB_PATH"
+    - run: python -m pip install -r requirements.txt
+    - name: Continuous metadata batches with exclusive device ownership
       env:
+        GH_WORKFLOW_TOKEN: ${{ github.token }}
         GITHUB_TOKEN: ${{ github.token }}
         LLM_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
         LLM_MODEL_NAME: deepseek-flash
         LLM_REASONING_EFFORT: low
-      run: |
-        python -u - <<'PY'
-        from pathlib import Path
-        from fmr_tg_scanner.search_watch import produce
-        produce(Path('../state').resolve())
-        PY
-    - name: Save private checkpoints and receipts
-      if: always()
-      working-directory: runner
-      run: |-
-        python - <<'PYCODE'
-        from pathlib import Path
-        from fmr_tg_scanner.watch import publish_private
-        publish_private(Path('../state').resolve())
-        PYCODE
+        WORKER: ${{ matrix.worker }}
+      run: python -u -m fmr_tg_scanner.local_runtime fetch --state-dir "$FMR_TG_STATE_DIR" --worker "$WORKER"
+  handoff:
+    if: always() && github.ref == 'refs/heads/main' && needs.fetch.result == 'success'
+    needs: fetch
+    runs-on:
+    - self-hosted
+    - findmyrom-metadata
+    timeout-minutes: 5
+    steps:
+    - name: Start next local collector session
+      env:
+        GH_TOKEN: ${{ github.token }}
+        GH_REPO: ${{ github.repository }}
+      run: gh workflow run telegram_fetch.yml --ref main

@@ -244,7 +244,7 @@ def test_metadata_runner_routing_keeps_binary_and_pr_jobs_off_local_host():
             elif path.name in ('catalogue_huawei.yml','catalogue_honor.yml'):
                 assert job['if']=="github.ref == 'refs/heads/main' && false"
             elif path.name=='catalogue_publish.yml':
-                assert job['if']=="github.ref == 'refs/heads/main' && vars.FMR_D1_WRITES_PAUSED != 'true' && github.event_name != 'workflow_run'"
+                assert job['if']=="github.ref == 'refs/heads/main' && vars.FMR_D1_WRITES_PAUSED != 'true' && github.event_name != 'push' && inputs.scope != 'tg'"
             else:assert job['if']=="github.ref == 'refs/heads/main'"
     for name in ('ci.yml','telegram_fetch.yml','telegram_clean.yml','services.yml'):
         assert 'FMR_CATALOGUE_RUNNER' not in (root/name).read_text()

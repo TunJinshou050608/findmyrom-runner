@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 import hashlib
 import json
 import os
+import os
 from pathlib import Path
 import re
 import time
@@ -44,6 +45,14 @@ def evidence_messages(root,store,rows):
         p=json.loads(row['payload'])
         wanted.setdefault((p['channel_username'],p['msg_id']),set()).add(p['raw_text_hash'])
     messages={};stats=Counter()
+    # New local workers commit exact source text atomically with the ledger row.
+    # A cleaning snapshot therefore cannot race the subsequent JSONL append.
+    for row in rows:
+        proof=json.loads(row['evidence']);text=proof.get('observed_text')
+        p=json.loads(row['payload']);key=(p['channel_username'],p['msg_id'])
+        if isinstance(text,str) and hashlib.sha256(text.encode()).hexdigest() in wanted[key]:
+            messages[key]=message_from_event({'package':p,'observed_text':text})
+            stats['messages_recovered_from_ledger']+=1
     for path in sorted((root/'search-v3/logs').glob('*.jsonl')):
         for line in path.open():
             try:event=json.loads(line)
@@ -165,7 +174,7 @@ def audit(root):
                                              'previous_key':row['key'],'audit_version':AUDIT_VERSION}
                     if errors:
                         package['taxonomy']['publication']={'eligible':False,'blockers':sorted(set(errors))}
-                    store.save(package,{**result['evidence'],'audit_version':AUDIT_VERSION,'source_text_hash_verified':True},result['classification'],reason if not errors else 'quality:'+errors[0],not errors)
+                    store.save(package,{**result['evidence'],'audit_version':AUDIT_VERSION,'source_text_hash_verified':True,'observed_text':message['text']},result['classification'],reason if not errors else 'quality:'+errors[0],not errors)
             if (errors and result is None) or (code and code!=old['device_codename']):
                 old['taxonomy']=deepcopy(old.get('taxonomy',{}))
                 old['taxonomy']['publication']={'eligible':False,'blockers':sorted(set(errors or ['device_identity_remapped']))}
@@ -245,20 +254,20 @@ def publish(out,db,key):
     columns='public_token,device_codename,zone_type,category_tag,project_name,is_official,android_version,build_version_tag,maintainer_name,maintainer_contact_tg,target_post_url,gapps_type,known_bugs_json,published_at,ed25519_signature,metadata_json,audit_batch_id'
     # Repair only this audit publisher's initial overlong deterministic tokens.
     # Retain the actual resource rows/counters; never delete user resources.
-    legacy={r['public_token']:r for r in db.query('SELECT public_token,device_codename,target_post_url,metadata_json FROM custom_resources') if json.loads(r['metadata_json']).get('audit_version')==AUDIT_VERSION}
+    existing_rows={r['public_token']:r for r in db.query('SELECT * FROM custom_resources')}
+    legacy={token:r for token,r in existing_rows.items() if json.loads(r['metadata_json']).get('audit_version')==AUDIT_VERSION}
     updates=','.join(c+'=excluded.'+c for c in columns.split(',') if c!='public_token')
     sql='INSERT INTO custom_resources('+columns+') VALUES ('+','.join('?' for _ in columns.split(','))+') ON CONFLICT(public_token) DO UPDATE SET '+updates+' WHERE custom_resources.maintainer_opted_out=0'
     keep={resource_token(item['package']) for item in ready}
     keep.update('cr_'+hashlib.sha256((item['package']['device_codename']+'|'+item['package']['tg_post_url']).encode()).hexdigest()[:24] for item in ready)
     withdrawals=[r for r in db.query('SELECT * FROM custom_resources') if json.loads(r['metadata_json']).get('audit_version')==AUDIT_VERSION and r['public_token'] not in keep and not r['maintainer_opted_out']]
     atomic_json(out/'withdrawn_previous_audit_rows.json',{'reason':'failed corrected full audit','rows':withdrawals})
-    if withdrawals and db.mode=='cloudflare_d1':
-        from .watch import publish_private
-        publish_private(out.parents[1].resolve())
+    # The immutable local audit keeps withdrawal backups before D1 mutation.
+    # Production TG state is no longer committed to a GitHub repository.
     for offset in range(0,len(withdrawals),40):
         chunk=withdrawals[offset:offset+40]
         db.execute_batch([('DELETE FROM custom_resources WHERE public_token=? AND maintainer_opted_out=0 AND json_extract(metadata_json,\'$.audit_version\')=?',(r['public_token'],AUDIT_VERSION)) for r in chunk])
-    expected={};committed=0
+    expected={};committed=0;rows_upserted=0
     for offset in range(0,len(ready),40):
         chunk=ready[offset:offset+40];statements=[]
         for item in chunk:
@@ -267,13 +276,24 @@ def publish(out,db,key):
             old='cr_'+hashlib.sha256((p['device_codename']+'|'+p['tg_post_url']).encode()).hexdigest()[:24]
             if old in legacy and legacy[old]['device_codename']==p['device_codename'] and legacy[old]['target_post_url']==p['tg_post_url']:
                 statements.append(('UPDATE custom_resources SET public_token=?,ed25519_signature=? WHERE public_token=? AND maintainer_opted_out=0',(values[0],values[14],old)))
-            statements.append((sql,values))
+            before=existing_rows.get(values[0])
+            same=False
+            if before:
+                pairs=dict(zip(columns.split(','),values))
+                old_meta=json.loads(before['metadata_json']);new_meta=json.loads(pairs['metadata_json'])
+                old_meta.pop('audit_run_id',None);new_meta.pop('audit_run_id',None)
+                same=old_meta==new_meta and all(before[k]==v for k,v in pairs.items() if k not in ('metadata_json','audit_batch_id'))
+            if not same:
+                statements.append((sql,values));rows_upserted+=1
         # Each request is an atomic chunk of the same audited full publication cohort.
-        db.execute_batch(statements)
+        if statements:db.execute_batch(statements)
         committed+=len(chunk)
         atomic_json(out/'publication_progress.json',{'committed':committed,'planned':len(ready),'audit_run_id':run_id})
         print(json.dumps({'event':'D1_publication_progress','committed':committed,'planned':len(ready)}),flush=True)
-    result_rows=db.query('SELECT public_token,zone_type,target_post_url,ed25519_signature,metadata_json,device_codename,maintainer_opted_out FROM custom_resources WHERE audit_batch_id=?',(run_id,))
+    result_rows=[];tokens=list(expected)
+    for offset in range(0,len(tokens),40):
+        chunk=tokens[offset:offset+40]
+        result_rows.extend(db.query('SELECT public_token,zone_type,target_post_url,ed25519_signature,metadata_json,device_codename,maintainer_opted_out FROM custom_resources WHERE public_token IN ('+','.join('?' for _ in chunk)+')',chunk))
     for row in result_rows:
         if row['public_token'] not in expected:raise RuntimeError('Unexpected resource in publication batch')
         if not verify_signature(build_custom_resource_payload(row['public_token'],row['zone_type'],row['target_post_url']),row['ed25519_signature'],public):raise RuntimeError('Published signature verification failed')
@@ -282,11 +302,12 @@ def publish(out,db,key):
     visible_devices=sorted({r['device_codename'] for r in result_rows if not r['maintainer_opted_out']})
     for offset in range(0,len(visible_devices),50):
         chunk=visible_devices[offset:offset+50]
-        db.execute('UPDATE devices SET phase2_roms_enabled=1 WHERE codename IN ('+','.join('?' for _ in chunk)+')',chunk)
+        db.execute('UPDATE devices SET phase2_roms_enabled=1 WHERE phase2_roms_enabled!=1 AND codename IN ('+','.join('?' for _ in chunk)+')',chunk)
     result={'audit_run_id':run_id,'qualified_before_D1_device_check':len(products),'published_and_verified':len(result_rows),
             'withdrawn_previous_audit_records':len(withdrawals),
+            'D1_rows_upserted':rows_upserted,
             'excluded_missing_production_device_or_quality':len(excluded),'enabled_devices':visible_devices,'signatures_verified':True,
-            'completed_at':datetime.now(timezone.utc).isoformat(),'retrieval_remains_paused':True}
+            'completed_at':datetime.now(timezone.utc).isoformat(),'retrieval_remains_paused':os.environ.get('FMR_TG_LOCAL_RUNTIME')!='true'}
     atomic_json(out/'publication_result.json',result)
     atomic_json(out.parent/'publication-latest.json',result)
     print(json.dumps({'event':'D1_publication_finished',**result}),flush=True)
