@@ -42,7 +42,22 @@ class StopForToday(RuntimeError):
 class MaintenanceDB(D1Client):
     """No automatic retries, including reads and nominally idempotent writes."""
     def _request_cf_with_retry(self, payload, is_safe_to_retry=False, **kwargs):
-        return super()._request_cf_with_retry(payload, is_safe_to_retry=False, max_retries=1)
+        try:
+            return super()._request_cf_with_retry(payload, is_safe_to_retry=False, max_retries=1)
+        except RuntimeError as error:
+            cause = error
+            while cause is not None:
+                response = getattr(cause, 'response', None)
+                if response is not None:
+                    try:
+                        details = response.json().get('errors', [])
+                    except (ValueError, AttributeError):
+                        details = []
+                    if details:
+                        # Report API codes/messages, never headers, SQL parameters or tokens.
+                        raise RuntimeError('D1 HTTP ' + str(response.status_code) + ': ' + json.dumps(details)) from error
+                cause = cause.__cause__
+            raise
 
 
 def plan():
