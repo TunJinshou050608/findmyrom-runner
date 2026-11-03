@@ -134,7 +134,7 @@ jobs:
       cancel-in-progress: false
     defaults:
       run:
-        working-directory: publisher-code
+        working-directory: samsung-publisher-code
   telegram:
     if: github.ref == 'refs/heads/main' && vars.FMR_TG_D1_WRITES_PAUSED != 'true'
     runs-on:

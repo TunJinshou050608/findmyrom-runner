@@ -138,7 +138,7 @@ args=sys.argv[1:];target=Path(args[args.index('--output')+1])
 urls=[arg for arg in args if arg.startswith(('http://','https://'))];assert len(urls)==1
 url=urls[0]
 if url.startswith('http://127.0.0.1:18765/'):
- target.write_text(json.dumps({'prepared_downloads':os.environ['FMR_TEST_HEALTH']=='1'}))
+ target.write_text(json.dumps({'prepared_downloads':os.environ['FMR_TEST_HEALTH']=='1','samsung_full_stream':os.environ['FMR_TEST_HEALTH']=='1'}))
 else:
  assert '/'+os.environ['FMR_UPDATE_REF']+'/fmr_extractor/' in url
  name=url.rsplit('/',1)[1];assert name in {'service.py','streaming_probe.py','prepared.py'}

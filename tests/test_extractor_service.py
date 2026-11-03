@@ -159,7 +159,7 @@ def test_full_samsung_package_decrypts_to_zip_without_materializing_an_archive(m
     data=enc.update(plain+bytes([padding])*padding)+enc.finalize()
     def handler(req):
         start,stop=map(int,req.headers['Range'][6:].split('-'))
-        return httpx.Response(206,headers={'Content-Range':f'bytes {start}-{stop}/{len(data)}'},content=data[start:stop+1])
+        return httpx.Response(206,headers={'Content-Range':f'bytes {start}-{stop}/{len(data)}'},stream=httpx.ByteStream(data[start:stop+1]))
     real=httpx.Client
     monkeypatch.setattr(service.httpx,'Client',lambda **kw:real(transport=httpx.MockTransport(handler),**kw))
     monkeypatch.setattr(service,'samsung_source',lambda *a,**kw:('https://cloud-neofussvr.samsungmobile.com/fixture.enc4',{},key,{},None))
