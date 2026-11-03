@@ -75,13 +75,17 @@ def main():
             1,
         )
     workflow = yaml.safe_load(
-        (ROOT / ".github/workflows/batch_extract.yml").read_text()
+        (ROOT / ".github/workflows/services.yml").read_text()
     )
     triggers = workflow.get("on") or workflow.get(True)
     if "schedule" not in triggers or "workflow_dispatch" not in triggers:
         raise AssertionError("Missing workflow triggers")
     if workflow["permissions"] != {"contents": "read"}:
         raise AssertionError("Excess workflow token permissions")
+    if "check" not in workflow["jobs"]:
+        raise AssertionError("Missing extraction service verification")
+    if (ROOT / ".github/workflows/batch_extract.yml").exists():
+        raise AssertionError("Legacy extraction workflow must remain archived")
     print("WORKFLOW_VALID_OK")
     print("ALL SP03 OFFLINE DOD CHECKS PASSED")
 

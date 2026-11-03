@@ -116,6 +116,11 @@ done
 gh variable set FMR_CATALOGUE_STATE_DIR --repo "$repo" --body "$state_home"
 gh variable set FMR_PUBLISH_RUNNER --repo "$repo" --body '["self-hosted","findmyrom-publisher"]'
 gh variable set FMR_CATALOGUE_RUNNER --repo "$repo" --body '["self-hosted","findmyrom-metadata"]'
-gh workflow run catalogue_bootstrap.yml --repo "$repo" --ref main
+# Each collector restores its existing encrypted checkpoint. The historical
+# one-time D1 migration is archived and must not run on routine runner setup.
+gh workflow run catalogue_publish.yml --repo "$repo" --ref main
+for vendor in xiaomi google motorola oneplus nothing oppo realme asus samsung vivo sony; do
+  gh workflow run "catalogue_${vendor}.yml" --repo "$repo" --ref main -f operation=incremental
+done
 printf 'Ready: %s catalogue slots + 1 dedicated D1 publisher; shared local checkpoints.\n' "$collectors"
-printf '%s\n' "Status: https://github.com/$repo/actions/workflows/catalogue_bootstrap.yml"
+printf '%s\n' "Status: https://github.com/$repo/actions/workflows/catalogue_publish.yml"

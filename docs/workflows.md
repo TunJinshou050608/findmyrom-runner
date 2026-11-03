@@ -38,6 +38,7 @@ TG 的抓取、清洗、发布共享原有并发锁，避免私有状态并发�
 - `FMR_D1_WRITES_PAUSED=true` 同时暂停官包与 TG 目录发布。
 - Sony ZIP 每 15 分钟、公共索引每 6 小时的原定时规则保持；服务入口手动运行可选择具体任务。
 - 部署文件的职责见 [`../deploy/README.md`](../deploy/README.md)。
+- `ops/setup_metadata_runner.sh` 配置本地执行器后启动现有厂商入口与统一发布，复用其加密检查点；不会重跑历史迁移。`ops/resume_catalogue.py` 只恢复统一发布，不启用旧云端批量提取任务。
 
 ## 历史入口
 
