@@ -23,14 +23,15 @@ from .rule_extractor import post_ref
 from . import llm_fallback
 
 
-def run(root,targets,*,max_requests=180,max_seconds=480,http_factory=SearchHTTP,mode='adaptive',enable_llm=True,max_llm_calls=50,llm_callable=None,catalogue_names=None):
+def run(root,targets,*,max_requests=180,max_seconds=480,http_factory=SearchHTTP,mode='adaptive',enable_llm=True,max_llm_calls=50,llm_callable=None,catalogue_names=None,max_tasks_per_device=None):
     root=Path(root);root.mkdir(parents=True,exist_ok=True)
     if not 1<=len(targets)<=500 or not all(re.fullmatch('[a-z0-9_-]{3,32}',v) for v in targets):raise ValueError('Invalid target codenames')
     if not 1<=max_requests<=2000 or not 10<=max_seconds<=1800 or type(max_llm_calls) is not int or not 0<=max_llm_calls<=500:raise ValueError('Invalid batch budget')
     if mode not in ('adaptive','query_first','latest_first'):raise ValueError('Unknown retrieval mode')
+    if max_tasks_per_device is not None and (type(max_tasks_per_device) is not int or not 1<=max_tasks_per_device<=500):raise ValueError('Invalid per-device task budget')
     run_id=os.environ.get('GITHUB_RUN_ID','local')+'-'+os.environ.get('FMR_TG_CYCLE',str(time.time_ns()))
     logs=root/'logs';logs.mkdir(exist_ok=True);log_path=logs/(run_id+'.jsonl')
-    started=time.monotonic();events=Counter();new_products=0;first_product=None;per_device=Counter();failures=[];device_funnel={code:Counter() for code in targets}
+    started=time.monotonic();events=Counter();new_products=0;first_product=None;per_device=Counter();failures=[];device_funnel={code:Counter() for code in targets};device_tasks=Counter()
     def emit(value):
         value=dict(value);events[value['event']]+=1
         with log_path.open('a') as handle:handle.write(json.dumps({'time':time.time(),**value},ensure_ascii=False,sort_keys=True)+'\n')
@@ -51,7 +52,7 @@ def run(root,targets,*,max_requests=180,max_seconds=480,http_factory=SearchHTTP,
     def heartbeat():
         while not stopped.wait(30):print(json.dumps({'event':'search_heartbeat','requests':http.requests,'new_qualified_products':new_products,'elapsed_seconds':round(time.monotonic()-started)}),flush=True)
     monitor=threading.Thread(target=heartbeat,daemon=True);monitor.start()
-    all_names={code:[] for code in targets};outcome='completed';processed=0
+    all_names={code:[] for code in targets};outcome='completed';processed=0;incomplete_device=None
     try:
         if catalogue_names is not None:
             store.set_meta('device_aliases_v3',catalogue_names)
@@ -245,9 +246,11 @@ def run(root,targets,*,max_requests=180,max_seconds=480,http_factory=SearchHTTP,
         while time.monotonic()-started<max_seconds:
             if time.monotonic()-last_heartbeat>=30:
                 print(json.dumps({'event':'search_heartbeat','requests':http.requests,'new_qualified_products':new_products,'tasks_completed':processed}),flush=True);last_heartbeat=time.monotonic()
-            task=store.due(targets)
+            eligible=[code for code in targets if max_tasks_per_device is None or device_tasks[code]<max_tasks_per_device]
+            task=store.due(eligible)
             if task is None:break
             code,kind,payload=task['device'],task['kind'],task['payload'];depth=payload.get('depth',0)
+            device_tasks[code]+=1
             try:
                 count=0;delay=3600;products_at_start=new_products
                 if kind=='index':
@@ -337,7 +340,7 @@ def run(root,targets,*,max_requests=180,max_seconds=480,http_factory=SearchHTTP,
                 store.finish(task,delay=delay,payload=payload);processed+=1
                 emit({'event':'task_finished','kind':kind,'device':code,'count':count,'next_in_seconds':delay})
             except WorkBudgetReached:
-                store.finish(task,payload=payload);outcome='budget_reached';break
+                store.finish(task,payload=payload);outcome='budget_reached';incomplete_device=code;break
             except Exception as exc:
                 reason=type(exc).__name__;failures.append({'kind':kind,'device':code,'error_type':reason})
                 if kind=='query':store.enqueue('history',code,{'channel':payload['channel'],'depth':depth,'state':{}},30)
@@ -386,6 +389,8 @@ def run(root,targets,*,max_requests=180,max_seconds=480,http_factory=SearchHTTP,
             'invalid_channel_tasks_retired':invalid_tasks_retired,
             'unresolved_targets':[code for code in targets if not counts.get(code)],'coverage_ok':all(counts.get(code,0) for code in targets),
             'device_funnel':{code:dict(values) for code,values in device_funnel.items()},
+            'tasks_per_device':{code:device_tasks[code] for code in targets},'max_tasks_per_device':max_tasks_per_device,
+            'incomplete_device':incomplete_device,
             'http_requests':http.requests,'cache_hits':http.cache_hits,'response_bytes':http.bytes,'http_errors':http.errors,
             'first_product_seconds':first_product,'elapsed_seconds':round(time.monotonic()-started,3),'tasks_processed':processed,
             'requests_per_new_product':round(http.requests/new_products,3) if new_products else None,

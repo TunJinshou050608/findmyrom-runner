@@ -63,6 +63,7 @@ def test_resident_ignores_old_manual_targets_and_enrolls_new_devices(tmp_path,mo
     (root/'tg_search_config.json').write_text(json.dumps({'targets':['obsolete'],'target_batch_size':1}))
     names={'alioth':['POCO F3'],'liuqin':['Xiaomi Pad 6 Pro']}
     monkeypatch.setattr(search_watch,'read_catalogue',lambda:(dict(names),[]))
+    monkeypatch.setattr(search_watch,'read_order',lambda store,names:([v for v in ['annibale','liuqin','alioth'] if v in names],{'source':'website_brand_pages'}))
     seen=[]
     def run(path,targets,**kwargs):
         seen.append(targets)
@@ -73,7 +74,7 @@ def test_resident_ignores_old_manual_targets_and_enrolls_new_devices(tmp_path,mo
     names['annibale']=['Redmi K90']
     report=search_watch.produce(root)
     search_watch.produce(root)
-    assert seen==[['alioth'],['annibale'],['liuqin']]
+    assert seen==[['liuqin'],['annibale'],['alioth']]
     assert report['target_selection']['total_devices']==3
     assert 'targets' not in json.loads((root/'tg_search_config.json').read_text())
 
@@ -81,6 +82,7 @@ def test_resident_ignores_old_manual_targets_and_enrolls_new_devices(tmp_path,mo
 def test_failed_batch_does_not_advance_catalogue_cursor(tmp_path,monkeypatch):
     from fmr_tg_scanner import search_watch
     monkeypatch.setattr(search_watch,'read_catalogue',lambda:({'alioth':['POCO F3']},[]))
+    monkeypatch.setattr(search_watch,'read_order',lambda *args:(['alioth'],{'source':'website_brand_pages'}))
     def fail(*a,**k):raise RuntimeError('interrupted')
     monkeypatch.setattr(search_watch,'run',fail)
     with pytest.raises(RuntimeError):search_watch.produce(tmp_path)

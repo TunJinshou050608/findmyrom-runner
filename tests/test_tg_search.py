@@ -188,6 +188,7 @@ def test_official_rom_scope_and_port_kind():
 def test_resident_reuses_discovered_sources_without_importing_products(tmp_path,monkeypatch):
     from fmr_tg_scanner import search_watch
     monkeypatch.setattr(search_watch,'read_catalogue',lambda:({'annibale':['Redmi K90']},[]))
+    monkeypatch.setattr(search_watch,'read_order',lambda *args:(['annibale'],{'source':'website_brand_pages'}))
     from fmr_tg_scanner.trial import atomic_json
     path=tmp_path/'experiments/search-v3/123/query_first/products.json'
     atomic_json(path,{'products':[{'package':{'device_codename':'annibale','channel_username':'autofoundupdates','tg_post_url':'https://t.me/autofoundupdates/12'}}]})

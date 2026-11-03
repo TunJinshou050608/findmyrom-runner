@@ -5,11 +5,14 @@ import os
 from pathlib import Path
 import signal
 import re
+import time
 from .search_engine import run
 from .search_store import SearchStore
 from .trial import atomic_json
 from .watch import watch
-from .targets import read_catalogue, select_targets
+from .targets import read_catalogue
+from .website_order import read_order
+from .device_schedule import KEY as SCHEDULE_KEY, select, complete
 
 
 def produce(root):
@@ -24,7 +27,17 @@ def produce(root):
     state_root=root/'search-v3';state_root.mkdir(exist_ok=True)
     store=SearchStore(state_root/'search.sqlite')
     try:
-        targets=select_targets(names,store.meta('catalogue_last_device'),config.get('target_batch_size',8))
+        ordered,order_info=read_order(store,names)
+        schedule=store.meta(SCHEDULE_KEY,{})
+        targets,reset=select(ordered,schedule,time.time(),config.get('target_batch_size',8))
+        if not targets:
+            report={'ok':True,'activity':'all_devices_cooling','targets':[],
+                    'target_selection':{**order_info,'total_devices':len(ordered),'batch_devices':0},
+                    'next_device_at':min(v['next_at'] for k,v in schedule['devices'].items() if k in ordered)}
+            atomic_json(root/'reports/latest.json',report)
+            print(json.dumps(report),flush=True)
+            return report
+        print(json.dumps({'event':'device_batch_selected','source':'website_brand_pages','targets':targets,'order_refreshed_at':order_info.get('fetched_at')}),flush=True)
         if not store.meta('prior_lab_import_complete',False):
             imported=[]
             # Warm operation may reuse sources independently discovered by the
@@ -40,12 +53,18 @@ def produce(root):
             store.set_meta('prior_lab_source_evidence',imported)
             store.set_meta('prior_lab_import_complete',True)
     finally:store.close()
-    report=run(root/'search-v3',targets,max_requests=config.get('max_requests',100),max_seconds=config.get('max_seconds',360),catalogue_names=names)
+    report=run(root/'search-v3',targets,max_requests=config.get('max_requests',100),max_seconds=config.get('max_seconds',360),
+               max_tasks_per_device=config.get('max_tasks_per_device',24),catalogue_names=names)
     # Only advance after a completed batch has committed its frontier/report.
     store=SearchStore(state_root/'search.sqlite')
-    try:store.set_meta('catalogue_last_device',targets[-1])
+    try:
+        store.set_meta(SCHEDULE_KEY,complete(schedule,targets,report,time.time(),reset))
+        store.set_meta('catalogue_last_device',targets[-1])
     finally:store.close()
-    report['target_selection']={'source':'local_catalogue','total_devices':len(names),'batch_devices':len(targets),'sources':sources}
+    report['target_selection']={**order_info,'total_devices':len(ordered),'batch_devices':len(targets),'sources':sources,
+                                'round':schedule['round'],'devices':targets}
+    report['device_schedule']={code:schedule['devices'].get(code,{}) for code in targets}
+    print(json.dumps({'event':'device_batch_yielded','devices':report['device_schedule']}),flush=True)
     report['products_path']='search-v3/products.json'
     report['candidates_path']='search-v3/candidates.json'
     atomic_json(root/'reports/latest.json',report)
