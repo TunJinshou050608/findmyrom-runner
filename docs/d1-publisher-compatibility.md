@@ -1,5 +1,7 @@
 # D1 publisher compatibility and safe rollout
 
+> **2026-11-03 review hold:** The v6 rebuild schedule has been removed and both maintenance workflow jobs disabled. No v6 data copy has run. The original audit concerns read amplification and indexes, not a demonstrated model-identity collision. `model_code` is an existing, inconsistently sourced field: Sony uses the upstream hardware model in both the device key and this field, while other paths may use a codename or source variant. Synthetic shared-device tests establish migration mechanics only; they do not establish a production defect or justify the identity rule. Obtain real conflicting source records and define canonical identity semantics before reconsidering v6. The version-4 performance fixes remain applied; version 5 is separate. Existing production pauses, source locks and Web maintenance remain in place pending a corrected rollout decision. The later three-day rollout section records the superseded plan.
+
 ## Ownership and version contract
 
 Collectors and TG cleaners continue writing their existing local snapshots. Their formats, evidence, classifiers and device traversal are unchanged. Only final publishers access production D1.

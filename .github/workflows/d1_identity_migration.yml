@@ -1,8 +1,6 @@
 name: D1 · 三日断点迁移
 run-name: D1 型号唯一键迁移 · ${{ github.event_name }}
 'on':
-  schedule:
-  - cron: '0 1 4-6 11 *' # 09:00 Asia/Shanghai; Python also enforces year 2026.
   workflow_dispatch: null
   push:
     branches: [main]
@@ -17,7 +15,7 @@ concurrency:
 jobs:
   prepare:
     name: 暂停其他执行；只安装维护锁，不搬迁数据
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    if: false && github.ref == 'refs/heads/main' && github.event_name == 'push' # Review hold: no verified production model conflict
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment: production
@@ -56,7 +54,7 @@ jobs:
       run: python -u -m fmr_core.identity_maintenance --prepare-only
   migrate:
     name: 09:00 启动；任意错误立即停止，次日从 D1 断点接续
-    if: github.ref == 'refs/heads/main' && github.event_name != 'push'
+    if: false && github.ref == 'refs/heads/main' && github.event_name != 'push' # Review hold: no verified production model conflict
     runs-on: ubuntu-latest
     timeout-minutes: 180
     environment: production
