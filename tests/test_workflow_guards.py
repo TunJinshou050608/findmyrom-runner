@@ -14,7 +14,7 @@ def load(name):
 
 def test_only_supported_entry_points_are_active():
     expected = {f'catalogue_{v}.yml' for v in VENDORS} | {
-        'catalogue_publish.yml', 'telegram_fetch.yml', 'telegram_clean.yml', 'ci.yml', 'services.yml'}
+        'catalogue_publish.yml', 'telegram_fetch.yml', 'telegram_clean.yml', 'ci.yml', 'services.yml', 'd1_identity_migration.yml'}
     assert {p.name for p in WORKFLOWS.glob('*.yml')} == expected
     names = [load(name)['name'] for name in expected]
     assert len(names) == len(set(names))
@@ -91,6 +91,8 @@ def test_every_vendor_and_stock_publisher_require_a_fresh_snapshot_before_upload
             maintain=next(i for i,s in enumerate(steps) if 'maintain-cache --vendor '+vendor in s.get('run',''))
             collect=next(i for i,s in enumerate(steps) if s.get('id')=='collect')
             assert maintain<collect<check
-    assert load('catalogue_samsung.yml')['jobs']['catalogue']['if']=="github.ref == 'refs/heads/main'"
+    import json
+    originals=json.loads((ROOT/'ops/d1_maintenance_restore_workflows.json').read_text())
+    assert yaml.safe_load(originals['.github/workflows/catalogue_samsung.yml'])['jobs']['catalogue']['if']=="github.ref == 'refs/heads/main'"
     for vendor in ('huawei','honor'):
-        assert load('catalogue_'+vendor+'.yml')['jobs']['catalogue']['if']=="github.ref == 'refs/heads/main' && false"
+        assert yaml.safe_load(originals['.github/workflows/catalogue_'+vendor+'.yml'])['jobs']['catalogue']['if']=="github.ref == 'refs/heads/main' && false"

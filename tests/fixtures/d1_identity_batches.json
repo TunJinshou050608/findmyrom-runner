@@ -1,0 +1,825 @@
+[
+  [
+    {
+      "sql": "CREATE TABLE IF NOT EXISTS brands (\n    id TEXT PRIMARY KEY,\n    name TEXT NOT NULL,\n    bl_unlock_status TEXT NOT NULL,\n    bl_unlock_guide_md TEXT,\n    sort_order INTEGER DEFAULT 100\n)",
+      "params": []
+    },
+    {
+      "sql": "CREATE TABLE IF NOT EXISTS brand_universal_tools (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    public_token TEXT NOT NULL UNIQUE,\n    brand_id TEXT NOT NULL REFERENCES brands(id),\n    tool_name TEXT NOT NULL,\n    version_str TEXT,\n    os_platform TEXT NOT NULL,\n    description TEXT,\n    target_redirect_url TEXT NOT NULL,\n    ed25519_signature TEXT NOT NULL\n)",
+      "params": []
+    },
+    {
+      "sql": "CREATE TABLE IF NOT EXISTS devices (\n    codename TEXT PRIMARY KEY,\n    brand_id TEXT NOT NULL REFERENCES brands(id),\n    marketing_name TEXT NOT NULL,\n    model_numbers_json TEXT NOT NULL DEFAULT '[]',\n    soc_name TEXT,\n    boot_partition_type TEXT NOT NULL DEFAULT 'init_boot', \n    has_vbmeta INTEGER DEFAULT 1,\n    flashing_notes_md TEXT,\n    phase2_roms_enabled INTEGER DEFAULT 0,\n    phase3_parts_enabled INTEGER DEFAULT 0,\n    updated_at INTEGER DEFAULT (strftime('%s', 'now'))\n)",
+      "params": []
+    },
+    {
+      "sql": "CREATE TABLE IF NOT EXISTS device_parts_specs (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    device_codename TEXT NOT NULL REFERENCES devices(codename),\n    part_type TEXT NOT NULL,\n    part_model_code TEXT NOT NULL,\n    spec_summary TEXT NOT NULL,\n    repair_warning TEXT\n)",
+      "params": []
+    },
+    {
+      "sql": "CREATE TABLE IF NOT EXISTS stock_firmwares (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    public_token TEXT NOT NULL UNIQUE,\n    device_codename TEXT NOT NULL REFERENCES devices(codename),\n    region_code TEXT NOT NULL,\n    model_code TEXT,\n    version_str TEXT NOT NULL,\n    android_version TEXT NOT NULL,\n    package_type TEXT NOT NULL,            \n    file_size_str TEXT,\n    md5_or_sha256 TEXT,\n    original_official_url TEXT NOT NULL,\n    fast_cdn_url TEXT NOT NULL,\n    published_date TEXT,\n    ed25519_signature TEXT NOT NULL,       \n    extract_status TEXT DEFAULT 'pending', \n    extract_retries INTEGER DEFAULT 0,\n    extract_error TEXT,\n    updated_at INTEGER DEFAULT (strftime('%s', 'now')),\n    UNIQUE(device_codename, region_code, version_str, package_type)\n)",
+      "params": []
+    },
+    {
+      "sql": "CREATE TABLE IF NOT EXISTS extracted_boot_images (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    public_token TEXT NOT NULL UNIQUE,\n    firmware_id INTEGER NOT NULL REFERENCES stock_firmwares(id),\n    device_codename TEXT NOT NULL,\n    version_str TEXT NOT NULL,\n    partition_name TEXT NOT NULL,          \n    variant_type TEXT NOT NULL,            \n    patch_tool_ver TEXT,\n    file_name TEXT NOT NULL,\n    file_size_bytes INTEGER NOT NULL,\n    sha256_hash TEXT NOT NULL,\n    gh_private_repo TEXT NOT NULL,\n    gh_release_tag TEXT NOT NULL,\n    gh_asset_id INTEGER NOT NULL,\n    ed25519_signature TEXT NOT NULL,       \n    download_count INTEGER DEFAULT 0,\n    working_votes INTEGER DEFAULT 0,\n    broken_votes INTEGER DEFAULT 0,\n    created_at INTEGER DEFAULT (strftime('%s', 'now')),\n    UNIQUE(firmware_id, partition_name, variant_type)\n)",
+      "params": []
+    },
+    {
+      "sql": "CREATE TABLE IF NOT EXISTS custom_resources (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    public_token TEXT NOT NULL UNIQUE,\n    device_codename TEXT NOT NULL REFERENCES devices(codename),\n    zone_type TEXT NOT NULL,               \n    category_tag TEXT NOT NULL,\n    project_name TEXT NOT NULL,\n    is_official INTEGER DEFAULT 0,\n    android_version TEXT,\n    build_version_tag TEXT,\n    maintainer_name TEXT,\n    maintainer_contact_tg TEXT,\n    maintainer_contact_email TEXT,\n    maintainer_opted_out INTEGER DEFAULT 0,\n    target_post_url TEXT NOT NULL,\n    backup_gh_asset_id INTEGER,\n    companion_recovery_token TEXT,\n    firmware_req_note TEXT,\n    gapps_type TEXT,\n    known_bugs_json TEXT DEFAULT '[]',\n    ext_download_count INTEGER DEFAULT 0,\n    site_click_count INTEGER DEFAULT 0,\n    ed25519_signature TEXT NOT NULL,       \n    working_votes INTEGER DEFAULT 0,\n    broken_votes INTEGER DEFAULT 0,\n    published_at INTEGER,\n    UNIQUE(device_codename, project_name, build_version_tag, target_post_url)\n)",
+      "params": []
+    },
+    {
+      "sql": "CREATE TABLE IF NOT EXISTS crawler_sources (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    device_codename TEXT NOT NULL REFERENCES devices(codename),\n    source_kind TEXT NOT NULL,\n    source_target TEXT NOT NULL,\n    last_cursor_val TEXT,\n    last_checked_at INTEGER,\n    is_active INTEGER DEFAULT 1,\n    UNIQUE(device_codename, source_kind, source_target)\n)",
+      "params": []
+    },
+    {
+      "sql": "CREATE INDEX IF NOT EXISTS idx_fw_device_ver ON stock_firmwares(device_codename, published_date DESC)",
+      "params": []
+    },
+    {
+      "sql": "CREATE INDEX IF NOT EXISTS idx_fw_queue ON stock_firmwares(extract_status, extract_retries)",
+      "params": []
+    },
+    {
+      "sql": "CREATE INDEX IF NOT EXISTS idx_boot_search ON extracted_boot_images(device_codename, version_str, partition_name)",
+      "params": []
+    },
+    {
+      "sql": "CREATE INDEX IF NOT EXISTS idx_custom_alpha ON custom_resources(device_codename, zone_type, project_name ASC)",
+      "params": []
+    },
+    {
+      "sql": "CREATE INDEX IF NOT EXISTS idx_custom_pop ON custom_resources(device_codename, zone_type, (ext_download_count + site_click_count) DESC)",
+      "params": []
+    }
+  ],
+  [
+    {
+      "sql": "INSERT INTO brands(id,name,bl_unlock_status) VALUES ('xiaomi','Xiaomi','unknown')",
+      "params": []
+    }
+  ],
+  [
+    {
+      "sql": "INSERT INTO devices(codename,brand_id,marketing_name,phase2_roms_enabled) VALUES ('sample','xiaomi','Sample',1)",
+      "params": []
+    }
+  ],
+  [
+    {
+      "sql": "INSERT INTO stock_firmwares(public_token,device_codename,model_code,region_code,version_str,android_version,package_type,original_official_url,fast_cdn_url,ed25519_signature) VALUES (?,'sample','model-a','Global',?,'14','zip','url','url','sig')",
+      "params": [
+        "fw_native001",
+        "V1"
+      ]
+    }
+  ],
+  [
+    {
+      "sql": "INSERT INTO stock_firmwares(public_token,device_codename,model_code,region_code,version_str,android_version,package_type,original_official_url,fast_cdn_url,ed25519_signature) VALUES (?,'sample','model-a','Global',?,'14','zip','url','url','sig')",
+      "params": [
+        "fw_native002",
+        "V2"
+      ]
+    }
+  ],
+  [
+    {
+      "sql": "INSERT INTO extracted_boot_images(public_token,firmware_id,device_codename,version_str,partition_name,variant_type,file_name,file_size_bytes,sha256_hash,gh_private_repo,gh_release_tag,gh_asset_id,ed25519_signature) VALUES ('bt_native001',1,'sample','V1','boot','stock','boot.img.gz',123,'hash','owner/vault','release',1,'sig')",
+      "params": []
+    }
+  ],
+  [
+    {
+      "sql": "UPDATE sqlite_sequence SET seq=1000 WHERE name IN ('stock_firmwares','extracted_boot_images')",
+      "params": []
+    }
+  ],
+  [
+    {
+      "sql": "CREATE TABLE IF NOT EXISTS fmr_schema_migrations(version INTEGER PRIMARY KEY,sha256 TEXT NOT NULL,applied_at INTEGER NOT NULL DEFAULT (strftime('%s','now')))",
+      "params": []
+    },
+    {
+      "sql": "CREATE INDEX idx_devices_brand_name ON devices(brand_id,marketing_name,codename)",
+      "params": []
+    },
+    {
+      "sql": "DROP INDEX idx_custom_alpha",
+      "params": []
+    },
+    {
+      "sql": "DROP INDEX idx_custom_pop",
+      "params": []
+    },
+    {
+      "sql": "CREATE INDEX idx_custom_alpha ON custom_resources(device_codename,LOWER(project_name),published_at DESC,id ASC) WHERE maintainer_opted_out=0",
+      "params": []
+    },
+    {
+      "sql": "CREATE INDEX idx_custom_pop ON custom_resources(device_codename,(ext_download_count+site_click_count) DESC,LOWER(project_name)) WHERE maintainer_opted_out=0",
+      "params": []
+    },
+    {
+      "sql": "CREATE INDEX idx_custom_latest ON custom_resources(device_codename,published_at DESC,LOWER(project_name)) WHERE maintainer_opted_out=0",
+      "params": []
+    },
+    {
+      "sql": "CREATE TABLE catalogue_coverage (\n id INTEGER PRIMARY KEY CHECK(id=1),\n devices INTEGER NOT NULL CHECK(devices>=0),\n official INTEGER NOT NULL CHECK(official>=0),\n custom INTEGER NOT NULL CHECK(custom>=0)\n)",
+      "params": []
+    },
+    {
+      "sql": "INSERT INTO catalogue_coverage\nWITH visible AS (SELECT d.codename FROM devices d WHERE (d.codename!='__global__' AND d.brand_id NOT IN ('huawei','honor') AND d.codename NOT LIKE 'huawei-%' AND d.codename NOT LIKE 'honor-%' AND d.marketing_name NOT LIKE '%Chromebook%'))\nSELECT 1,(SELECT COUNT(*) FROM visible),\n (SELECT COUNT(*) FROM (SELECT 1 FROM stock_firmwares f JOIN visible v ON v.codename=f.device_codename GROUP BY f.device_codename,COALESCE(NULLIF(f.model_code,''),f.device_codename),f.region_code,f.version_str)),\n (SELECT COUNT(*) FROM custom_resources r JOIN visible v ON v.codename=r.device_codename JOIN devices d ON d.codename=r.device_codename WHERE r.maintainer_opted_out=0 AND r.zone_type='free_rom' AND d.phase2_roms_enabled=1)",
+      "params": []
+    },
+    {
+      "sql": "CREATE TRIGGER coverage_device_insert AFTER INSERT ON devices\nWHEN NEW.codename!='__global__' AND NEW.brand_id NOT IN ('huawei','honor') AND NEW.codename NOT LIKE 'huawei-%' AND NEW.codename NOT LIKE 'honor-%' AND NEW.marketing_name NOT LIKE '%Chromebook%'\nBEGIN\n UPDATE catalogue_coverage SET devices=devices+CASE WHEN (NEW.codename!='__global__' AND NEW.brand_id NOT IN ('huawei','honor') AND NEW.codename NOT LIKE 'huawei-%' AND NEW.codename NOT LIKE 'honor-%' AND NEW.marketing_name NOT LIKE '%Chromebook%') THEN 1 ELSE 0 END,\n official=official+(CASE WHEN (NEW.codename!='__global__' AND NEW.brand_id NOT IN ('huawei','honor') AND NEW.codename NOT LIKE 'huawei-%' AND NEW.codename NOT LIKE 'honor-%' AND NEW.marketing_name NOT LIKE '%Chromebook%') THEN (SELECT COUNT(*) FROM (SELECT 1 FROM stock_firmwares f WHERE f.device_codename=NEW.codename GROUP BY COALESCE(NULLIF(f.model_code,''),f.device_codename),f.region_code,f.version_str)) ELSE 0 END),custom=custom+(CASE WHEN (NEW.codename!='__global__' AND NEW.brand_id NOT IN ('huawei','honor') AND NEW.codename NOT LIKE 'huawei-%' AND NEW.codename NOT LIKE 'honor-%' AND NEW.marketing_name NOT LIKE '%Chromebook%') AND NEW.phase2_roms_enabled=1 THEN (SELECT COUNT(*) FROM custom_resources r WHERE r.device_codename=NEW.codename AND r.maintainer_opted_out=0 AND r.zone_type='free_rom') ELSE 0 END) WHERE id=1;\nEND",
+      "params": []
+    },
+    {
+      "sql": "CREATE TRIGGER coverage_device_delete AFTER DELETE ON devices\nWHEN OLD.codename!='__global__' AND OLD.brand_id NOT IN ('huawei','honor') AND OLD.codename NOT LIKE 'huawei-%' AND OLD.codename NOT LIKE 'honor-%' AND OLD.marketing_name NOT LIKE '%Chromebook%'\nBEGIN\n UPDATE catalogue_coverage SET devices=devices-CASE WHEN (OLD.codename!='__global__' AND OLD.brand_id NOT IN ('huawei','honor') AND OLD.codename NOT LIKE 'huawei-%' AND OLD.codename NOT LIKE 'honor-%' AND OLD.marketing_name NOT LIKE '%Chromebook%') THEN 1 ELSE 0 END,\n official=official-(CASE WHEN (OLD.codename!='__global__' AND OLD.brand_id NOT IN ('huawei','honor') AND OLD.codename NOT LIKE 'huawei-%' AND OLD.codename NOT LIKE 'honor-%' AND OLD.marketing_name NOT LIKE '%Chromebook%') THEN (SELECT COUNT(*) FROM (SELECT 1 FROM stock_firmwares f WHERE f.device_codename=OLD.codename GROUP BY COALESCE(NULLIF(f.model_code,''),f.device_codename),f.region_code,f.version_str)) ELSE 0 END),custom=custom-(CASE WHEN (OLD.codename!='__global__' AND OLD.brand_id NOT IN ('huawei','honor') AND OLD.codename NOT LIKE 'huawei-%' AND OLD.codename NOT LIKE 'honor-%' AND OLD.marketing_name NOT LIKE '%Chromebook%') AND OLD.phase2_roms_enabled=1 THEN (SELECT COUNT(*) FROM custom_resources r WHERE r.device_codename=OLD.codename AND r.maintainer_opted_out=0 AND r.zone_type='free_rom') ELSE 0 END) WHERE id=1;\nEND",
+      "params": []
+    },
+    {
+      "sql": "CREATE TRIGGER coverage_device_update AFTER UPDATE OF codename,brand_id,marketing_name,phase2_roms_enabled ON devices\nWHEN OLD.codename IS NOT NEW.codename OR (OLD.codename!='__global__' AND OLD.brand_id NOT IN ('huawei','honor') AND OLD.codename NOT LIKE 'huawei-%' AND OLD.codename NOT LIKE 'honor-%' AND OLD.marketing_name NOT LIKE '%Chromebook%')!=(NEW.codename!='__global__' AND NEW.brand_id NOT IN ('huawei','honor') AND NEW.codename NOT LIKE 'huawei-%' AND NEW.codename NOT LIKE 'honor-%' AND NEW.marketing_name NOT LIKE '%Chromebook%') OR OLD.phase2_roms_enabled IS NOT NEW.phase2_roms_enabled\nBEGIN\n UPDATE catalogue_coverage SET\n devices=devices-CASE WHEN (OLD.codename!='__global__' AND OLD.brand_id NOT IN ('huawei','honor') AND OLD.codename NOT LIKE 'huawei-%' AND OLD.codename NOT LIKE 'honor-%' AND OLD.marketing_name NOT LIKE '%Chromebook%') THEN 1 ELSE 0 END+CASE WHEN (NEW.codename!='__global__' AND NEW.brand_id NOT IN ('huawei','honor') AND NEW.codename NOT LIKE 'huawei-%' AND NEW.codename NOT LIKE 'honor-%' AND NEW.marketing_name NOT LIKE '%Chromebook%') THEN 1 ELSE 0 END,\n official=official+CASE WHEN OLD.codename IS NOT NEW.codename OR (OLD.codename!='__global__' AND OLD.brand_id NOT IN ('huawei','honor') AND OLD.codename NOT LIKE 'huawei-%' AND OLD.codename NOT LIKE 'honor-%' AND OLD.marketing_name NOT LIKE '%Chromebook%')!=(NEW.codename!='__global__' AND NEW.brand_id NOT IN ('huawei','honor') AND NEW.codename NOT LIKE 'huawei-%' AND NEW.codename NOT LIKE 'honor-%' AND NEW.marketing_name NOT LIKE '%Chromebook%') THEN (CASE WHEN (NEW.codename!='__global__' AND NEW.brand_id NOT IN ('huawei','honor') AND NEW.codename NOT LIKE 'huawei-%' AND NEW.codename NOT LIKE 'honor-%' AND NEW.marketing_name NOT LIKE '%Chromebook%') THEN (SELECT COUNT(*) FROM (SELECT 1 FROM stock_firmwares f WHERE f.device_codename=NEW.codename GROUP BY COALESCE(NULLIF(f.model_code,''),f.device_codename),f.region_code,f.version_str)) ELSE 0 END)-(CASE WHEN (OLD.codename!='__global__' AND OLD.brand_id NOT IN ('huawei','honor') AND OLD.codename NOT LIKE 'huawei-%' AND OLD.codename NOT LIKE 'honor-%' AND OLD.marketing_name NOT LIKE '%Chromebook%') THEN (SELECT COUNT(*) FROM (SELECT 1 FROM stock_firmwares f WHERE f.device_codename=OLD.codename GROUP BY COALESCE(NULLIF(f.model_code,''),f.device_codename),f.region_code,f.version_str)) ELSE 0 END) ELSE 0 END,\n custom=custom+(CASE WHEN (NEW.codename!='__global__' AND NEW.brand_id NOT IN ('huawei','honor') AND NEW.codename NOT LIKE 'huawei-%' AND NEW.codename NOT LIKE 'honor-%' AND NEW.marketing_name NOT LIKE '%Chromebook%') AND NEW.phase2_roms_enabled=1 THEN (SELECT COUNT(*) FROM custom_resources r WHERE r.device_codename=NEW.codename AND r.maintainer_opted_out=0 AND r.zone_type='free_rom') ELSE 0 END)-(CASE WHEN (OLD.codename!='__global__' AND OLD.brand_id NOT IN ('huawei','honor') AND OLD.codename NOT LIKE 'huawei-%' AND OLD.codename NOT LIKE 'honor-%' AND OLD.marketing_name NOT LIKE '%Chromebook%') AND OLD.phase2_roms_enabled=1 THEN (SELECT COUNT(*) FROM custom_resources r WHERE r.device_codename=OLD.codename AND r.maintainer_opted_out=0 AND r.zone_type='free_rom') ELSE 0 END) WHERE id=1;\nEND",
+      "params": []
+    },
+    {
+      "sql": "CREATE TRIGGER coverage_fw_insert AFTER INSERT ON stock_firmwares\nWHEN EXISTS(SELECT 1 FROM devices d WHERE d.codename=NEW.device_codename AND (d.codename!='__global__' AND d.brand_id NOT IN ('huawei','honor') AND d.codename NOT LIKE 'huawei-%' AND d.codename NOT LIKE 'honor-%' AND d.marketing_name NOT LIKE '%Chromebook%')) AND NOT EXISTS(SELECT 1 FROM stock_firmwares f WHERE f.device_codename=NEW.device_codename AND COALESCE(NULLIF(f.model_code,''),f.device_codename)=COALESCE(NULLIF(NEW.model_code,''),NEW.device_codename) AND f.region_code=NEW.region_code AND f.version_str=NEW.version_str AND f.id!=NEW.id)\nBEGIN\n UPDATE catalogue_coverage SET official=official+1 WHERE id=1;\nEND",
+      "params": []
+    },
+    {
+      "sql": "CREATE TRIGGER coverage_fw_delete AFTER DELETE ON stock_firmwares\nWHEN EXISTS(SELECT 1 FROM devices d WHERE d.codename=OLD.device_codename AND (d.codename!='__global__' AND d.brand_id NOT IN ('huawei','honor') AND d.codename NOT LIKE 'huawei-%' AND d.codename NOT LIKE 'honor-%' AND d.marketing_name NOT LIKE '%Chromebook%')) AND NOT EXISTS(SELECT 1 FROM stock_firmwares f WHERE f.device_codename=OLD.device_codename AND COALESCE(NULLIF(f.model_code,''),f.device_codename)=COALESCE(NULLIF(OLD.model_code,''),OLD.device_codename) AND f.region_code=OLD.region_code AND f.version_str=OLD.version_str)\nBEGIN\n UPDATE catalogue_coverage SET official=official-1 WHERE id=1;\nEND",
+      "params": []
+    },
+    {
+      "sql": "CREATE TRIGGER coverage_fw_update AFTER UPDATE OF device_codename,model_code,region_code,version_str ON stock_firmwares\nWHEN OLD.device_codename IS NOT NEW.device_codename OR COALESCE(NULLIF(OLD.model_code,''),OLD.device_codename) IS NOT COALESCE(NULLIF(NEW.model_code,''),NEW.device_codename) OR OLD.region_code IS NOT NEW.region_code OR OLD.version_str IS NOT NEW.version_str\nBEGIN\n UPDATE catalogue_coverage SET official=official-1 WHERE id=1 AND EXISTS(SELECT 1 FROM devices d WHERE d.codename=OLD.device_codename AND (d.codename!='__global__' AND d.brand_id NOT IN ('huawei','honor') AND d.codename NOT LIKE 'huawei-%' AND d.codename NOT LIKE 'honor-%' AND d.marketing_name NOT LIKE '%Chromebook%')) AND NOT EXISTS(SELECT 1 FROM stock_firmwares f WHERE f.device_codename=OLD.device_codename AND COALESCE(NULLIF(f.model_code,''),f.device_codename)=COALESCE(NULLIF(OLD.model_code,''),OLD.device_codename) AND f.region_code=OLD.region_code AND f.version_str=OLD.version_str);\n UPDATE catalogue_coverage SET official=official+1 WHERE id=1 AND EXISTS(SELECT 1 FROM devices d WHERE d.codename=NEW.device_codename AND (d.codename!='__global__' AND d.brand_id NOT IN ('huawei','honor') AND d.codename NOT LIKE 'huawei-%' AND d.codename NOT LIKE 'honor-%' AND d.marketing_name NOT LIKE '%Chromebook%')) AND NOT EXISTS(SELECT 1 FROM stock_firmwares f WHERE f.device_codename=NEW.device_codename AND COALESCE(NULLIF(f.model_code,''),f.device_codename)=COALESCE(NULLIF(NEW.model_code,''),NEW.device_codename) AND f.region_code=NEW.region_code AND f.version_str=NEW.version_str AND f.id!=NEW.id);\nEND",
+      "params": []
+    },
+    {
+      "sql": "CREATE TRIGGER coverage_custom_insert AFTER INSERT ON custom_resources\nWHEN (NEW.maintainer_opted_out=0 AND NEW.zone_type='free_rom' AND EXISTS(SELECT 1 FROM devices d WHERE d.codename=NEW.device_codename AND (d.codename!='__global__' AND d.brand_id NOT IN ('huawei','honor') AND d.codename NOT LIKE 'huawei-%' AND d.codename NOT LIKE 'honor-%' AND d.marketing_name NOT LIKE '%Chromebook%') AND d.phase2_roms_enabled=1))\nBEGIN\n UPDATE catalogue_coverage SET custom=custom+1 WHERE id=1;\nEND",
+      "params": []
+    },
+    {
+      "sql": "CREATE TRIGGER coverage_custom_delete AFTER DELETE ON custom_resources\nWHEN (OLD.maintainer_opted_out=0 AND OLD.zone_type='free_rom' AND EXISTS(SELECT 1 FROM devices d WHERE d.codename=OLD.device_codename AND (d.codename!='__global__' AND d.brand_id NOT IN ('huawei','honor') AND d.codename NOT LIKE 'huawei-%' AND d.codename NOT LIKE 'honor-%' AND d.marketing_name NOT LIKE '%Chromebook%') AND d.phase2_roms_enabled=1))\nBEGIN\n UPDATE catalogue_coverage SET custom=custom-1 WHERE id=1;\nEND",
+      "params": []
+    },
+    {
+      "sql": "CREATE TRIGGER coverage_custom_update AFTER UPDATE OF device_codename,zone_type,maintainer_opted_out ON custom_resources\nWHEN (OLD.device_codename IS NOT NEW.device_codename OR OLD.zone_type IS NOT NEW.zone_type OR OLD.maintainer_opted_out IS NOT NEW.maintainer_opted_out)\nBEGIN\n UPDATE catalogue_coverage SET custom=custom-CASE WHEN (OLD.maintainer_opted_out=0 AND OLD.zone_type='free_rom' AND EXISTS(SELECT 1 FROM devices d WHERE d.codename=OLD.device_codename AND (d.codename!='__global__' AND d.brand_id NOT IN ('huawei','honor') AND d.codename NOT LIKE 'huawei-%' AND d.codename NOT LIKE 'honor-%' AND d.marketing_name NOT LIKE '%Chromebook%') AND d.phase2_roms_enabled=1)) THEN 1 ELSE 0 END+CASE WHEN (NEW.maintainer_opted_out=0 AND NEW.zone_type='free_rom' AND EXISTS(SELECT 1 FROM devices d WHERE d.codename=NEW.device_codename AND (d.codename!='__global__' AND d.brand_id NOT IN ('huawei','honor') AND d.codename NOT LIKE 'huawei-%' AND d.codename NOT LIKE 'honor-%' AND d.marketing_name NOT LIKE '%Chromebook%') AND d.phase2_roms_enabled=1)) THEN 1 ELSE 0 END WHERE id=1;\nEND",
+      "params": []
+    },
+    {
+      "sql": "INSERT INTO fmr_schema_migrations(version,sha256) VALUES (4,'0da98479a27b166dfad127fffacbf8e71df9459d9094dc832ecc0d2f1d54bedf')",
+      "params": []
+    }
+  ],
+  [
+    {
+      "sql": "CREATE TABLE IF NOT EXISTS fmr_schema_migrations(version INTEGER PRIMARY KEY,sha256 TEXT NOT NULL,applied_at INTEGER NOT NULL DEFAULT (strftime('%s','now')))",
+      "params": []
+    },
+    {
+      "sql": "ALTER TABLE custom_resources ADD COLUMN audit_batch_id TEXT",
+      "params": []
+    },
+    {
+      "sql": "ALTER TABLE custom_resources ADD COLUMN metadata_json TEXT NOT NULL DEFAULT '{}'",
+      "params": []
+    },
+    {
+      "sql": "CREATE INDEX IF NOT EXISTS idx_custom_audit_batch ON custom_resources(audit_batch_id)",
+      "params": []
+    },
+    {
+      "sql": "CREATE INDEX IF NOT EXISTS idx_custom_audit_owner ON custom_resources(json_extract(CASE WHEN json_valid(metadata_json) THEN metadata_json ELSE '{}' END,'$.audit_version'),id) WHERE maintainer_opted_out=0",
+      "params": []
+    },
+    {
+      "sql": "CREATE TABLE firmware_search (\n device_codename TEXT NOT NULL,region_code TEXT NOT NULL,versions TEXT NOT NULL,\n PRIMARY KEY(device_codename,region_code)\n) WITHOUT ROWID",
+      "params": []
+    },
+    {
+      "sql": "INSERT INTO firmware_search\nSELECT device_codename,region_code,CHAR(31)||GROUP_CONCAT(version_str,CHAR(31))||CHAR(31)\nFROM (SELECT DISTINCT device_codename,region_code,version_str FROM stock_firmwares)\nGROUP BY device_codename,region_code",
+      "params": []
+    },
+    {
+      "sql": "CREATE INDEX IF NOT EXISTS idx_fw_pending_order ON stock_firmwares(COALESCE(published_date,'') DESC,id DESC) WHERE extract_status='pending' AND extract_retries<3",
+      "params": []
+    },
+    {
+      "sql": "DROP TABLE IF EXISTS vote_rate_limits",
+      "params": []
+    },
+    {
+      "sql": "CREATE TRIGGER search_fw_insert AFTER INSERT ON stock_firmwares BEGIN\n INSERT INTO firmware_search(device_codename,region_code,versions) VALUES (NEW.device_codename,NEW.region_code,CHAR(31)||NEW.version_str||CHAR(31))\n ON CONFLICT(device_codename,region_code) DO UPDATE SET versions=versions||NEW.version_str||CHAR(31)\n WHERE INSTR(versions,CHAR(31)||NEW.version_str||CHAR(31))=0;\nEND",
+      "params": []
+    },
+    {
+      "sql": "CREATE TRIGGER search_fw_delete AFTER DELETE ON stock_firmwares BEGIN\n UPDATE firmware_search SET versions=COALESCE((SELECT CHAR(31)||GROUP_CONCAT(version_str,CHAR(31))||CHAR(31) FROM (SELECT DISTINCT version_str FROM stock_firmwares WHERE device_codename=OLD.device_codename AND region_code=OLD.region_code)),CHAR(31))\n WHERE device_codename=OLD.device_codename AND region_code=OLD.region_code\n AND NOT EXISTS(SELECT 1 FROM stock_firmwares f WHERE f.device_codename=OLD.device_codename AND f.region_code=OLD.region_code AND f.version_str=OLD.version_str);\n DELETE FROM firmware_search WHERE device_codename=OLD.device_codename AND region_code=OLD.region_code AND versions=CHAR(31);\nEND",
+      "params": []
+    },
+    {
+      "sql": "CREATE TRIGGER search_fw_update AFTER UPDATE OF device_codename,region_code,version_str ON stock_firmwares\nWHEN OLD.device_codename IS NOT NEW.device_codename OR OLD.region_code IS NOT NEW.region_code OR OLD.version_str IS NOT NEW.version_str\nBEGIN\n UPDATE firmware_search SET versions=COALESCE((SELECT CHAR(31)||GROUP_CONCAT(version_str,CHAR(31))||CHAR(31) FROM (SELECT DISTINCT version_str FROM stock_firmwares WHERE device_codename=OLD.device_codename AND region_code=OLD.region_code)),CHAR(31))\n WHERE device_codename=OLD.device_codename AND region_code=OLD.region_code\n AND NOT EXISTS(SELECT 1 FROM stock_firmwares f WHERE f.device_codename=OLD.device_codename AND f.region_code=OLD.region_code AND f.version_str=OLD.version_str);\n DELETE FROM firmware_search WHERE device_codename=OLD.device_codename AND region_code=OLD.region_code AND versions=CHAR(31);\n INSERT INTO firmware_search(device_codename,region_code,versions) VALUES (NEW.device_codename,NEW.region_code,CHAR(31)||NEW.version_str||CHAR(31))\n ON CONFLICT(device_codename,region_code) DO UPDATE SET versions=versions||NEW.version_str||CHAR(31)\n WHERE INSTR(versions,CHAR(31)||NEW.version_str||CHAR(31))=0;\nEND",
+      "params": []
+    },
+    {
+      "sql": "INSERT INTO fmr_schema_migrations(version,sha256) VALUES (5,'f6d1c806683ef0155ec7d54a550ef64255387b7e016fc6dfbc3da5283a905a25')",
+      "params": []
+    }
+  ],
+  [
+    {
+      "sql": "CREATE TABLE IF NOT EXISTS fmr_identity_days(\n          utc_day TEXT PRIMARY KEY,started_at TEXT NOT NULL)",
+      "params": []
+    },
+    {
+      "sql": "CREATE TABLE IF NOT EXISTS _fmr_identity_assert(value INTEGER NOT NULL CHECK(value=1))",
+      "params": []
+    },
+    {
+      "sql": "CREATE TRIGGER IF NOT EXISTS \"fmr_maintenance_lock_brand_universal_tools_insert\" BEFORE INSERT ON \"brand_universal_tools\" BEGIN SELECT RAISE(ABORT,'D1 migration maintenance; publisher checkpoint must remain pending'); END",
+      "params": []
+    },
+    {
+      "sql": "CREATE TRIGGER IF NOT EXISTS \"fmr_maintenance_lock_brand_universal_tools_update\" BEFORE UPDATE ON \"brand_universal_tools\" BEGIN SELECT RAISE(ABORT,'D1 migration maintenance; publisher checkpoint must remain pending'); END",
+      "params": []
+    },
+    {
+      "sql": "CREATE TRIGGER IF NOT EXISTS \"fmr_maintenance_lock_brand_universal_tools_delete\" BEFORE DELETE ON \"brand_universal_tools\" BEGIN SELECT RAISE(ABORT,'D1 migration maintenance; publisher checkpoint must remain pending'); END",
+      "params": []
+    },
+    {
+      "sql": "CREATE TRIGGER IF NOT EXISTS \"fmr_maintenance_lock_brands_insert\" BEFORE INSERT ON \"brands\" BEGIN SELECT RAISE(ABORT,'D1 migration maintenance; publisher checkpoint must remain pending'); END",
+      "params": []
+    },
+    {
+      "sql": "CREATE TRIGGER IF NOT EXISTS \"fmr_maintenance_lock_brands_update\" BEFORE UPDATE ON \"brands\" BEGIN SELECT RAISE(ABORT,'D1 migration maintenance; publisher checkpoint must remain pending'); END",
+      "params": []
+    },
+    {
+      "sql": "CREATE TRIGGER IF NOT EXISTS \"fmr_maintenance_lock_brands_delete\" BEFORE DELETE ON \"brands\" BEGIN SELECT RAISE(ABORT,'D1 migration maintenance; publisher checkpoint must remain pending'); END",
+      "params": []
+    },
+    {
+      "sql": "CREATE TRIGGER IF NOT EXISTS \"fmr_maintenance_lock_crawler_sources_insert\" BEFORE INSERT ON \"crawler_sources\" BEGIN SELECT RAISE(ABORT,'D1 migration maintenance; publisher checkpoint must remain pending'); END",
+      "params": []
+    },
+    {
+      "sql": "CREATE TRIGGER IF NOT EXISTS \"fmr_maintenance_lock_crawler_sources_update\" BEFORE UPDATE ON \"crawler_sources\" BEGIN SELECT RAISE(ABORT,'D1 migration maintenance; publisher checkpoint must remain pending'); END",
+      "params": []
+    },
+    {
+      "sql": "CREATE TRIGGER IF NOT EXISTS \"fmr_maintenance_lock_crawler_sources_delete\" BEFORE DELETE ON \"crawler_sources\" BEGIN SELECT RAISE(ABORT,'D1 migration maintenance; publisher checkpoint must remain pending'); END",
+      "params": []
+    },
+    {
+      "sql": "CREATE TRIGGER IF NOT EXISTS \"fmr_maintenance_lock_custom_resources_insert\" BEFORE INSERT ON \"custom_resources\" BEGIN SELECT RAISE(ABORT,'D1 migration maintenance; publisher checkpoint must remain pending'); END",
+      "params": []
+    },
+    {
+      "sql": "CREATE TRIGGER IF NOT EXISTS \"fmr_maintenance_lock_custom_resources_update\" BEFORE UPDATE ON \"custom_resources\" BEGIN SELECT RAISE(ABORT,'D1 migration maintenance; publisher checkpoint must remain pending'); END",
+      "params": []
+    },
+    {
+      "sql": "CREATE TRIGGER IF NOT EXISTS \"fmr_maintenance_lock_custom_resources_delete\" BEFORE DELETE ON \"custom_resources\" BEGIN SELECT RAISE(ABORT,'D1 migration maintenance; publisher checkpoint must remain pending'); END",
+      "params": []
+    },
+    {
+      "sql": "CREATE TRIGGER IF NOT EXISTS \"fmr_maintenance_lock_device_parts_specs_insert\" BEFORE INSERT ON \"device_parts_specs\" BEGIN SELECT RAISE(ABORT,'D1 migration maintenance; publisher checkpoint must remain pending'); END",
+      "params": []
+    },
+    {
+      "sql": "CREATE TRIGGER IF NOT EXISTS \"fmr_maintenance_lock_device_parts_specs_update\" BEFORE UPDATE ON \"device_parts_specs\" BEGIN SELECT RAISE(ABORT,'D1 migration maintenance; publisher checkpoint must remain pending'); END",
+      "params": []
+    },
+    {
+      "sql": "CREATE TRIGGER IF NOT EXISTS \"fmr_maintenance_lock_device_parts_specs_delete\" BEFORE DELETE ON \"device_parts_specs\" BEGIN SELECT RAISE(ABORT,'D1 migration maintenance; publisher checkpoint must remain pending'); END",
+      "params": []
+    },
+    {
+      "sql": "CREATE TRIGGER IF NOT EXISTS \"fmr_maintenance_lock_devices_insert\" BEFORE INSERT ON \"devices\" BEGIN SELECT RAISE(ABORT,'D1 migration maintenance; publisher checkpoint must remain pending'); END",
+      "params": []
+    },
+    {
+      "sql": "CREATE TRIGGER IF NOT EXISTS \"fmr_maintenance_lock_devices_update\" BEFORE UPDATE ON \"devices\" BEGIN SELECT RAISE(ABORT,'D1 migration maintenance; publisher checkpoint must remain pending'); END",
+      "params": []
+    },
+    {
+      "sql": "CREATE TRIGGER IF NOT EXISTS \"fmr_maintenance_lock_devices_delete\" BEFORE DELETE ON \"devices\" BEGIN SELECT RAISE(ABORT,'D1 migration maintenance; publisher checkpoint must remain pending'); END",
+      "params": []
+    },
+    {
+      "sql": "CREATE TRIGGER IF NOT EXISTS \"fmr_maintenance_lock_extracted_boot_images_insert\" BEFORE INSERT ON \"extracted_boot_images\" BEGIN SELECT RAISE(ABORT,'D1 migration maintenance; publisher checkpoint must remain pending'); END",
+      "params": []
+    },
+    {
+      "sql": "CREATE TRIGGER IF NOT EXISTS \"fmr_maintenance_lock_extracted_boot_images_update\" BEFORE UPDATE ON \"extracted_boot_images\" BEGIN SELECT RAISE(ABORT,'D1 migration maintenance; publisher checkpoint must remain pending'); END",
+      "params": []
+    },
+    {
+      "sql": "CREATE TRIGGER IF NOT EXISTS \"fmr_maintenance_lock_extracted_boot_images_delete\" BEFORE DELETE ON \"extracted_boot_images\" BEGIN SELECT RAISE(ABORT,'D1 migration maintenance; publisher checkpoint must remain pending'); END",
+      "params": []
+    },
+    {
+      "sql": "CREATE TRIGGER IF NOT EXISTS \"fmr_maintenance_lock_stock_firmwares_insert\" BEFORE INSERT ON \"stock_firmwares\" BEGIN SELECT RAISE(ABORT,'D1 migration maintenance; publisher checkpoint must remain pending'); END",
+      "params": []
+    },
+    {
+      "sql": "CREATE TRIGGER IF NOT EXISTS \"fmr_maintenance_lock_stock_firmwares_update\" BEFORE UPDATE ON \"stock_firmwares\" BEGIN SELECT RAISE(ABORT,'D1 migration maintenance; publisher checkpoint must remain pending'); END",
+      "params": []
+    },
+    {
+      "sql": "CREATE TRIGGER IF NOT EXISTS \"fmr_maintenance_lock_stock_firmwares_delete\" BEFORE DELETE ON \"stock_firmwares\" BEGIN SELECT RAISE(ABORT,'D1 migration maintenance; publisher checkpoint must remain pending'); END",
+      "params": []
+    }
+  ],
+  [
+    {
+      "sql": "INSERT INTO fmr_identity_days(utc_day,started_at) VALUES (?,?)",
+      "params": [
+        "2026-11-04",
+        "2026-11-04T01:00:00+00:00"
+      ]
+    }
+  ],
+  [
+    {
+      "sql": "CREATE TABLE fmr_identity_maintenance(id INTEGER PRIMARY KEY CHECK(id=1),\n       plan TEXT NOT NULL,sha256 TEXT NOT NULL,phase TEXT NOT NULL,cursor INTEGER NOT NULL,\n       columns_json TEXT NOT NULL,fw_total INTEGER NOT NULL,image_total INTEGER NOT NULL,\n       verified_fw INTEGER NOT NULL DEFAULT 0,verified_images INTEGER NOT NULL DEFAULT 0)",
+      "params": []
+    },
+    {
+      "sql": "CREATE TABLE stock_firmwares_next (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    public_token TEXT NOT NULL UNIQUE,\n    device_codename TEXT NOT NULL REFERENCES devices(codename),\n    region_code TEXT NOT NULL,\n    model_code TEXT,\n    version_str TEXT NOT NULL,\n    android_version TEXT NOT NULL,\n    package_type TEXT NOT NULL,            \n    file_size_str TEXT,\n    md5_or_sha256 TEXT,\n    original_official_url TEXT NOT NULL,\n    fast_cdn_url TEXT NOT NULL,\n    published_date TEXT,\n    ed25519_signature TEXT NOT NULL,       \n    extract_status TEXT DEFAULT 'pending', \n    extract_retries INTEGER DEFAULT 0,\n    extract_error TEXT,\n    updated_at INTEGER DEFAULT (strftime('%s', 'now'))\n)",
+      "params": []
+    },
+    {
+      "sql": "CREATE TABLE extracted_boot_images_next (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    public_token TEXT NOT NULL UNIQUE,\n    firmware_id INTEGER NOT NULL REFERENCES stock_firmwares_next(id),\n    device_codename TEXT NOT NULL,\n    version_str TEXT NOT NULL,\n    partition_name TEXT NOT NULL,          \n    variant_type TEXT NOT NULL,            \n    patch_tool_ver TEXT,\n    file_name TEXT NOT NULL,\n    file_size_bytes INTEGER NOT NULL,\n    sha256_hash TEXT NOT NULL,\n    gh_private_repo TEXT NOT NULL,\n    gh_release_tag TEXT NOT NULL,\n    gh_asset_id INTEGER NOT NULL,\n    ed25519_signature TEXT NOT NULL,       \n    download_count INTEGER DEFAULT 0,\n    working_votes INTEGER DEFAULT 0,\n    broken_votes INTEGER DEFAULT 0,\n    created_at INTEGER DEFAULT (strftime('%s', 'now')),\n    UNIQUE(firmware_id, partition_name, variant_type)\n)",
+      "params": []
+    },
+    {
+      "sql": "DROP INDEX idx_fw_device_ver",
+      "params": []
+    },
+    {
+      "sql": "DROP INDEX idx_fw_queue",
+      "params": []
+    },
+    {
+      "sql": "DROP INDEX idx_fw_pending_order",
+      "params": []
+    },
+    {
+      "sql": "DROP INDEX idx_boot_search",
+      "params": []
+    },
+    {
+      "sql": "CREATE UNIQUE INDEX idx_fw_identity ON stock_firmwares_next(device_codename,COALESCE(NULLIF(model_code,''),device_codename),region_code,version_str,package_type)",
+      "params": []
+    },
+    {
+      "sql": "CREATE INDEX idx_fw_device_ver ON stock_firmwares_next(device_codename,published_date DESC)",
+      "params": []
+    },
+    {
+      "sql": "CREATE INDEX idx_fw_queue ON stock_firmwares_next(extract_status,extract_retries)",
+      "params": []
+    },
+    {
+      "sql": "CREATE INDEX idx_fw_pending_order ON stock_firmwares_next(COALESCE(published_date,'') DESC,id DESC) WHERE extract_status='pending' AND extract_retries<3",
+      "params": []
+    },
+    {
+      "sql": "CREATE INDEX idx_boot_search ON extracted_boot_images_next(device_codename,version_str,partition_name)",
+      "params": []
+    },
+    {
+      "sql": "INSERT INTO fmr_identity_maintenance(id,plan,sha256,phase,cursor,columns_json,fw_total,image_total)\n       VALUES (1,?,?,'copy_fw',0,?,(SELECT COUNT(*) FROM stock_firmwares),\n       (SELECT COUNT(*) FROM extracted_boot_images))",
+      "params": [
+        "offline-v6-batched-1",
+        "e7669dbab6eb7ffcec3dd4de08b7c9cfa18d886f3fd7bf8ede80f2bec0c4bafb",
+        "{\"stock_firmwares\": [\"id\", \"public_token\", \"device_codename\", \"region_code\", \"model_code\", \"version_str\", \"android_version\", \"package_type\", \"file_size_str\", \"md5_or_sha256\", \"original_official_url\", \"fast_cdn_url\", \"published_date\", \"ed25519_signature\", \"extract_status\", \"extract_retries\", \"extract_error\", \"updated_at\"], \"extracted_boot_images\": [\"id\", \"public_token\", \"firmware_id\", \"device_codename\", \"version_str\", \"partition_name\", \"variant_type\", \"patch_tool_ver\", \"file_name\", \"file_size_bytes\", \"sha256_hash\", \"gh_private_repo\", \"gh_release_tag\", \"gh_asset_id\", \"ed25519_signature\", \"download_count\", \"working_votes\", \"broken_votes\", \"created_at\"]}"
+      ]
+    }
+  ],
+  [
+    {
+      "sql": "INSERT INTO _fmr_identity_assert(value) SELECT CASE WHEN (EXISTS(SELECT 1 FROM fmr_identity_maintenance WHERE phase=? AND cursor=?)) THEN 1 ELSE 0 END",
+      "params": [
+        "copy_fw",
+        0
+      ]
+    },
+    {
+      "sql": "DELETE FROM _fmr_identity_assert",
+      "params": []
+    },
+    {
+      "sql": "INSERT INTO stock_firmwares_next(\"id\",\"public_token\",\"device_codename\",\"region_code\",\"model_code\",\"version_str\",\"android_version\",\"package_type\",\"file_size_str\",\"md5_or_sha256\",\"original_official_url\",\"fast_cdn_url\",\"published_date\",\"ed25519_signature\",\"extract_status\",\"extract_retries\",\"extract_error\",\"updated_at\") SELECT \"id\",\"public_token\",\"device_codename\",\"region_code\",\"model_code\",\"version_str\",\"android_version\",\"package_type\",\"file_size_str\",\"md5_or_sha256\",\"original_official_url\",\"fast_cdn_url\",\"published_date\",\"ed25519_signature\",\"extract_status\",\"extract_retries\",\"extract_error\",\"updated_at\" FROM stock_firmwares WHERE id>? AND id<=?",
+      "params": [
+        0,
+        1
+      ]
+    },
+    {
+      "sql": "INSERT INTO _fmr_identity_assert(value) SELECT CASE WHEN (NOT EXISTS(SELECT 1 FROM stock_firmwares s LEFT JOIN stock_firmwares_next n ON n.id=s.id WHERE s.id>? AND s.id<=? AND NOT (s.\"id\" IS n.\"id\" AND s.\"public_token\" IS n.\"public_token\" AND s.\"device_codename\" IS n.\"device_codename\" AND s.\"region_code\" IS n.\"region_code\" AND s.\"model_code\" IS n.\"model_code\" AND s.\"version_str\" IS n.\"version_str\" AND s.\"android_version\" IS n.\"android_version\" AND s.\"package_type\" IS n.\"package_type\" AND s.\"file_size_str\" IS n.\"file_size_str\" AND s.\"md5_or_sha256\" IS n.\"md5_or_sha256\" AND s.\"original_official_url\" IS n.\"original_official_url\" AND s.\"fast_cdn_url\" IS n.\"fast_cdn_url\" AND s.\"published_date\" IS n.\"published_date\" AND s.\"ed25519_signature\" IS n.\"ed25519_signature\" AND s.\"extract_status\" IS n.\"extract_status\" AND s.\"extract_retries\" IS n.\"extract_retries\" AND s.\"extract_error\" IS n.\"extract_error\" AND s.\"updated_at\" IS n.\"updated_at\"))) THEN 1 ELSE 0 END",
+      "params": [
+        0,
+        1
+      ]
+    },
+    {
+      "sql": "DELETE FROM _fmr_identity_assert",
+      "params": []
+    },
+    {
+      "sql": "UPDATE fmr_identity_maintenance SET cursor=? WHERE id=1",
+      "params": [
+        1
+      ]
+    }
+  ],
+  [
+    {
+      "sql": "INSERT INTO _fmr_identity_assert(value) SELECT CASE WHEN (EXISTS(SELECT 1 FROM fmr_identity_maintenance WHERE phase=? AND cursor=?)) THEN 1 ELSE 0 END",
+      "params": [
+        "copy_fw",
+        1
+      ]
+    },
+    {
+      "sql": "DELETE FROM _fmr_identity_assert",
+      "params": []
+    },
+    {
+      "sql": "INSERT INTO stock_firmwares_next(\"id\",\"public_token\",\"device_codename\",\"region_code\",\"model_code\",\"version_str\",\"android_version\",\"package_type\",\"file_size_str\",\"md5_or_sha256\",\"original_official_url\",\"fast_cdn_url\",\"published_date\",\"ed25519_signature\",\"extract_status\",\"extract_retries\",\"extract_error\",\"updated_at\") SELECT \"id\",\"public_token\",\"device_codename\",\"region_code\",\"model_code\",\"version_str\",\"android_version\",\"package_type\",\"file_size_str\",\"md5_or_sha256\",\"original_official_url\",\"fast_cdn_url\",\"published_date\",\"ed25519_signature\",\"extract_status\",\"extract_retries\",\"extract_error\",\"updated_at\" FROM stock_firmwares WHERE id>? AND id<=?",
+      "params": [
+        1,
+        2
+      ]
+    },
+    {
+      "sql": "INSERT INTO _fmr_identity_assert(value) SELECT CASE WHEN (NOT EXISTS(SELECT 1 FROM stock_firmwares s LEFT JOIN stock_firmwares_next n ON n.id=s.id WHERE s.id>? AND s.id<=? AND NOT (s.\"id\" IS n.\"id\" AND s.\"public_token\" IS n.\"public_token\" AND s.\"device_codename\" IS n.\"device_codename\" AND s.\"region_code\" IS n.\"region_code\" AND s.\"model_code\" IS n.\"model_code\" AND s.\"version_str\" IS n.\"version_str\" AND s.\"android_version\" IS n.\"android_version\" AND s.\"package_type\" IS n.\"package_type\" AND s.\"file_size_str\" IS n.\"file_size_str\" AND s.\"md5_or_sha256\" IS n.\"md5_or_sha256\" AND s.\"original_official_url\" IS n.\"original_official_url\" AND s.\"fast_cdn_url\" IS n.\"fast_cdn_url\" AND s.\"published_date\" IS n.\"published_date\" AND s.\"ed25519_signature\" IS n.\"ed25519_signature\" AND s.\"extract_status\" IS n.\"extract_status\" AND s.\"extract_retries\" IS n.\"extract_retries\" AND s.\"extract_error\" IS n.\"extract_error\" AND s.\"updated_at\" IS n.\"updated_at\"))) THEN 1 ELSE 0 END",
+      "params": [
+        1,
+        2
+      ]
+    },
+    {
+      "sql": "DELETE FROM _fmr_identity_assert",
+      "params": []
+    },
+    {
+      "sql": "UPDATE fmr_identity_maintenance SET cursor=? WHERE id=1",
+      "params": [
+        2
+      ]
+    }
+  ],
+  [
+    {
+      "sql": "INSERT INTO _fmr_identity_assert(value) SELECT CASE WHEN (EXISTS(SELECT 1 FROM fmr_identity_maintenance WHERE phase=? AND cursor=?)) THEN 1 ELSE 0 END",
+      "params": [
+        "copy_fw",
+        2
+      ]
+    },
+    {
+      "sql": "DELETE FROM _fmr_identity_assert",
+      "params": []
+    },
+    {
+      "sql": "UPDATE fmr_identity_maintenance SET phase=?,cursor=0 WHERE id=1",
+      "params": [
+        "copy_images"
+      ]
+    }
+  ],
+  [
+    {
+      "sql": "INSERT INTO _fmr_identity_assert(value) SELECT CASE WHEN (EXISTS(SELECT 1 FROM fmr_identity_maintenance WHERE phase=? AND cursor=?)) THEN 1 ELSE 0 END",
+      "params": [
+        "copy_images",
+        0
+      ]
+    },
+    {
+      "sql": "DELETE FROM _fmr_identity_assert",
+      "params": []
+    },
+    {
+      "sql": "INSERT INTO extracted_boot_images_next(\"id\",\"public_token\",\"firmware_id\",\"device_codename\",\"version_str\",\"partition_name\",\"variant_type\",\"patch_tool_ver\",\"file_name\",\"file_size_bytes\",\"sha256_hash\",\"gh_private_repo\",\"gh_release_tag\",\"gh_asset_id\",\"ed25519_signature\",\"download_count\",\"working_votes\",\"broken_votes\",\"created_at\") SELECT \"id\",\"public_token\",\"firmware_id\",\"device_codename\",\"version_str\",\"partition_name\",\"variant_type\",\"patch_tool_ver\",\"file_name\",\"file_size_bytes\",\"sha256_hash\",\"gh_private_repo\",\"gh_release_tag\",\"gh_asset_id\",\"ed25519_signature\",\"download_count\",\"working_votes\",\"broken_votes\",\"created_at\" FROM extracted_boot_images WHERE id>? AND id<=?",
+      "params": [
+        0,
+        1
+      ]
+    },
+    {
+      "sql": "INSERT INTO _fmr_identity_assert(value) SELECT CASE WHEN (NOT EXISTS(SELECT 1 FROM extracted_boot_images s LEFT JOIN extracted_boot_images_next n ON n.id=s.id WHERE s.id>? AND s.id<=? AND NOT (s.\"id\" IS n.\"id\" AND s.\"public_token\" IS n.\"public_token\" AND s.\"firmware_id\" IS n.\"firmware_id\" AND s.\"device_codename\" IS n.\"device_codename\" AND s.\"version_str\" IS n.\"version_str\" AND s.\"partition_name\" IS n.\"partition_name\" AND s.\"variant_type\" IS n.\"variant_type\" AND s.\"patch_tool_ver\" IS n.\"patch_tool_ver\" AND s.\"file_name\" IS n.\"file_name\" AND s.\"file_size_bytes\" IS n.\"file_size_bytes\" AND s.\"sha256_hash\" IS n.\"sha256_hash\" AND s.\"gh_private_repo\" IS n.\"gh_private_repo\" AND s.\"gh_release_tag\" IS n.\"gh_release_tag\" AND s.\"gh_asset_id\" IS n.\"gh_asset_id\" AND s.\"ed25519_signature\" IS n.\"ed25519_signature\" AND s.\"download_count\" IS n.\"download_count\" AND s.\"working_votes\" IS n.\"working_votes\" AND s.\"broken_votes\" IS n.\"broken_votes\" AND s.\"created_at\" IS n.\"created_at\"))) THEN 1 ELSE 0 END",
+      "params": [
+        0,
+        1
+      ]
+    },
+    {
+      "sql": "DELETE FROM _fmr_identity_assert",
+      "params": []
+    },
+    {
+      "sql": "UPDATE fmr_identity_maintenance SET cursor=? WHERE id=1",
+      "params": [
+        1
+      ]
+    }
+  ],
+  [
+    {
+      "sql": "INSERT INTO _fmr_identity_assert(value) SELECT CASE WHEN (EXISTS(SELECT 1 FROM fmr_identity_maintenance WHERE phase=? AND cursor=?)) THEN 1 ELSE 0 END",
+      "params": [
+        "copy_images",
+        1
+      ]
+    },
+    {
+      "sql": "DELETE FROM _fmr_identity_assert",
+      "params": []
+    },
+    {
+      "sql": "UPDATE fmr_identity_maintenance SET phase=?,cursor=0 WHERE id=1",
+      "params": [
+        "verify_fw"
+      ]
+    }
+  ],
+  [
+    {
+      "sql": "INSERT INTO _fmr_identity_assert(value) SELECT CASE WHEN (NOT EXISTS(SELECT 1 FROM stock_firmwares_next n LEFT JOIN stock_firmwares s ON n.id=s.id WHERE n.id>? AND n.id<=? AND NOT (s.\"id\" IS n.\"id\" AND s.\"public_token\" IS n.\"public_token\" AND s.\"device_codename\" IS n.\"device_codename\" AND s.\"region_code\" IS n.\"region_code\" AND s.\"model_code\" IS n.\"model_code\" AND s.\"version_str\" IS n.\"version_str\" AND s.\"android_version\" IS n.\"android_version\" AND s.\"package_type\" IS n.\"package_type\" AND s.\"file_size_str\" IS n.\"file_size_str\" AND s.\"md5_or_sha256\" IS n.\"md5_or_sha256\" AND s.\"original_official_url\" IS n.\"original_official_url\" AND s.\"fast_cdn_url\" IS n.\"fast_cdn_url\" AND s.\"published_date\" IS n.\"published_date\" AND s.\"ed25519_signature\" IS n.\"ed25519_signature\" AND s.\"extract_status\" IS n.\"extract_status\" AND s.\"extract_retries\" IS n.\"extract_retries\" AND s.\"extract_error\" IS n.\"extract_error\" AND s.\"updated_at\" IS n.\"updated_at\"))) THEN 1 ELSE 0 END",
+      "params": [
+        0,
+        1
+      ]
+    },
+    {
+      "sql": "DELETE FROM _fmr_identity_assert",
+      "params": []
+    },
+    {
+      "sql": "UPDATE fmr_identity_maintenance SET cursor=?,verified_fw=verified_fw+? WHERE id=1",
+      "params": [
+        1,
+        1
+      ]
+    }
+  ],
+  [
+    {
+      "sql": "INSERT INTO _fmr_identity_assert(value) SELECT CASE WHEN (NOT EXISTS(SELECT 1 FROM stock_firmwares_next n LEFT JOIN stock_firmwares s ON n.id=s.id WHERE n.id>? AND n.id<=? AND NOT (s.\"id\" IS n.\"id\" AND s.\"public_token\" IS n.\"public_token\" AND s.\"device_codename\" IS n.\"device_codename\" AND s.\"region_code\" IS n.\"region_code\" AND s.\"model_code\" IS n.\"model_code\" AND s.\"version_str\" IS n.\"version_str\" AND s.\"android_version\" IS n.\"android_version\" AND s.\"package_type\" IS n.\"package_type\" AND s.\"file_size_str\" IS n.\"file_size_str\" AND s.\"md5_or_sha256\" IS n.\"md5_or_sha256\" AND s.\"original_official_url\" IS n.\"original_official_url\" AND s.\"fast_cdn_url\" IS n.\"fast_cdn_url\" AND s.\"published_date\" IS n.\"published_date\" AND s.\"ed25519_signature\" IS n.\"ed25519_signature\" AND s.\"extract_status\" IS n.\"extract_status\" AND s.\"extract_retries\" IS n.\"extract_retries\" AND s.\"extract_error\" IS n.\"extract_error\" AND s.\"updated_at\" IS n.\"updated_at\"))) THEN 1 ELSE 0 END",
+      "params": [
+        1,
+        2
+      ]
+    },
+    {
+      "sql": "DELETE FROM _fmr_identity_assert",
+      "params": []
+    },
+    {
+      "sql": "UPDATE fmr_identity_maintenance SET cursor=?,verified_fw=verified_fw+? WHERE id=1",
+      "params": [
+        2,
+        1
+      ]
+    }
+  ],
+  [
+    {
+      "sql": "UPDATE fmr_identity_maintenance SET phase=?,cursor=0 WHERE id=1",
+      "params": [
+        "verify_images"
+      ]
+    }
+  ],
+  [
+    {
+      "sql": "INSERT INTO _fmr_identity_assert(value) SELECT CASE WHEN (NOT EXISTS(SELECT 1 FROM extracted_boot_images_next n LEFT JOIN extracted_boot_images s ON n.id=s.id WHERE n.id>? AND n.id<=? AND NOT (s.\"id\" IS n.\"id\" AND s.\"public_token\" IS n.\"public_token\" AND s.\"firmware_id\" IS n.\"firmware_id\" AND s.\"device_codename\" IS n.\"device_codename\" AND s.\"version_str\" IS n.\"version_str\" AND s.\"partition_name\" IS n.\"partition_name\" AND s.\"variant_type\" IS n.\"variant_type\" AND s.\"patch_tool_ver\" IS n.\"patch_tool_ver\" AND s.\"file_name\" IS n.\"file_name\" AND s.\"file_size_bytes\" IS n.\"file_size_bytes\" AND s.\"sha256_hash\" IS n.\"sha256_hash\" AND s.\"gh_private_repo\" IS n.\"gh_private_repo\" AND s.\"gh_release_tag\" IS n.\"gh_release_tag\" AND s.\"gh_asset_id\" IS n.\"gh_asset_id\" AND s.\"ed25519_signature\" IS n.\"ed25519_signature\" AND s.\"download_count\" IS n.\"download_count\" AND s.\"working_votes\" IS n.\"working_votes\" AND s.\"broken_votes\" IS n.\"broken_votes\" AND s.\"created_at\" IS n.\"created_at\"))) THEN 1 ELSE 0 END",
+      "params": [
+        0,
+        1
+      ]
+    },
+    {
+      "sql": "DELETE FROM _fmr_identity_assert",
+      "params": []
+    },
+    {
+      "sql": "INSERT INTO _fmr_identity_assert(value) SELECT CASE WHEN (NOT EXISTS(SELECT 1 FROM extracted_boot_images_next i LEFT JOIN stock_firmwares_next f ON f.id=i.firmware_id WHERE i.id>? AND i.id<=? AND f.id IS NULL)) THEN 1 ELSE 0 END",
+      "params": [
+        0,
+        1
+      ]
+    },
+    {
+      "sql": "DELETE FROM _fmr_identity_assert",
+      "params": []
+    },
+    {
+      "sql": "UPDATE fmr_identity_maintenance SET cursor=?,verified_images=verified_images+? WHERE id=1",
+      "params": [
+        1,
+        1
+      ]
+    }
+  ],
+  [
+    {
+      "sql": "UPDATE fmr_identity_maintenance SET phase=?,cursor=0 WHERE id=1",
+      "params": [
+        "cutover"
+      ]
+    }
+  ],
+  [
+    {
+      "sql": "INSERT INTO _fmr_identity_assert(value) SELECT CASE WHEN (EXISTS(SELECT 1 FROM fmr_identity_maintenance WHERE phase='cutover' AND verified_fw=fw_total AND verified_images=image_total)) THEN 1 ELSE 0 END",
+      "params": []
+    },
+    {
+      "sql": "DELETE FROM _fmr_identity_assert",
+      "params": []
+    },
+    {
+      "sql": "UPDATE sqlite_sequence SET seq=MAX(seq,COALESCE((SELECT seq FROM sqlite_sequence WHERE name=?),0)) WHERE name=?",
+      "params": [
+        "stock_firmwares",
+        "stock_firmwares_next"
+      ]
+    },
+    {
+      "sql": "INSERT INTO sqlite_sequence(name,seq) SELECT ?,seq FROM sqlite_sequence WHERE name=? AND NOT EXISTS(SELECT 1 FROM sqlite_sequence WHERE name=?)",
+      "params": [
+        "stock_firmwares_next",
+        "stock_firmwares",
+        "stock_firmwares_next"
+      ]
+    },
+    {
+      "sql": "UPDATE sqlite_sequence SET seq=MAX(seq,COALESCE((SELECT seq FROM sqlite_sequence WHERE name=?),0)) WHERE name=?",
+      "params": [
+        "extracted_boot_images",
+        "extracted_boot_images_next"
+      ]
+    },
+    {
+      "sql": "INSERT INTO sqlite_sequence(name,seq) SELECT ?,seq FROM sqlite_sequence WHERE name=? AND NOT EXISTS(SELECT 1 FROM sqlite_sequence WHERE name=?)",
+      "params": [
+        "extracted_boot_images_next",
+        "extracted_boot_images",
+        "extracted_boot_images_next"
+      ]
+    },
+    {
+      "sql": "DROP TRIGGER coverage_device_insert",
+      "params": []
+    },
+    {
+      "sql": "DROP TRIGGER coverage_device_delete",
+      "params": []
+    },
+    {
+      "sql": "DROP TRIGGER coverage_device_update",
+      "params": []
+    },
+    {
+      "sql": "DROP TRIGGER coverage_fw_insert",
+      "params": []
+    },
+    {
+      "sql": "DROP TRIGGER coverage_fw_delete",
+      "params": []
+    },
+    {
+      "sql": "DROP TRIGGER coverage_fw_update",
+      "params": []
+    },
+    {
+      "sql": "DROP TRIGGER coverage_custom_insert",
+      "params": []
+    },
+    {
+      "sql": "DROP TRIGGER coverage_custom_delete",
+      "params": []
+    },
+    {
+      "sql": "DROP TRIGGER coverage_custom_update",
+      "params": []
+    },
+    {
+      "sql": "DROP TRIGGER search_fw_insert",
+      "params": []
+    },
+    {
+      "sql": "DROP TRIGGER search_fw_delete",
+      "params": []
+    },
+    {
+      "sql": "DROP TRIGGER search_fw_update",
+      "params": []
+    },
+    {
+      "sql": "ALTER TABLE stock_firmwares RENAME TO stock_firmwares_before_v6",
+      "params": []
+    },
+    {
+      "sql": "ALTER TABLE extracted_boot_images RENAME TO extracted_boot_images_before_v6",
+      "params": []
+    },
+    {
+      "sql": "ALTER TABLE stock_firmwares_next RENAME TO stock_firmwares",
+      "params": []
+    },
+    {
+      "sql": "ALTER TABLE extracted_boot_images_next RENAME TO extracted_boot_images",
+      "params": []
+    },
+    {
+      "sql": "CREATE TRIGGER coverage_device_insert AFTER INSERT ON devices\nWHEN NEW.codename!='__global__' AND NEW.brand_id NOT IN ('huawei','honor') AND NEW.codename NOT LIKE 'huawei-%' AND NEW.codename NOT LIKE 'honor-%' AND NEW.marketing_name NOT LIKE '%Chromebook%'\nBEGIN\n UPDATE catalogue_coverage SET devices=devices+CASE WHEN (NEW.codename!='__global__' AND NEW.brand_id NOT IN ('huawei','honor') AND NEW.codename NOT LIKE 'huawei-%' AND NEW.codename NOT LIKE 'honor-%' AND NEW.marketing_name NOT LIKE '%Chromebook%') THEN 1 ELSE 0 END,\n official=official+(CASE WHEN (NEW.codename!='__global__' AND NEW.brand_id NOT IN ('huawei','honor') AND NEW.codename NOT LIKE 'huawei-%' AND NEW.codename NOT LIKE 'honor-%' AND NEW.marketing_name NOT LIKE '%Chromebook%') THEN (SELECT COUNT(*) FROM (SELECT 1 FROM stock_firmwares f WHERE f.device_codename=NEW.codename GROUP BY COALESCE(NULLIF(f.model_code,''),f.device_codename),f.region_code,f.version_str)) ELSE 0 END),custom=custom+(CASE WHEN (NEW.codename!='__global__' AND NEW.brand_id NOT IN ('huawei','honor') AND NEW.codename NOT LIKE 'huawei-%' AND NEW.codename NOT LIKE 'honor-%' AND NEW.marketing_name NOT LIKE '%Chromebook%') AND NEW.phase2_roms_enabled=1 THEN (SELECT COUNT(*) FROM custom_resources r WHERE r.device_codename=NEW.codename AND r.maintainer_opted_out=0 AND r.zone_type='free_rom') ELSE 0 END) WHERE id=1;\nEND",
+      "params": []
+    },
+    {
+      "sql": "CREATE TRIGGER coverage_device_delete AFTER DELETE ON devices\nWHEN OLD.codename!='__global__' AND OLD.brand_id NOT IN ('huawei','honor') AND OLD.codename NOT LIKE 'huawei-%' AND OLD.codename NOT LIKE 'honor-%' AND OLD.marketing_name NOT LIKE '%Chromebook%'\nBEGIN\n UPDATE catalogue_coverage SET devices=devices-CASE WHEN (OLD.codename!='__global__' AND OLD.brand_id NOT IN ('huawei','honor') AND OLD.codename NOT LIKE 'huawei-%' AND OLD.codename NOT LIKE 'honor-%' AND OLD.marketing_name NOT LIKE '%Chromebook%') THEN 1 ELSE 0 END,\n official=official-(CASE WHEN (OLD.codename!='__global__' AND OLD.brand_id NOT IN ('huawei','honor') AND OLD.codename NOT LIKE 'huawei-%' AND OLD.codename NOT LIKE 'honor-%' AND OLD.marketing_name NOT LIKE '%Chromebook%') THEN (SELECT COUNT(*) FROM (SELECT 1 FROM stock_firmwares f WHERE f.device_codename=OLD.codename GROUP BY COALESCE(NULLIF(f.model_code,''),f.device_codename),f.region_code,f.version_str)) ELSE 0 END),custom=custom-(CASE WHEN (OLD.codename!='__global__' AND OLD.brand_id NOT IN ('huawei','honor') AND OLD.codename NOT LIKE 'huawei-%' AND OLD.codename NOT LIKE 'honor-%' AND OLD.marketing_name NOT LIKE '%Chromebook%') AND OLD.phase2_roms_enabled=1 THEN (SELECT COUNT(*) FROM custom_resources r WHERE r.device_codename=OLD.codename AND r.maintainer_opted_out=0 AND r.zone_type='free_rom') ELSE 0 END) WHERE id=1;\nEND",
+      "params": []
+    },
+    {
+      "sql": "CREATE TRIGGER coverage_device_update AFTER UPDATE OF codename,brand_id,marketing_name,phase2_roms_enabled ON devices\nWHEN OLD.codename IS NOT NEW.codename OR (OLD.codename!='__global__' AND OLD.brand_id NOT IN ('huawei','honor') AND OLD.codename NOT LIKE 'huawei-%' AND OLD.codename NOT LIKE 'honor-%' AND OLD.marketing_name NOT LIKE '%Chromebook%')!=(NEW.codename!='__global__' AND NEW.brand_id NOT IN ('huawei','honor') AND NEW.codename NOT LIKE 'huawei-%' AND NEW.codename NOT LIKE 'honor-%' AND NEW.marketing_name NOT LIKE '%Chromebook%') OR OLD.phase2_roms_enabled IS NOT NEW.phase2_roms_enabled\nBEGIN\n UPDATE catalogue_coverage SET\n devices=devices-CASE WHEN (OLD.codename!='__global__' AND OLD.brand_id NOT IN ('huawei','honor') AND OLD.codename NOT LIKE 'huawei-%' AND OLD.codename NOT LIKE 'honor-%' AND OLD.marketing_name NOT LIKE '%Chromebook%') THEN 1 ELSE 0 END+CASE WHEN (NEW.codename!='__global__' AND NEW.brand_id NOT IN ('huawei','honor') AND NEW.codename NOT LIKE 'huawei-%' AND NEW.codename NOT LIKE 'honor-%' AND NEW.marketing_name NOT LIKE '%Chromebook%') THEN 1 ELSE 0 END,\n official=official+CASE WHEN OLD.codename IS NOT NEW.codename OR (OLD.codename!='__global__' AND OLD.brand_id NOT IN ('huawei','honor') AND OLD.codename NOT LIKE 'huawei-%' AND OLD.codename NOT LIKE 'honor-%' AND OLD.marketing_name NOT LIKE '%Chromebook%')!=(NEW.codename!='__global__' AND NEW.brand_id NOT IN ('huawei','honor') AND NEW.codename NOT LIKE 'huawei-%' AND NEW.codename NOT LIKE 'honor-%' AND NEW.marketing_name NOT LIKE '%Chromebook%') THEN (CASE WHEN (NEW.codename!='__global__' AND NEW.brand_id NOT IN ('huawei','honor') AND NEW.codename NOT LIKE 'huawei-%' AND NEW.codename NOT LIKE 'honor-%' AND NEW.marketing_name NOT LIKE '%Chromebook%') THEN (SELECT COUNT(*) FROM (SELECT 1 FROM stock_firmwares f WHERE f.device_codename=NEW.codename GROUP BY COALESCE(NULLIF(f.model_code,''),f.device_codename),f.region_code,f.version_str)) ELSE 0 END)-(CASE WHEN (OLD.codename!='__global__' AND OLD.brand_id NOT IN ('huawei','honor') AND OLD.codename NOT LIKE 'huawei-%' AND OLD.codename NOT LIKE 'honor-%' AND OLD.marketing_name NOT LIKE '%Chromebook%') THEN (SELECT COUNT(*) FROM (SELECT 1 FROM stock_firmwares f WHERE f.device_codename=OLD.codename GROUP BY COALESCE(NULLIF(f.model_code,''),f.device_codename),f.region_code,f.version_str)) ELSE 0 END) ELSE 0 END,\n custom=custom+(CASE WHEN (NEW.codename!='__global__' AND NEW.brand_id NOT IN ('huawei','honor') AND NEW.codename NOT LIKE 'huawei-%' AND NEW.codename NOT LIKE 'honor-%' AND NEW.marketing_name NOT LIKE '%Chromebook%') AND NEW.phase2_roms_enabled=1 THEN (SELECT COUNT(*) FROM custom_resources r WHERE r.device_codename=NEW.codename AND r.maintainer_opted_out=0 AND r.zone_type='free_rom') ELSE 0 END)-(CASE WHEN (OLD.codename!='__global__' AND OLD.brand_id NOT IN ('huawei','honor') AND OLD.codename NOT LIKE 'huawei-%' AND OLD.codename NOT LIKE 'honor-%' AND OLD.marketing_name NOT LIKE '%Chromebook%') AND OLD.phase2_roms_enabled=1 THEN (SELECT COUNT(*) FROM custom_resources r WHERE r.device_codename=OLD.codename AND r.maintainer_opted_out=0 AND r.zone_type='free_rom') ELSE 0 END) WHERE id=1;\nEND",
+      "params": []
+    },
+    {
+      "sql": "CREATE TRIGGER coverage_fw_insert AFTER INSERT ON stock_firmwares\nWHEN EXISTS(SELECT 1 FROM devices d WHERE d.codename=NEW.device_codename AND (d.codename!='__global__' AND d.brand_id NOT IN ('huawei','honor') AND d.codename NOT LIKE 'huawei-%' AND d.codename NOT LIKE 'honor-%' AND d.marketing_name NOT LIKE '%Chromebook%')) AND NOT EXISTS(SELECT 1 FROM stock_firmwares f WHERE f.device_codename=NEW.device_codename AND COALESCE(NULLIF(f.model_code,''),f.device_codename)=COALESCE(NULLIF(NEW.model_code,''),NEW.device_codename) AND f.region_code=NEW.region_code AND f.version_str=NEW.version_str AND f.id!=NEW.id)\nBEGIN\n UPDATE catalogue_coverage SET official=official+1 WHERE id=1;\nEND",
+      "params": []
+    },
+    {
+      "sql": "CREATE TRIGGER coverage_fw_delete AFTER DELETE ON stock_firmwares\nWHEN EXISTS(SELECT 1 FROM devices d WHERE d.codename=OLD.device_codename AND (d.codename!='__global__' AND d.brand_id NOT IN ('huawei','honor') AND d.codename NOT LIKE 'huawei-%' AND d.codename NOT LIKE 'honor-%' AND d.marketing_name NOT LIKE '%Chromebook%')) AND NOT EXISTS(SELECT 1 FROM stock_firmwares f WHERE f.device_codename=OLD.device_codename AND COALESCE(NULLIF(f.model_code,''),f.device_codename)=COALESCE(NULLIF(OLD.model_code,''),OLD.device_codename) AND f.region_code=OLD.region_code AND f.version_str=OLD.version_str)\nBEGIN\n UPDATE catalogue_coverage SET official=official-1 WHERE id=1;\nEND",
+      "params": []
+    },
+    {
+      "sql": "CREATE TRIGGER coverage_fw_update AFTER UPDATE OF device_codename,model_code,region_code,version_str ON stock_firmwares\nWHEN OLD.device_codename IS NOT NEW.device_codename OR COALESCE(NULLIF(OLD.model_code,''),OLD.device_codename) IS NOT COALESCE(NULLIF(NEW.model_code,''),NEW.device_codename) OR OLD.region_code IS NOT NEW.region_code OR OLD.version_str IS NOT NEW.version_str\nBEGIN\n UPDATE catalogue_coverage SET official=official-1 WHERE id=1 AND EXISTS(SELECT 1 FROM devices d WHERE d.codename=OLD.device_codename AND (d.codename!='__global__' AND d.brand_id NOT IN ('huawei','honor') AND d.codename NOT LIKE 'huawei-%' AND d.codename NOT LIKE 'honor-%' AND d.marketing_name NOT LIKE '%Chromebook%')) AND NOT EXISTS(SELECT 1 FROM stock_firmwares f WHERE f.device_codename=OLD.device_codename AND COALESCE(NULLIF(f.model_code,''),f.device_codename)=COALESCE(NULLIF(OLD.model_code,''),OLD.device_codename) AND f.region_code=OLD.region_code AND f.version_str=OLD.version_str);\n UPDATE catalogue_coverage SET official=official+1 WHERE id=1 AND EXISTS(SELECT 1 FROM devices d WHERE d.codename=NEW.device_codename AND (d.codename!='__global__' AND d.brand_id NOT IN ('huawei','honor') AND d.codename NOT LIKE 'huawei-%' AND d.codename NOT LIKE 'honor-%' AND d.marketing_name NOT LIKE '%Chromebook%')) AND NOT EXISTS(SELECT 1 FROM stock_firmwares f WHERE f.device_codename=NEW.device_codename AND COALESCE(NULLIF(f.model_code,''),f.device_codename)=COALESCE(NULLIF(NEW.model_code,''),NEW.device_codename) AND f.region_code=NEW.region_code AND f.version_str=NEW.version_str AND f.id!=NEW.id);\nEND",
+      "params": []
+    },
+    {
+      "sql": "CREATE TRIGGER coverage_custom_insert AFTER INSERT ON custom_resources\nWHEN (NEW.maintainer_opted_out=0 AND NEW.zone_type='free_rom' AND EXISTS(SELECT 1 FROM devices d WHERE d.codename=NEW.device_codename AND (d.codename!='__global__' AND d.brand_id NOT IN ('huawei','honor') AND d.codename NOT LIKE 'huawei-%' AND d.codename NOT LIKE 'honor-%' AND d.marketing_name NOT LIKE '%Chromebook%') AND d.phase2_roms_enabled=1))\nBEGIN\n UPDATE catalogue_coverage SET custom=custom+1 WHERE id=1;\nEND",
+      "params": []
+    },
+    {
+      "sql": "CREATE TRIGGER coverage_custom_delete AFTER DELETE ON custom_resources\nWHEN (OLD.maintainer_opted_out=0 AND OLD.zone_type='free_rom' AND EXISTS(SELECT 1 FROM devices d WHERE d.codename=OLD.device_codename AND (d.codename!='__global__' AND d.brand_id NOT IN ('huawei','honor') AND d.codename NOT LIKE 'huawei-%' AND d.codename NOT LIKE 'honor-%' AND d.marketing_name NOT LIKE '%Chromebook%') AND d.phase2_roms_enabled=1))\nBEGIN\n UPDATE catalogue_coverage SET custom=custom-1 WHERE id=1;\nEND",
+      "params": []
+    },
+    {
+      "sql": "CREATE TRIGGER coverage_custom_update AFTER UPDATE OF device_codename,zone_type,maintainer_opted_out ON custom_resources\nWHEN (OLD.device_codename IS NOT NEW.device_codename OR OLD.zone_type IS NOT NEW.zone_type OR OLD.maintainer_opted_out IS NOT NEW.maintainer_opted_out)\nBEGIN\n UPDATE catalogue_coverage SET custom=custom-CASE WHEN (OLD.maintainer_opted_out=0 AND OLD.zone_type='free_rom' AND EXISTS(SELECT 1 FROM devices d WHERE d.codename=OLD.device_codename AND (d.codename!='__global__' AND d.brand_id NOT IN ('huawei','honor') AND d.codename NOT LIKE 'huawei-%' AND d.codename NOT LIKE 'honor-%' AND d.marketing_name NOT LIKE '%Chromebook%') AND d.phase2_roms_enabled=1)) THEN 1 ELSE 0 END+CASE WHEN (NEW.maintainer_opted_out=0 AND NEW.zone_type='free_rom' AND EXISTS(SELECT 1 FROM devices d WHERE d.codename=NEW.device_codename AND (d.codename!='__global__' AND d.brand_id NOT IN ('huawei','honor') AND d.codename NOT LIKE 'huawei-%' AND d.codename NOT LIKE 'honor-%' AND d.marketing_name NOT LIKE '%Chromebook%') AND d.phase2_roms_enabled=1)) THEN 1 ELSE 0 END WHERE id=1;\nEND",
+      "params": []
+    },
+    {
+      "sql": "CREATE TRIGGER search_fw_insert AFTER INSERT ON stock_firmwares BEGIN\n INSERT INTO firmware_search(device_codename,region_code,versions) VALUES (NEW.device_codename,NEW.region_code,CHAR(31)||NEW.version_str||CHAR(31))\n ON CONFLICT(device_codename,region_code) DO UPDATE SET versions=versions||NEW.version_str||CHAR(31)\n WHERE INSTR(versions,CHAR(31)||NEW.version_str||CHAR(31))=0;\nEND",
+      "params": []
+    },
+    {
+      "sql": "CREATE TRIGGER search_fw_delete AFTER DELETE ON stock_firmwares BEGIN\n UPDATE firmware_search SET versions=COALESCE((SELECT CHAR(31)||GROUP_CONCAT(version_str,CHAR(31))||CHAR(31) FROM (SELECT DISTINCT version_str FROM stock_firmwares WHERE device_codename=OLD.device_codename AND region_code=OLD.region_code)),CHAR(31))\n WHERE device_codename=OLD.device_codename AND region_code=OLD.region_code\n AND NOT EXISTS(SELECT 1 FROM stock_firmwares f WHERE f.device_codename=OLD.device_codename AND f.region_code=OLD.region_code AND f.version_str=OLD.version_str);\n DELETE FROM firmware_search WHERE device_codename=OLD.device_codename AND region_code=OLD.region_code AND versions=CHAR(31);\nEND",
+      "params": []
+    },
+    {
+      "sql": "CREATE TRIGGER search_fw_update AFTER UPDATE OF device_codename,region_code,version_str ON stock_firmwares\nWHEN OLD.device_codename IS NOT NEW.device_codename OR OLD.region_code IS NOT NEW.region_code OR OLD.version_str IS NOT NEW.version_str\nBEGIN\n UPDATE firmware_search SET versions=COALESCE((SELECT CHAR(31)||GROUP_CONCAT(version_str,CHAR(31))||CHAR(31) FROM (SELECT DISTINCT version_str FROM stock_firmwares WHERE device_codename=OLD.device_codename AND region_code=OLD.region_code)),CHAR(31))\n WHERE device_codename=OLD.device_codename AND region_code=OLD.region_code\n AND NOT EXISTS(SELECT 1 FROM stock_firmwares f WHERE f.device_codename=OLD.device_codename AND f.region_code=OLD.region_code AND f.version_str=OLD.version_str);\n DELETE FROM firmware_search WHERE device_codename=OLD.device_codename AND region_code=OLD.region_code AND versions=CHAR(31);\n INSERT INTO firmware_search(device_codename,region_code,versions) VALUES (NEW.device_codename,NEW.region_code,CHAR(31)||NEW.version_str||CHAR(31))\n ON CONFLICT(device_codename,region_code) DO UPDATE SET versions=versions||NEW.version_str||CHAR(31)\n WHERE INSTR(versions,CHAR(31)||NEW.version_str||CHAR(31))=0;\nEND",
+      "params": []
+    },
+    {
+      "sql": "INSERT INTO fmr_schema_migrations(version,sha256) VALUES (6,?)",
+      "params": [
+        "e7669dbab6eb7ffcec3dd4de08b7c9cfa18d886f3fd7bf8ede80f2bec0c4bafb"
+      ]
+    },
+    {
+      "sql": "UPDATE fmr_identity_maintenance SET phase='complete',cursor=0 WHERE id=1",
+      "params": []
+    },
+    {
+      "sql": "CREATE TRIGGER fmr_maintenance_live_stock_firmwares_insert BEFORE INSERT ON stock_firmwares BEGIN SELECT RAISE(ABORT,'D1 migration complete; awaiting maintenance release'); END",
+      "params": []
+    },
+    {
+      "sql": "CREATE TRIGGER fmr_maintenance_live_stock_firmwares_update BEFORE UPDATE ON stock_firmwares BEGIN SELECT RAISE(ABORT,'D1 migration complete; awaiting maintenance release'); END",
+      "params": []
+    },
+    {
+      "sql": "CREATE TRIGGER fmr_maintenance_live_stock_firmwares_delete BEFORE DELETE ON stock_firmwares BEGIN SELECT RAISE(ABORT,'D1 migration complete; awaiting maintenance release'); END",
+      "params": []
+    },
+    {
+      "sql": "CREATE TRIGGER fmr_maintenance_live_extracted_boot_images_insert BEFORE INSERT ON extracted_boot_images BEGIN SELECT RAISE(ABORT,'D1 migration complete; awaiting maintenance release'); END",
+      "params": []
+    },
+    {
+      "sql": "CREATE TRIGGER fmr_maintenance_live_extracted_boot_images_update BEFORE UPDATE ON extracted_boot_images BEGIN SELECT RAISE(ABORT,'D1 migration complete; awaiting maintenance release'); END",
+      "params": []
+    },
+    {
+      "sql": "CREATE TRIGGER fmr_maintenance_live_extracted_boot_images_delete BEFORE DELETE ON extracted_boot_images BEGIN SELECT RAISE(ABORT,'D1 migration complete; awaiting maintenance release'); END",
+      "params": []
+    }
+  ]
+]

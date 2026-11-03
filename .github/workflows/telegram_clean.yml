@@ -13,7 +13,7 @@ permissions:
   actions: write
 jobs:
   clean:
-    if: github.ref == 'refs/heads/main'
+    if: "false && github.ref == 'refs/heads/main' && (github.ref == 'refs/heads/main')"
     runs-on:
     - self-hosted
     - findmyrom-metadata

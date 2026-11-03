@@ -39,6 +39,8 @@ def ensure_schema(db, *, allow_migration=False, through=5):
                 fields={r['name'] for r in db.query('PRAGMA table_info('+table+')')}
                 if column not in fields:body='ALTER TABLE '+table+' ADD COLUMN '+column+' '+kind+';\n'+body
         if version==6:
+            if db.query("SELECT name FROM sqlite_master WHERE type='table' AND name='fmr_identity_maintenance'"):
+                raise RuntimeError('Batched identity maintenance is active; use its checkpoint, never the atomic rebuild')
             # Rebuilding a large indexed table can exceed a Free daily write cap.
             # Never start that transaction blindly; leave all source queues intact.
             import os

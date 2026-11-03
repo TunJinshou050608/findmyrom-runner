@@ -1,0 +1,101 @@
+name: D1 · 三日断点迁移
+run-name: D1 型号唯一键迁移 · ${{ github.event_name }}
+'on':
+  schedule:
+  - cron: '0 1 4-6 11 *' # 09:00 Asia/Shanghai; Python also enforces year 2026.
+  workflow_dispatch: null
+  push:
+    branches: [main]
+    paths:
+    - .github/workflows/d1_identity_migration.yml
+permissions:
+  contents: read
+  actions: write
+concurrency:
+  group: d1-schema-maintenance
+  cancel-in-progress: false
+jobs:
+  prepare:
+    name: 暂停其他执行；只安装维护锁，不搬迁数据
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        persist-credentials: false
+    - uses: actions/github-script@v7
+      with:
+        script: |
+          const active = new Set(['queued','in_progress','waiting','pending','requested']);
+          const runs = [];
+          for (const status of ['queued','in_progress','waiting','pending','requested']) {
+            runs.push(...await github.paginate(github.rest.actions.listWorkflowRunsForRepo, {...context.repo, status, per_page:100}));
+          }
+          for (const run of runs) {
+            if (!active.has(run.status) || run.id === context.runId || run.path === '.github/workflows/ci.yml') continue;
+            await github.rest.actions.cancelWorkflowRun({...context.repo, run_id:run.id});
+            core.info(`Cancellation requested for ${run.id}: ${run.name}`);
+          }
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+        cache: pip
+    - run: python -m pip install -r requirements.txt
+    - name: D1 原始表只读锁；已有采集和发布断点全部保留
+      env:
+        CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+        CF_D1_DATABASE_ID: ${{ secrets.CF_D1_DATABASE_ID }}
+        CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+      run: python -u -m fmr_core.identity_maintenance --prepare-only
+  migrate:
+    name: 09:00 启动；任意错误立即停止，次日从 D1 断点接续
+    if: github.ref == 'refs/heads/main' && github.event_name != 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    environment: production
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        persist-credentials: false
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+        cache: pip
+    - run: python -m pip install -r requirements.txt
+    - name: 确认其他执行已退出，禁止并行消耗 D1
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const active = new Set(['queued','in_progress','waiting','pending','requested']);
+          const runs = [];
+          for (const status of ['queued','in_progress','waiting','pending','requested']) {
+            runs.push(...await github.paginate(github.rest.actions.listWorkflowRunsForRepo, {...context.repo, status, per_page:100}));
+          }
+          const others = runs.filter(run => active.has(run.status) && run.id !== context.runId &&
+            run.path !== '.github/workflows/ci.yml' && run.path !== '.github/workflows/d1_identity_migration.yml');
+          if (others.length) throw new Error(`Other executions still active: ${others.map(r=>r.id).join(',')}; no D1 request started.`);
+    - name: 数据与断点在同一事务提交；无重试、无重抓、无固件下载
+      env:
+        CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+        CF_D1_DATABASE_ID: ${{ secrets.CF_D1_DATABASE_ID }}
+        CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+      run: python -u -m fmr_core.identity_maintenance --log-path migration-progress.json
+    - name: 展示最后已确认进度；报错后不再访问 D1
+      if: always()
+      shell: bash
+      run: |
+        echo '### D1 migration: last confirmed checkpoint' >> "$GITHUB_STEP_SUMMARY"
+        if [ -f migration-progress.json ]; then
+          cat migration-progress.json >> "$GITHUB_STEP_SUMMARY"
+        else
+          echo 'No copy batch confirmed in this execution. The next authorized day reads the server checkpoint.' >> "$GITHUB_STEP_SUMMARY"
+        fi
+    - uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: d1-migration-${{ github.run_id }}
+        path: migration-progress.json
+        if-no-files-found: ignore
+        retention-days: 14

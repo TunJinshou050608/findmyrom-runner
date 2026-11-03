@@ -13,7 +13,7 @@ permissions:
   actions: write
 jobs:
   initialize:
-    if: github.ref == 'refs/heads/main'
+    if: "false && github.ref == 'refs/heads/main' && (github.ref == 'refs/heads/main')"
     runs-on:
     - self-hosted
     - findmyrom-metadata
@@ -55,7 +55,7 @@ jobs:
       run:
         working-directory: tg-code-${{ github.run_id }}
   fetch:
-    if: github.ref == 'refs/heads/main'
+    if: "false && github.ref == 'refs/heads/main' && (github.ref == 'refs/heads/main')"
     runs-on:
     - self-hosted
     - findmyrom-metadata
@@ -103,7 +103,7 @@ jobs:
       run:
         working-directory: tg-code-${{ github.run_id }}
   handoff:
-    if: always() && github.ref == 'refs/heads/main' && needs.fetch.result == 'success'
+    if: "false && github.ref == 'refs/heads/main' && (always() && github.ref == 'refs/heads/main' && needs.fetch.result == 'success')"
     needs: fetch
     runs-on:
     - self-hosted

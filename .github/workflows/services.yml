@@ -17,7 +17,7 @@ permissions:
   contents: read
 jobs:
   sony_bundle:
-    if: github.ref == 'refs/heads/main' && ((github.event_name == 'workflow_dispatch' && inputs.service == 'sony_bundle') || (github.event_name == 'schedule' && github.event.schedule == '*/15 * * * *'))
+    if: "false && github.ref == 'refs/heads/main' && (github.ref == 'refs/heads/main' && ((github.event_name == 'workflow_dispatch' && inputs.service == 'sony_bundle') || (github.event_name == 'schedule' && github.event.schedule == '*/15 * * * *')))"
     name: 按需下载并打包成一个 ZIP（不提取镜像）
     runs-on: ubuntu-latest
     timeout-minutes: 120
@@ -42,8 +42,7 @@ jobs:
       group: sony-complete-bundle-cache
       cancel-in-progress: false
   public_index:
-    if: github.ref == 'refs/heads/main' && (vars.FMR_JUMPER_ENABLED == 'true') && ((github.event_name == 'workflow_dispatch' && inputs.service == 'public_index') || (github.event_name == 'schedule' && github.event.schedule
-      == '43 */6 * * *'))
+    if: "false && github.ref == 'refs/heads/main' && (github.ref == 'refs/heads/main' && (vars.FMR_JUMPER_ENABLED == 'true') && ((github.event_name == 'workflow_dispatch' && inputs.service == 'public_index') || (github.event_name == 'schedule' && github.event.schedule == '43 */6 * * *')))"
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment: production
@@ -116,7 +115,7 @@ jobs:
     - name: Clean isolated environment
       if: always()
       run: rm -rf -- "$RUNNER_TEMP/fmr-service-${GITHUB_RUN_ID}"
-    if: github.ref == 'refs/heads/main' && ((github.event_name == 'workflow_dispatch' && inputs.service == 'check'))
+    if: "false && github.ref == 'refs/heads/main' && (github.ref == 'refs/heads/main' && ((github.event_name == 'workflow_dispatch' && inputs.service == 'check')))"
     concurrency:
       group: extractor-service-check
       cancel-in-progress: false

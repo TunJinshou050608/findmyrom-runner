@@ -40,7 +40,7 @@ concurrency:
 jobs:
   catalogue:
     name: 采集、复用缓存、加密保存断点（不访问D1）
-    if: github.ref == 'refs/heads/main'
+    if: "false && github.ref == 'refs/heads/main' && (github.ref == 'refs/heads/main')"
     runs-on: ${{ fromJSON(vars.FMR_CATALOGUE_RUNNER || '["self-hosted","findmyrom-metadata"]') }}
     timeout-minutes: 20
     environment: production
