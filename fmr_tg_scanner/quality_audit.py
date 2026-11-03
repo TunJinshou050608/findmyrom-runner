@@ -31,7 +31,7 @@ ROOT_FIELDS={'schema_version','access','resource_type','devices','rom_family','s
 def message_from_event(event):
     p=event['package']
     return {'text':event['observed_text'],'channel_username':p['channel_username'],'msg_id':p['msg_id'],
-            'tg_post_url':p['tg_post_url'],'links':[],'link_items':[],
+            'tg_post_url':p['tg_post_url'],'links':list(dict.fromkeys(re.findall(r'https?://[^\s<>]+',event['observed_text']))),'link_items':[],
             'published_timestamp':p.get('published_timestamp'),'file_attachment_name':p.get('file_attachment_name'),
             'has_tg_attachment':bool(p.get('has_tg_attachment')),
             'sender_author_signature':p.get('sender_author_signature'),
@@ -145,12 +145,23 @@ def audit(root):
         retired=repair(store)
         rows=store.query('SELECT * FROM tg_search_records ORDER BY device,channel,msg_id')
         names,sources=read_catalogue()
+        if 'alioth' in names:names['alioth']=list(dict.fromkeys([*names['alioth'],'POCO F3','Mi 11X','Redmi K40']))
         saved=store.meta('device_aliases_v3',{})
         for code,labels in saved.items():
             normalized=normalize_device(code,names)
             if normalized:
                 names[normalized]=list(dict.fromkeys([*names[normalized],*labels]))
         messages,recovery=evidence_messages(root,store,rows)
+        grounded=os.getenv('FMR_TG_GROUNDED_CLEANER')=='true'
+        extractions={};model_stats={}
+        if grounded:
+            from .grounded_cleaner import extract_all,convert
+            items=[]
+            for row in rows:
+                old=json.loads(row['payload']);code=normalize_device(old['device_codename'],names)
+                msg=messages.get((old['channel_username'],old['msg_id']))
+                if code and msg and hashlib.sha256(msg['text'].encode()).hexdigest()==old['raw_text_hash']:items.append((code,msg))
+            extractions,model_stats=extract_all(items,names,store)
         decisions=[];qualified={};reasons=Counter();counts=Counter()
         for index,row in enumerate(rows):
             old=json.loads(row['payload']);key=(old['channel_username'],old['msg_id'])
@@ -161,10 +172,10 @@ def audit(root):
             elif hashlib.sha256(message['text'].encode()).hexdigest()!=old['raw_text_hash']:errors.append('source_text_hash_mismatch')
             if not errors:
                 profile=store.meta('profile:'+old['channel_username'],'')
-                result,reason=analyse(message,code,names[code],names,profile)
+                result,reason=convert(old,message,code,names,extractions.get((code,message['channel_username'],message['msg_id']))) if grounded else analyse(message,code,names[code],names,profile)
                 if result is None:errors.append(reason)
                 else:
-                    package=enrich_release(result['package'],message)
+                    package=result['package'] if grounded else enrich_release(result['package'],message)
                     # Factual sender/provenance fields survive only the source-hash check.
                     package['taxonomy']['audit_missing_facts']=[k for k,v in package['taxonomy']['versions'].items() if v is None]
                     errors.extend(quality_errors(package,result['accepted']))
@@ -185,7 +196,7 @@ def audit(root):
             decisions.append({'key':row['key'],'previously_accepted':bool(row['accepted']),'device':code,'post_url':old['tg_post_url'],
                               'qualified':not errors,'reasons':sorted(set(errors))})
             if index%500==0:print(json.dumps({'event':'full_quality_progress','checked':index,'total':len(rows),'qualified':len(qualified)}),flush=True)
-        report={'audit_version':AUDIT_VERSION,'audit_run_id':run_id,'all_records_checked':len(rows),'unique_posts_recovered':len(messages),
+        report={'cleaner_revision':'b01-grounded-v1' if grounded else 'rules','model_usage':model_stats,'audit_version':AUDIT_VERSION,'audit_run_id':run_id,'all_records_checked':len(rows),'unique_posts_recovered':len(messages),
                 'qualified':len(qualified),'rejected_or_incomplete':sum(not d['qualified'] for d in decisions),
                 'reason_counts':dict(reasons),'previous_counts':dict(counts),'evidence_recovery':recovery,
                 'invalid_channel_tasks_retired':retired,'device_catalogue_count':len(names),'catalogue_sources':sources,

@@ -96,6 +96,7 @@ def clean_once(root):
                 for row in db.execute("SELECT key,value FROM tg_search_meta WHERE key LIKE 'profile:%' OR key='device_aliases_v3'"):
                     store.execute('INSERT INTO tg_search_meta VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value',(row['key'],row['value']))
     finally:store.close()
+    fingerprint.update(('b01-grounded-v1:'+os.getenv('FMR_TG_GROUNDED_CLEANER','false')).encode())
     digest=fingerprint.hexdigest();last=clean/'source-fingerprint.json'
     if last.exists() and json.loads(last.read_text())['sha256']==digest:
         return {'status':'unchanged_sources','sha256':digest}

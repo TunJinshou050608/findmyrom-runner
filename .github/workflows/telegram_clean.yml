@@ -23,6 +23,10 @@ jobs:
       FMR_TG_STATE_DIR: ${{ vars.FMR_TG_STATE_DIR || format('{0}/tg-v4', vars.FMR_CATALOGUE_STATE_DIR || '/var/lib/findmyrom/catalogue-v3') }}
       FMR_CATALOGUE_STATE_DIR: ${{ vars.FMR_CATALOGUE_STATE_DIR || '/var/lib/findmyrom/catalogue-v3' }}
       FMR_TG_LOCAL_RUNTIME: 'true'
+      FMR_TG_GROUNDED_CLEANER: 'true'
+      FMR_TG_CLEAN_MAX_CALLS: '200'
+      LLM_MODEL_NAME: deepseek-flash
+      LLM_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
     name: 单独筛选器 · 一致性快照与质量审核
     concurrency:
       group: tg-local-cleaner

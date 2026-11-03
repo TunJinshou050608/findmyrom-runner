@@ -17,3 +17,13 @@ Recognition, stage, variant and other factually unstated fields retain their all
 Qualified records are written into the existing `custom_resources` table and signed with the existing production Ed25519 key. The complete taxonomy/provenance is retained in additive `metadata_json` and `audit_batch_id` columns; the original SP01 schema stays immutable. The signing key is checked against existing production firmware signatures before writes. Deterministic tokens make the publication cohort resumable/idempotent. Requests use bounded atomic chunks within that one full audited cohort, not device-by-device sample publication. Successful row counts, signatures and free eligibility are read back before enabling `phase2_roms_enabled` for the affected existing devices. Existing opt-outs/click/vote counters are preserved.
 
 Private audit products are `audits/full-quality-<run>/report.json`, `decisions.json`, `qualified.json`, publication exclusions, progress and final verification receipts. Retrieval remains stopped after publication.
+
+## B01 grounded cleaning
+
+`TG · 清洗` now enables `FMR_TG_GROUNDED_CLEANER=true`. Only cleaning changes; discovery remains untouched. It processes stored source text through a broad release-signal/device funnel, a static-prefix DeepSeek JSON extraction, strict quote/value validation, and deterministic catalogue/taxonomy mapping. Explicit release announcements need not contain a direct download URL. Alioth's known retail aliases are added within the cleaner only. Generic project names receive post-scoped observed IDs; textual maintainer credits receive channel-scoped observed-name IDs, never verified-account claims.
+
+Direct HTTP requests use top-level `thinking: {type: disabled}`, not the SDK-only `extra_body` wrapper. Four requests can run concurrently, with a default 200-call budget per audit. Successful validated responses are cached by prompt revision, model, device and complete source text. Usage records API cache-hit/miss and output tokens. Cache hits are best effort; no artificial 64-token padding, guaranteed cost, recovered-record count or zero-hallucination claim is made.
+
+API errors, invalid quotes, incomplete JSON or exhausted budgets defer the entire replacement cohort and retain successful cache entries for the next audit. No source fingerprint or publication pointer advances until the cohort completes. Existing free/paid, Elite, stock/mainstream and device gates remain. Source link evidence is recovered from stored message text; no firmware is downloaded.
+
+The existing telegram_clean.yml is updated in place. Workflow enable/disable state is managed separately; this code update does not resume manually paused workflows.
