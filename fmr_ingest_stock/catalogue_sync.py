@@ -15,6 +15,9 @@ from .device_sync import ensure_base_brands_and_anchor
 from .cdn_rewriter import rewrite_to_fast_cdn
 from .oem_sources import canonical_code,download_origin
 
+class FirmwareIdentityPending(RuntimeError):pass
+
+
 DIRECT_BRANDS={'xiaomi','google','samsung','oneplus','motorola','sony','oppo','vivo','realme','asus','nothing'}
 
 
@@ -105,17 +108,21 @@ def publish_release(db,device,release):
     fast=rewrite_to_fast_cdn(vendor,url)
     digest=release.get('sha256') or release.get('md5')
     if digest and not re.fullmatch('[0-9a-fA-F]{32}|[0-9a-fA-F]{64}',digest):raise ValueError('Invalid source checksum')
-    token=generate_public_token('fw')
-    signature=sign_firmware(token,fast,private_key())
-    status='pending' if extraction_eligible(vendor,kind,fast) else 'skipped'
-    db.execute('''INSERT OR IGNORE INTO stock_firmwares(public_token,device_codename,region_code,model_code,
-        version_str,android_version,package_type,file_size_str,md5_or_sha256,original_official_url,fast_cdn_url,
-        published_date,ed25519_signature,extract_status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
-        (token,code,region,str(device.get('codename') or device['upstream_id']),version,
-         (re.match(r'^\d+(?:\.\d+)*',str(release.get('android_version') or ''))[0] if re.match(r'^\d+(?:\.\d+)*',str(release.get('android_version') or '')) else str(release.get('android_version') or 'unknown')),kind,release.get('size'),digest.lower() if digest else None,
-         url,fast,release.get('date'),signature,status))
-    row=db.query('SELECT public_token,extract_status,original_official_url,fast_cdn_url FROM stock_firmwares WHERE device_codename=? AND region_code=? AND version_str=? AND package_type=?',
-                 (code,region,version,kind))[0]
+    existing=db.query("SELECT public_token,extract_status,original_official_url,fast_cdn_url FROM stock_firmwares WHERE device_codename=? AND region_code=? AND version_str=? AND package_type=? AND COALESCE(NULLIF(model_code,''),device_codename)=?",(code,region,version,kind,str(device.get('codename') or device['upstream_id']) or code))
+    token=None
+    if not existing:
+        token=generate_public_token('fw')
+        signature=sign_firmware(token,fast,private_key())
+        status='pending' if extraction_eligible(vendor,kind,fast) else 'skipped'
+        db.execute('''INSERT OR IGNORE INTO stock_firmwares(public_token,device_codename,region_code,model_code,
+            version_str,android_version,package_type,file_size_str,md5_or_sha256,original_official_url,fast_cdn_url,
+            published_date,ed25519_signature,extract_status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
+            (token,code,region,str(device.get('codename') or device['upstream_id']),version,
+             (re.match(r'^\d+(?:\.\d+)*',str(release.get('android_version') or ''))[0] if re.match(r'^\d+(?:\.\d+)*',str(release.get('android_version') or '')) else str(release.get('android_version') or 'unknown')),kind,release.get('size'),digest.lower() if digest else None,
+             url,fast,release.get('date'),signature,status))
+    row=db.query("SELECT public_token,extract_status,original_official_url,fast_cdn_url FROM stock_firmwares WHERE device_codename=? AND region_code=? AND version_str=? AND package_type=? AND COALESCE(NULLIF(model_code,''),device_codename)=?",(code,region,version,kind,str(device.get('codename') or device['upstream_id']) or code)) if not existing else existing
+    if not row:raise FirmwareIdentityPending('Firmware model identity conflict; retain source for schema migration')
+    row=row[0]
     # Repair only a proven expiring URL for the same build/region/type. Keep the
     # public token and extraction status; re-sign the new stable destination.
     if release.get('refresh_source') and expiring(row['original_official_url']):

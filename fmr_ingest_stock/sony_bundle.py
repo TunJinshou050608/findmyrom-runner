@@ -3,7 +3,7 @@ import hashlib,hmac,json,os,re,shutil,tempfile,time,zipfile
 from pathlib import Path
 from urllib.parse import urlsplit,urljoin
 import httpx
-from fmr_core.d1_client import D1Client
+from .d1_budget import BudgetDB as D1Client,D1BudgetReached
 from .d1_budget import NOT_BEFORE
 from .sony_source import validate_manifest,manifest_digest
 
@@ -126,6 +126,8 @@ def main():
             uploader=Uploader(client,secret)
             uploader.request('0'*64,'preflight') # Storage must exist BEFORE reading D1 or downloading ROMs.
             db=D1Client(cf_account_id=os.environ['CF_ACCOUNT_ID'],cf_api_token=os.environ['CF_API_TOKEN'],cf_database_id=os.environ['CF_D1_DATABASE_ID'])
+            if not db.acquire():
+                print('Shared D1 allocation exhausted; bundle requests retained.');return 0
             day=time.strftime('%Y-%m-%d',time.gmtime());daily=load(db,'sony_bundle_control',day) or {'builds':0}
             if daily['builds']>=2:print('Daily full-bundle build budget reached; pending requests are retained.');return 0
             # Abort any previous interrupted upload before allocating the single cache slot.
@@ -171,7 +173,9 @@ def main():
             except Exception:pass
         return 1
     finally:
-        if db:db.close()
+        if db:
+            try:db.settle()
+            finally:db.close()
 
 
 if __name__=='__main__':raise SystemExit(main())

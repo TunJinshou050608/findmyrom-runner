@@ -69,3 +69,12 @@ def test_budget_exception_survives_atomic_batch_wrapper(monkeypatch):
  try:
   with pytest.raises(D1BudgetReached):db.execute_batch([('SELECT 1',[])])
  finally:db.close()
+
+
+def test_settlement_charges_actual_overage_instead_of_hiding_it(tmp_path):
+ db=BudgetDB(local_sqlite_path=str(tmp_path/'overage.sqlite'))
+ try:
+  assert db.acquire();db.rows_read=100100;db.rows_written=2100;db.settle()
+  row=db.query('SELECT * FROM fmr_catalogue_budget')[0]
+  assert row['reads_reserved']==100200 and row['writes_reserved']==2120
+ finally:db.close()

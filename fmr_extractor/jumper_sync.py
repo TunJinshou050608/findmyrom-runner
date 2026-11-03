@@ -12,7 +12,7 @@ import sys
 import tempfile
 from urllib.parse import quote, urlsplit
 
-from fmr_core.d1_client import D1Client
+from fmr_ingest_stock.d1_budget import BudgetDB as D1Client
 
 MAX_BYTES = 512_000
 IMAGE_HEADER = (
@@ -154,6 +154,8 @@ def main(argv=None):
             if time.time() < NOT_BEFORE:
                 raise RuntimeError('Production reads paused until UTC November 1')
         db = D1Client()
+        if db.mode!='sqlite' and not db.acquire():
+            print('Shared D1 allocation unavailable; public projection unchanged.');return 1
         print(json.dumps(generate_jumper_markdown_tree(db, args.output_dir, args.base_site_url), sort_keys=True))
         return 0
     except Exception as exc:
@@ -161,7 +163,8 @@ def main(argv=None):
         return 1
     finally:
         if db:
-            db.close()
+            try:db.settle()
+            finally:db.close()
 
 
 if __name__ == '__main__':

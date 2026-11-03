@@ -95,11 +95,14 @@ def test_samsung_xml_history_is_not_a_download_and_does_not_request_device_ident
   with pytest.raises(ValueError):samsung_history('SM-S000B','EUX',MetadataHTTP(client))
 
 
-@pytest.fixture
-def database(tmp_path,monkeypatch):
+@pytest.fixture(params=[1,5,6])
+def database(tmp_path,monkeypatch,request):
  key,pub=generate_keypair();monkeypatch.setenv('SIGN_PRIVATE_KEY_HEX',key)
  db=D1Client(local_sqlite_path=str(tmp_path/'db.sqlite'))
  db.execute_script(Path(__file__).parents[1].joinpath('schema.sql').read_text());ensure_base_brands_and_anchor(db)
+ if request.param>1:
+  from fmr_core.schema_migrations import ensure_schema
+  ensure_schema(db,allow_migration=True,through=request.param)
  yield db,pub
  db.close()
 

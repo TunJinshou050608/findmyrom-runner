@@ -246,41 +246,41 @@ def publish(out,db,key):
     existing_fw=db.query('SELECT public_token,fast_cdn_url,ed25519_signature FROM stock_firmwares ORDER BY id DESC LIMIT 10')
     if existing_fw and not any(verify_signature(build_firmware_payload(r['public_token'],r['fast_cdn_url']),r['ed25519_signature'],public) for r in existing_fw):
         raise ValueError('Signing key does not match existing production firmware signatures')
-    devices={r['codename'] for r in db.query('SELECT codename FROM devices')}
     products=json.loads((out/'qualified.json').read_text())['products']
+    def select_in(table,field,values,projection='*'):
+        values=list(dict.fromkeys(values));result=[]
+        for offset in range(0,len(values),80):
+            chunk=values[offset:offset+80]
+            result.extend(db.query('SELECT '+projection+' FROM '+table+' WHERE '+field+' IN ('+','.join('?' for _ in chunk)+')',chunk))
+        return result
+    devices={r['codename'] for r in select_in('devices','codename',[i['package']['device_codename'] for i in products],'codename')}
+    candidate_tokens=[]
+    for item in products:
+        package=item['package']
+        candidate_tokens.extend([resource_token(package),'cr_'+hashlib.sha256((package['device_codename']+'|'+package['tg_post_url']).encode()).hexdigest()[:24]])
+    existing_rows={r['public_token']:r for r in select_in('custom_resources','public_token',candidate_tokens)}
+    opted_out={token for token,row in existing_rows.items() if row['maintainer_opted_out']}
     ready=[];excluded=[]
-    opted_out={r['public_token'] for r in db.query('SELECT public_token FROM custom_resources WHERE maintainer_opted_out=1')}
     for item in products:
         errors=quality_errors(item['package'],True)
         if item['package']['device_codename'] not in devices:errors.append('device_absent_from_production_D1')
         token=resource_token(item['package'])
-        if token in opted_out:errors.append('maintainer_opted_out')
+        legacy_token='cr_'+hashlib.sha256((item['package']['device_codename']+'|'+item['package']['tg_post_url']).encode()).hexdigest()[:24]
+        if token in opted_out or legacy_token in opted_out:errors.append('maintainer_opted_out')
         if errors:excluded.append({'post_url':item['package']['tg_post_url'],'device':item['package']['device_codename'],'reasons':errors})
         else:ready.append(item)
     atomic_json(out/'publication_exclusions.json',{'excluded':excluded})
-    fields={r['name'] for r in db.query('PRAGMA table_info(custom_resources)')}
-    for name,kind in (('metadata_json',"TEXT NOT NULL DEFAULT '{}'"),('audit_batch_id','TEXT')):
-        if name not in fields:db.execute('ALTER TABLE custom_resources ADD COLUMN '+name+' '+kind)
-    db.execute('CREATE INDEX IF NOT EXISTS idx_custom_audit_batch ON custom_resources(audit_batch_id)')
     columns='public_token,device_codename,zone_type,category_tag,project_name,is_official,android_version,build_version_tag,maintainer_name,maintainer_contact_tg,target_post_url,gapps_type,known_bugs_json,published_at,ed25519_signature,metadata_json,audit_batch_id'
     # Repair only this audit publisher's initial overlong deterministic tokens.
     # Retain the actual resource rows/counters; never delete user resources.
-    existing_rows={r['public_token']:r for r in db.query('SELECT * FROM custom_resources')}
     legacy={token:r for token,r in existing_rows.items() if json.loads(r['metadata_json']).get('audit_version')==AUDIT_VERSION}
     updates=','.join(c+'=excluded.'+c for c in columns.split(',') if c!='public_token')
     sql='INSERT INTO custom_resources('+columns+') VALUES ('+','.join('?' for _ in columns.split(','))+') ON CONFLICT(public_token) DO UPDATE SET '+updates+' WHERE custom_resources.maintainer_opted_out=0'
     keep={resource_token(item['package']) for item in ready}
     keep.update('cr_'+hashlib.sha256((item['package']['device_codename']+'|'+item['package']['tg_post_url']).encode()).hexdigest()[:24] for item in ready)
-    withdrawals=[r for r in db.query('SELECT * FROM custom_resources') if json.loads(r['metadata_json']).get('audit_version')==AUDIT_VERSION and r['public_token'] not in keep and not r['maintainer_opted_out']]
-    atomic_json(out/'withdrawn_previous_audit_rows.json',{'reason':'failed corrected full audit','rows':withdrawals})
-    # The immutable local audit keeps withdrawal backups before D1 mutation.
-    # Production TG state is no longer committed to a GitHub repository.
-    for offset in range(0,len(withdrawals),40):
-        chunk=withdrawals[offset:offset+40]
-        db.execute_batch([('DELETE FROM custom_resources WHERE public_token=? AND maintainer_opted_out=0 AND json_extract(metadata_json,\'$.audit_version\')=?',(r['public_token'],AUDIT_VERSION)) for r in chunk])
     expected={};committed=0;rows_upserted=0
-    for offset in range(0,len(ready),40):
-        chunk=ready[offset:offset+40];statements=[]
+    for offset in range(0,len(ready),10):
+        chunk=ready[offset:offset+10];statements=[]
         for item in chunk:
             values=publication_row(item,key,run_id);expected[values[0]]=values
             p=item['package']
@@ -307,14 +307,32 @@ def publish(out,db,key):
         result_rows.extend(db.query('SELECT public_token,zone_type,target_post_url,ed25519_signature,metadata_json,device_codename,maintainer_opted_out FROM custom_resources WHERE public_token IN ('+','.join('?' for _ in chunk)+')',chunk))
     for row in result_rows:
         if row['public_token'] not in expected:raise RuntimeError('Unexpected resource in publication batch')
+        if row['maintainer_opted_out']:raise RuntimeError('Resource opted out during publication; retry without republishing it')
         if not verify_signature(build_custom_resource_payload(row['public_token'],row['zone_type'],row['target_post_url']),row['ed25519_signature'],public):raise RuntimeError('Published signature verification failed')
         if json.loads(row['metadata_json'])['taxonomy']['publication']['eligible'] is not True:raise RuntimeError('Published record failed its taxonomy gate')
     if len(result_rows)!=len(ready):raise RuntimeError('Published row count does not match the audited cohort')
+    # Withdraw only after every new row is committed and verified. A failed or
+    # budget-deferred run must not remove the previous working catalogue first.
+    withdrawals=[];after_id=0
+    owner="json_extract(CASE WHEN json_valid(metadata_json) THEN metadata_json ELSE '{}' END,'$.audit_version')"
+    while True:
+        page=db.query('SELECT * FROM custom_resources WHERE '+owner+'=? AND maintainer_opted_out=0 AND id>? ORDER BY id LIMIT 40',(AUDIT_VERSION,after_id))
+        if not page:break
+        after_id=page[-1]['id']
+        withdrawals.extend(r for r in page if r['public_token'] not in keep)
+    atomic_json(out/'withdrawn_previous_audit_rows.json',{'reason':'failed corrected full audit','rows':withdrawals})
+    for offset in range(0,len(withdrawals),10):
+        chunk=withdrawals[offset:offset+10]
+        db.execute_batch([("DELETE FROM custom_resources WHERE public_token=? AND maintainer_opted_out=0 AND json_extract(metadata_json,'$.audit_version')=?",(r['public_token'],AUDIT_VERSION)) for r in chunk])
     visible_devices=sorted({r['device_codename'] for r in result_rows if not r['maintainer_opted_out']})
     for offset in range(0,len(visible_devices),50):
         chunk=visible_devices[offset:offset+50]
         db.execute('UPDATE devices SET phase2_roms_enabled=1 WHERE phase2_roms_enabled!=1 AND codename IN ('+','.join('?' for _ in chunk)+')',chunk)
-    result={'audit_run_id':run_id,'qualified_before_D1_device_check':len(products),'published_and_verified':len(result_rows),
+    resources_by_device={}
+    for row in result_rows:
+        tab='roms' if row['zone_type']=='free_rom' else 'recoveries'
+        resources_by_device.setdefault(row['device_codename'],{}).setdefault(tab,[]).append(row['public_token'])
+    result={'resources_by_device':resources_by_device,'audit_run_id':run_id,'qualified_before_D1_device_check':len(products),'published_and_verified':len(result_rows),
             'withdrawn_previous_audit_records':len(withdrawals),
             'D1_rows_upserted':rows_upserted,
             'excluded_missing_production_device_or_quality':len(excluded),'enabled_devices':visible_devices,'signatures_verified':True,
@@ -338,19 +356,28 @@ def verify_site(out, client=None, sleeper=time.sleep):
     checks=[]
     try:
         for code in result['enabled_devices']:
-            items=by_device[code];expected={resource_token(i['package']) for i in items}
-            tab='roms' if any(i['package']['taxonomy']['resource_type']=='rom' for i in items) else 'recoveries'
-            url='https://findmyrom.com/devices/'+code+'?tab='+tab
-            for attempt in range(2):
-                response=client.get(url);response.raise_for_status()
-                observed=set(re.findall(r'/verify/(cr_[A-Za-z0-9_-]{10,13})(?![A-Za-z0-9_-])',response.text))
-                if observed==expected:break
-                if attempt==0:sleeper(35)
-            if observed!=expected:raise RuntimeError('Published page token set mismatch for '+code)
-            sample=sorted(expected)[0]
-            response=client.get('https://findmyrom.com/verify/'+sample);response.raise_for_status()
-            checks.append({'device':code,'page_url':url,'visible_release_links':len(observed),'sample_verify_page_status':response.status_code})
-        report={'verified_resources':sum(c['visible_release_links'] for c in checks),'verified_devices':len(checks),'checks':checks}
+            tabs=result.get('resources_by_device',{}).get(code)
+            if tabs is None:
+                tabs={}
+                for item in by_device[code]:
+                    tab='roms' if item['package']['taxonomy']['resource_type']=='rom' else 'recoveries'
+                    tabs.setdefault(tab,[]).append(resource_token(item['package']))
+            for tab,tokens in tabs.items():
+                expected=set(tokens);url='https://findmyrom.com/devices/'+code+'?tab='+tab
+                for attempt in range(2):
+                    observed=set()
+                    for page in range(1,1001):
+                        response=client.get(url+('&rpage='+str(page) if page>1 else ''));response.raise_for_status()
+                        observed.update(re.findall(r'/verify/(cr_[A-Za-z0-9_-]{10,13})(?![A-Za-z0-9_-])',response.text))
+                        if expected<=observed or 'More projects' not in response.text:break
+                    if expected<=observed:break
+                    if attempt==0:sleeper(35)
+                if not expected<=observed:raise RuntimeError('Published page token set mismatch for '+code)
+                if not expected:continue
+                sample=sorted(expected)[0]
+                response=client.get('https://findmyrom.com/verify/'+sample);response.raise_for_status()
+                checks.append({'device':code,'page_url':url,'visible_release_links':len(expected),'sample_verify_page_status':response.status_code})
+        report={'verified_resources':sum(c['visible_release_links'] for c in checks),'verified_devices':len({c['device'] for c in checks}),'checks':checks}
         atomic_json(out/'website_verification.json',report)
         print(json.dumps({'event':'website_verification_finished',**report}),flush=True)
         return report
@@ -366,11 +393,17 @@ def main():
         return
     out=root/'audits'/('full-quality-'+os.environ.get('GITHUB_RUN_ID','local')) if args.publish_only else audit(root)
     if args.publish:
-        from fmr_core.d1_client import D1Client
         if os.environ.get('CF_D1_DATABASE_ID')!=DB_ID:raise ValueError('Production D1 identity must match the established database')
-        db=D1Client(cf_database_id=DB_ID)
-        try:publish(out,db,os.environ.get('SIGN_PRIVATE_KEY_HEX','').strip())
-        finally:db.close()
+        from fmr_ingest_stock.d1_budget import BudgetDB
+        from fmr_core.schema_migrations import ensure_schema
+        db=BudgetDB(cf_database_id=DB_ID)
+        try:
+            if not db.acquire():return 0
+            ensure_schema(db)
+            publish(out,db,os.environ.get('SIGN_PRIVATE_KEY_HEX','').strip())
+        finally:
+            try:db.settle()
+            finally:db.close()
 
 
 if __name__=='__main__':main()

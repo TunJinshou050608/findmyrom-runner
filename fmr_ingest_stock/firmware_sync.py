@@ -62,7 +62,7 @@ FIELDS = (
 # claim a pending row between our SELECT and this UPSERT.
 FIRMWARE_SQL = f"""INSERT INTO stock_firmwares ({",".join(FIELDS)})
     VALUES ({",".join("?" for _ in FIELDS)})
-    ON CONFLICT(device_codename,region_code,version_str,package_type) DO UPDATE SET
+    ON CONFLICT DO UPDATE SET
     model_code=excluded.model_code,android_version=excluded.android_version,
     file_size_str=COALESCE(excluded.file_size_str,stock_firmwares.file_size_str),
     md5_or_sha256=COALESCE(excluded.md5_or_sha256,stock_firmwares.md5_or_sha256),
@@ -73,6 +73,18 @@ FIRMWARE_SQL = f"""INSERT INTO stock_firmwares ({",".join(FIELDS)})
         THEN stock_firmwares.extract_status ELSE excluded.extract_status END,
     updated_at=strftime('%s','now')
     WHERE stock_firmwares.public_token=excluded.public_token"""
+
+
+IDENTITY=('device_codename','model_code','region_code','version_str','package_type')
+
+def read_identities(db,items):
+    result=[]
+    for offset in range(0,len(items),20):
+        chunk=items[offset:offset+20]
+        args=[item[k] for item in chunk for k in IDENTITY]
+        sql="WITH wanted("+','.join(IDENTITY)+") AS (VALUES "+','.join('(?,?,?,?,?)' for _ in chunk)+") SELECT f.public_token,f.device_codename,COALESCE(NULLIF(f.model_code,''),f.device_codename) AS model_code,f.region_code,f.version_str,f.package_type,f.extract_status FROM wanted w JOIN stock_firmwares f ON f.device_codename=w.device_codename AND COALESCE(NULLIF(f.model_code,''),f.device_codename)=w.model_code AND f.region_code=w.region_code AND f.version_str=w.version_str AND f.package_type=w.package_type"
+        result.extend(db.query(sql,args))
+    return result
 
 
 def normalize(row, brand):
@@ -154,7 +166,7 @@ def sync_firmwares(
             continue
         unique = tuple(
             item[f]
-            for f in ("device_codename", "region_code", "version_str", "package_type")
+            for f in ("device_codename", "model_code", "region_code", "version_str", "package_type")
         )
         normalized[unique] = item
     entries = list(normalized.items())
@@ -163,20 +175,13 @@ def sync_firmwares(
         codes = list(dict.fromkeys(item["device_codename"] for _, item in chunk))
         # Keep every read below D1's 100 bound-parameter limit, even when
         # the caller chooses a 500-row write batch with distinct devices.
-        existing = []
-        for start in range(0, len(codes), 100):
-            read_codes = codes[start : start + 100]
-            existing.extend(
-                db_client.query(
-                    f"SELECT public_token,device_codename,region_code,version_str,package_type,extract_status FROM stock_firmwares WHERE device_codename IN ({','.join('?' for _ in read_codes)})",
-                    read_codes,
-                )
-            )
+        existing = read_identities(db_client,[item for _,item in chunk])
         by_key = {
             tuple(
                 r[f]
                 for f in (
                     "device_codename",
+                    "model_code",
                     "region_code",
                     "version_str",
                     "package_type",
@@ -214,8 +219,12 @@ def sync_firmwares(
             statements.append((FIRMWARE_SQL, tuple(item[f] for f in FIELDS)))
             if status in {"pending", "skipped"}:
                 stats[status + "_count"] += 1
-        result = db_client.execute_batch(statements)
-        if result["changes"] != len(statements):
+        db_client.execute_batch(statements)
+        # D1 changes includes trigger effects. Verify persisted identity/token
+        # instead of comparing physical writes with the number of source rows.
+        persisted={tuple(r[k] for k in IDENTITY):r['public_token'] for r in read_identities(db_client,[item for _,item in chunk])}
+        verified=[persisted.get(tuple(item[k] for k in IDENTITY))==item['public_token'] for _,item in chunk]
+        if not all(verified):
             # Another ingestion inserted the same natural key after our read.
             # The guarded UPSERT preserves its valid token/signature pair.
             # Abort without advancing the cursor; rerunning reads that token.

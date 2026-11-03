@@ -20,7 +20,38 @@ permissions:
   contents: read
   actions: write
 jobs:
+  schema:
+    name: D1 · 版本化兼容检查与增量迁移
+    if: github.ref == 'refs/heads/main' && github.event_name != 'push'
+    runs-on: ${{ fromJSON(vars.FMR_PUBLISH_RUNNER || vars.FMR_CATALOGUE_RUNNER || '["self-hosted","findmyrom-metadata"]') }}
+    timeout-minutes: 10
+    environment: production
+    concurrency:
+      group: d1-schema-maintenance
+      cancel-in-progress: false
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        persist-credentials: false
+        path: schema-code-${{ github.run_id }}
+    - name: Prepare isolated migration runtime
+      run: |
+        python3 -m venv "$RUNNER_TEMP/fmr-schema-${GITHUB_RUN_ID}"
+        "$RUNNER_TEMP/fmr-schema-${GITHUB_RUN_ID}/bin/python" -m pip install -r requirements.txt
+    - name: 原子迁移；完成前禁止发布任务前移确认点
+      env:
+        CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+        CF_D1_DATABASE_ID: ${{ secrets.CF_D1_DATABASE_ID }}
+        CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+      run: '"$RUNNER_TEMP/fmr-schema-${GITHUB_RUN_ID}/bin/python" -m fmr_core.schema_migrations --apply --through 5'
+    - name: Clean isolated runtime
+      if: always()
+      run: rm -rf -- "$RUNNER_TEMP/fmr-schema-${GITHUB_RUN_ID}"
+    defaults:
+      run:
+        working-directory: schema-code-${{ github.run_id }}
   publish:
+    needs: schema
     if: github.ref == 'refs/heads/main' && vars.FMR_D1_WRITES_PAUSED != 'true' && github.event_name != 'push' && inputs.scope != 'tg'
     runs-on: ${{ fromJSON(vars.FMR_PUBLISH_RUNNER || vars.FMR_CATALOGUE_RUNNER || '["self-hosted","findmyrom-metadata"]') }}
     timeout-minutes: 115
@@ -81,6 +112,7 @@ jobs:
       run:
         working-directory: publisher-code
   samsung:
+    needs: schema
     if: github.ref == 'refs/heads/main' && vars.FMR_D1_WRITES_PAUSED == 'true' && vars.FMR_SAMSUNG_D1_WRITES_PAUSED != 'true' && inputs.scope != 'tg'
     runs-on: ${{ fromJSON(vars.FMR_PUBLISH_RUNNER || vars.FMR_CATALOGUE_RUNNER || '["self-hosted","findmyrom-metadata"]') }}
     timeout-minutes: 115
@@ -142,6 +174,7 @@ jobs:
       run:
         working-directory: samsung-publisher-code
   telegram:
+    needs: schema
     if: github.ref == 'refs/heads/main' && vars.FMR_TG_D1_WRITES_PAUSED != 'true'
     runs-on:
     - self-hosted

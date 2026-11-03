@@ -53,6 +53,8 @@ def test_publication_populates_existing_table_and_enables_device_idempotently(tm
     db.execute_script((Path(__file__).parents[1]/'schema.sql').read_text())
     db.execute("INSERT INTO brands(id,name,bl_unlock_status) VALUES ('xiaomi','Xiaomi','easy')")
     db.execute("INSERT INTO devices(codename,brand_id,marketing_name) VALUES ('alioth','xiaomi','POCO F3')")
+    from fmr_core.schema_migrations import ensure_schema
+    ensure_schema(db,allow_migration=True)
     private,_=generate_keypair()
     first=publish(out,db,private)
     assert first['published_and_verified']==1 and first['D1_rows_upserted']==1
@@ -103,3 +105,60 @@ def test_existing_site_pages_are_checked_against_the_full_publication_cohort(tmp
         assert verify_site(out,client=client)['verified_resources']==1
     with httpx.Client(transport=httpx.MockTransport(lambda r:httpx.Response(200,text='Missing records'))) as client:
         with pytest.raises(RuntimeError,match='token set mismatch'):verify_site(out,client=client,sleeper=lambda _:None)
+
+
+def test_tg_partial_commit_retry_preserves_old_rows_and_never_scans_unrelated_resources(tmp_path,monkeypatch):
+    from copy import deepcopy
+    out=prepare(tmp_path/'state',monkeypatch)
+    template=json.loads((out/'qualified.json').read_text())['products'][0]
+    products=[]
+    for i in range(1,26):
+        row=deepcopy(template);row['package']['msg_id']=100+i
+        row['package']['tg_post_url']='https://t.me/testupdates/'+str(100+i)
+        products.append(row)
+    atomic_json(out/'qualified.json',{'products':products})
+    db=D1Client(local_sqlite_path=str(tmp_path/'production.sqlite'))
+    db.execute_script((Path(__file__).parents[1]/'schema.sql').read_text())
+    from fmr_core.schema_migrations import ensure_schema
+    ensure_schema(db,allow_migration=True,through=6)
+    db.execute("INSERT INTO brands(id,name,bl_unlock_status) VALUES ('xiaomi','Xiaomi','easy')")
+    db.execute("INSERT INTO devices(codename,brand_id,marketing_name) VALUES ('alioth','xiaomi','POCO F3')")
+    db.execute("INSERT INTO custom_resources(public_token,device_codename,zone_type,category_tag,project_name,target_post_url,ed25519_signature,metadata_json) VALUES ('cr_unrelated01','alioth','free_rom','ROM','Unrelated','https://t.me/other/1','signature','{}')")
+    key,_=generate_keypair();native=db.execute_batch;calls=0
+    def interrupt(statements):
+        nonlocal calls
+        calls+=1
+        if calls==2:raise RuntimeError('simulated network loss after first committed chunk')
+        return native(statements)
+    db.execute_batch=interrupt
+    try:
+        with pytest.raises(RuntimeError,match='network loss'):publish(out,db,key)
+        assert not (out/'publication_result.json').exists()
+        assert db.query('SELECT COUNT(*) n FROM custom_resources')[0]['n']==11
+        assert db.query("SELECT 1 FROM custom_resources WHERE public_token='cr_unrelated01'")
+        db.execute_batch=native;trace=[];db._get_sqlite_conn().set_trace_callback(trace.append)
+        result=publish(out,db,key)
+        assert result['published_and_verified']==25 and result['D1_rows_upserted']==15
+        assert db.query('SELECT COUNT(*) n FROM custom_resources')[0]['n']==26
+        assert not any(sql.strip().upper()=='SELECT * FROM CUSTOM_RESOURCES' for sql in trace)
+        assert publish(out,db,key)['D1_rows_upserted']==0
+    finally:db.close()
+
+
+def test_website_verifier_follows_project_pages_and_both_resource_tabs(tmp_path,monkeypatch):
+    import httpx
+    from fmr_tg_scanner.quality_audit import verify_site
+    out=prepare(tmp_path/'state',monkeypatch)
+    a,b,c='cr_aaaaaaaaaa','cr_bbbbbbbbbb','cr_cccccccccc'
+    atomic_json(out/'publication_result.json',{'enabled_devices':['alioth'],'resources_by_device':{'alioth':{'roms':[a,b],'recoveries':[c]}}})
+    seen=[]
+    def response(request):
+        seen.append(str(request.url))
+        if '/verify/' in request.url.path:return httpx.Response(200,text='Verify')
+        token=c if request.url.params.get('tab')=='recoveries' else b if request.url.params.get('rpage')=='2' else a
+        more='More projects →' if token==a else ''
+        return httpx.Response(200,text=f'<a href="/verify/{token}">release</a><a href="/verify/cr_unrelated01">other</a>'+more)
+    with httpx.Client(transport=httpx.MockTransport(response)) as client:
+        result=verify_site(out,client=client)
+    assert result['verified_resources']==3 and result['verified_devices']==1
+    assert any('rpage=2' in url for url in seen) and any('tab=recoveries' in url for url in seen)

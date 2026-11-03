@@ -208,6 +208,7 @@ def test_settlement_outage_still_saves_successful_publication_acknowledgements(e
     class Local:
         def close(self):pass
     class DB:
+        _fmr_schema_ready=5
         rows_read=1;rows_written=1
         def __init__(self,**kwargs):pass
         def acquire(self):return True
@@ -235,6 +236,9 @@ def test_metadata_runner_routing_keeps_binary_and_pr_jobs_off_local_host():
     root=Path(__file__).parents[1]/'.github/workflows'
     for path in root.glob('catalogue_*.yml'):
         for job_name,job in yaml.safe_load(path.read_text())['jobs'].items():
+            if job_name=='schema':
+                assert job['concurrency']['group']=='d1-schema-maintenance'
+                continue
             if job_name=='telegram':
                 assert job['runs-on']==['self-hosted','findmyrom-metadata']
                 continue
@@ -321,7 +325,8 @@ def test_persistent_metadata_state_lives_outside_checkout_and_uploads_from_that_
     import yaml
     root=Path(__file__).parents[1]/'.github/workflows'
     for path in root.glob('catalogue_*.yml'):
-        for job in yaml.safe_load(path.read_text())['jobs'].values():
+        for job_name,job in yaml.safe_load(path.read_text())['jobs'].items():
+            if job_name=='schema':continue
             assert '/var/lib/findmyrom/catalogue-v3' in job['env']['FMR_CATALOGUE_STATE_DIR']
             assert 'vars.FMR_CATALOGUE_STATE_DIR' in job['env']['FMR_CATALOGUE_STATE_DIR']
             for step in job['steps']:

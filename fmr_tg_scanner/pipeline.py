@@ -6,6 +6,7 @@ import re
 from pathlib import Path
 
 from .quality_audit import DB_ID, publish, verify_site
+from fmr_ingest_stock.d1_budget import D1BudgetReached
 
 
 def read_json(path):
@@ -30,13 +31,21 @@ def publish_latest(root, db_factory=None, publisher=publish, verifier=verify_sit
         if os.environ.get('CF_D1_DATABASE_ID') != DB_ID:
             raise ValueError('Production D1 identity must match the established database')
         if db_factory is None:
-            from fmr_core.d1_client import D1Client
-            db_factory = lambda: D1Client(cf_database_id=DB_ID)
+            from fmr_ingest_stock.d1_budget import BudgetDB
+            db_factory = lambda: BudgetDB(cf_database_id=DB_ID)
         db = db_factory()
         try:
+            if hasattr(db,'acquire') and not db.acquire():return {'status':'deferred_budget','audit_run_id':run_id}
+            if db_factory is not None and hasattr(db,'mode'):
+                from fmr_core.schema_migrations import ensure_schema
+                ensure_schema(db)
             publisher(out, db, os.environ.get('SIGN_PRIVATE_KEY_HEX', '').strip())
+        except D1BudgetReached:
+            return {'status':'deferred_budget','audit_run_id':run_id}
         finally:
-            db.close()
+            try:
+                if hasattr(db,'settle'):db.settle()
+            finally:db.close()
     # A website failure must retry verification without rewriting an imported cohort.
     if not (out / 'website_verification.json').exists():
         verifier(out)
