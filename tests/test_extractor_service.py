@@ -139,3 +139,32 @@ def test_xiaomi_cdn_lookalikes_and_arbitrary_buckets_rejected():
     for host in ('bigota.d.miui.com.evil.test', 'unrelated.oss-ap-southeast-1.aliyuncs.com'):
         body, sig = payload(brand='xiaomi', url=f'https://{host}/miui.zip')
         with pytest.raises(ValueError): verify_job(body, sig, SECRET)
+
+def test_full_package_is_authorized_only_for_samsung_encrypted_firmware():
+    body,sig=payload(brand='samsung',partition='full',package_type='samsung_encrypted')
+    assert verify_job(body,sig,SECRET)['partition']=='full'
+    for brand,kind in [('google','factory_zip'),('samsung','samsung_zip')]:
+        body,sig=payload(brand=brand,partition='full',package_type=kind)
+        with pytest.raises(ValueError):verify_job(body,sig,SECRET)
+
+
+def test_full_samsung_package_decrypts_to_zip_without_materializing_an_archive(monkeypatch):
+    import httpx
+    from cryptography.hazmat.primitives.ciphers import Cipher,algorithms,modes
+    from fmr_extractor import service
+    plain=b'PK\x03\x04'+b'fixture ZIP bytes'*8
+    padding=16-len(plain)%16
+    key=b'x'*16
+    enc=Cipher(algorithms.AES(key),modes.ECB()).encryptor()
+    data=enc.update(plain+bytes([padding])*padding)+enc.finalize()
+    def handler(req):
+        start,stop=map(int,req.headers['Range'][6:].split('-'))
+        return httpx.Response(206,headers={'Content-Range':f'bytes {start}-{stop}/{len(data)}'},content=data[start:stop+1])
+    real=httpx.Client
+    monkeypatch.setattr(service.httpx,'Client',lambda **kw:real(transport=httpx.MockTransport(handler),**kw))
+    monkeypatch.setattr(service,'samsung_source',lambda *a,**kw:('https://cloud-neofussvr.samsungmobile.com/fixture.enc4',{},key,{},None))
+    body,_=payload(brand='samsung',partition='full',package_type='samsung_encrypted',model='SM-S928B',region='EUX')
+    with service.open_image(json.loads(body)) as (chunks,metrics,raw):
+        assert b''.join(chunks)==plain
+        assert metrics['output_size']==len(plain)
+        assert raw.used<len(data)*3

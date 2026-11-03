@@ -187,7 +187,15 @@ def samsung_source(client, model='SM-S928B', region='EUX', expected_version=None
 
     Kept separate from production's deliberately metadata-only SmartFUS client.
     """
-    from fmr_ingest_stock.samsung_fus import AUTH_KEY, HOST, normalize_version
+    HOST='https://neofussvr.sslcs.cdngc.net/'
+    AUTH_KEY=bytes.fromhex('422e73733617ae2b198940fd4e32b0a5')
+    def normalize_version(value):
+        if not isinstance(value,str) or not re.fullmatch(r'[A-Za-z0-9_./-]{4,256}',value):raise ValueError('Invalid Samsung version')
+        parts=value.split('/')
+        if len(parts)==3:parts.append(parts[0])
+        if len(parts)!=4:raise ValueError('Samsung version needs PDA/CSC/PHONE/DATA')
+        if not parts[2]:parts[2]=parts[0]
+        return '/'.join(parts)
     nonce=auth=''
     def headers():
         return {'User-Agent':'SMART 2.0', 'Content-Type':'application/xml',

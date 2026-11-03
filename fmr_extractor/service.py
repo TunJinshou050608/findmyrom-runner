@@ -41,7 +41,8 @@ def verify_job(body, signature, secret, now=None):
     if not hmac.compare_digest(signature, expected):
         raise ValueError('Invalid authentication')
     if (job.get('schema') != 1 or job.get('brand') not in BRANDS
-            or job.get('partition') not in {'boot', 'init_boot', 'recovery'}
+            or (job.get('partition') not in {'boot', 'init_boot', 'recovery'}
+                and not (job.get('partition')=='full' and job.get('brand')=='samsung' and job.get('package_type')=='samsung_encrypted'))
             or job.get('package_type') not in {'factory_zip', 'recovery_zip', 'samsung_zip', 'samsung_encrypted'}
             or not re.fullmatch(r'fw_[A-Za-z0-9_-]{10,13}', job.get('token', ''))
             or not re.fullmatch(r'[0-9a-f-]{36}', job.get('id', ''))):
@@ -72,10 +73,25 @@ def open_image(job):
                 raise ValueError('Missing exact Samsung model/CSC')
             url, headers, key, identity, refresh = samsung_source(
                 client, model, region, expected_version=job['version'])
-        raw = RangeReader(url, client, headers, refresh=refresh, prefetch=job['brand'] == 'google')
+        full=job['partition']=='full'
+        raw = RangeReader(url, client, headers, budget=64*1024**3 if full else 250*1024**2,
+                          refresh=refresh, prefetch=job['brand'] == 'google')
+        if full:raw.deadline=time.monotonic()+12*3600
         with contextlib.closing(raw):
             remote = DecryptedReader(raw, key) if key else raw
             metrics = {}
+            if full:
+                metrics['output_size']=remote.size
+                def complete_zip():
+                    first=True
+                    while True:
+                        data=remote.read(1024*1024)
+                        if not data:break
+                        if first and not data.startswith(b'PK\x03\x04'):raise ValueError('Invalid decrypted ZIP')
+                        first=False
+                        yield data
+                with contextlib.closing(complete_zip()) as chunks:yield chunks,metrics,raw
+                return
             with contextlib.closing(image_stream(remote, job['partition'], metrics)) as chunks:
                 yield chunks, metrics, raw
 
@@ -143,7 +159,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.path == '/v1/capabilities':
-            return self.reply(200, json.dumps({'schema': 3, 'prepared_downloads': True, 'brands': sorted(BRANDS), 'partitions': ['boot', 'init_boot', 'recovery']}))
+            return self.reply(200, json.dumps({'schema': 4, 'samsung_full_stream': True, 'prepared_downloads': True, 'brands': sorted(BRANDS), 'partitions': ['boot', 'init_boot', 'recovery']}))
         self.reply(404, 'Not found')
 
     def do_POST(self):
@@ -164,6 +180,7 @@ class Handler(BaseHTTPRequestHandler):
         except Exception:
             return self.reply(403, 'Forbidden')
         if self.path == '/v1/prepare':
+            if job['partition']=='full':return self.reply(422,'Complete packages are streamed without storage')
             with self.server.lock:
                 now = int(time.time())
                 self.server.replays = {k: exp for k, exp in self.server.replays.items() if exp >= now}
@@ -191,8 +208,9 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_response(200)
                 self.send_header('Content-Type', 'application/octet-stream')
                 self.send_header('Cache-Control', 'no-store, no-transform')
-                self.send_header('Content-Disposition', 'attachment; filename="' + job['partition'] + '.img"')
-                known = type(size) is int and 0 < size <= LIMITS[job['partition']][1]
+                full=job['partition']=='full'
+                self.send_header('Content-Disposition', 'attachment; filename="' + ('firmware.zip' if full else job['partition']+'.img') + '"')
+                known = type(size) is int and 0 < size <= (64*1024**3 if full else LIMITS[job['partition']][1])
                 self.send_header('Content-Length', str(size)) if known else self.send_header('Transfer-Encoding', 'chunked')
                 self.send_header('Connection', 'close')
                 self.end_headers()
@@ -201,7 +219,7 @@ class Handler(BaseHTTPRequestHandler):
                 stream_begin = time.monotonic()
                 chunk = first
                 while True:
-                    if time.monotonic() - begin > 480:
+                    if time.monotonic() - begin > (12*3600 if full else 480):
                         raise TimeoutError('Job deadline exceeded')
                     # OS sends block on slow clients: no unbounded producer queue.
                     if known:

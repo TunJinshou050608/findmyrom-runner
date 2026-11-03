@@ -24,7 +24,7 @@ for module in service.py streaming_probe.py prepared.py; do
   curl --disable --noproxy '*' --fail --silent --show-error --location --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 30 \
     "$base_url/$module" --output "$work_dir/app/fmr_extractor/$module"
 done
-printf '%s  %s\n' '9fefdbbaf5f11eec6a5f0a2a4e53da35d151475a2646a6e235a7ac1b86313385' "$work_dir/app/fmr_extractor/service.py" '28f2ab9aac6f502c783f0c9e3a18395afe453cf519fb88561b4bf716f3a616e0' "$work_dir/app/fmr_extractor/streaming_probe.py" '1930309fb33a6e6513480910e716417c65bce8495a3e7b51799edd73469e7112' "$work_dir/app/fmr_extractor/prepared.py" | sha256sum --check --status
+printf '%s  %s\n' 'de26f1d4ab540ea9075839c989317e5e4fc4993688d9f114acd57ed50436ba70' "$work_dir/app/fmr_extractor/service.py" 'a521faff88bc1df428097b1dfb2a47254f559a5f4dd7dcc87a8bf80eddcc2eb9' "$work_dir/app/fmr_extractor/streaming_probe.py" '1930309fb33a6e6513480910e716417c65bce8495a3e7b51799edd73469e7112' "$work_dir/app/fmr_extractor/prepared.py" | sha256sum --check --status
 "$python_bin" -B - "$work_dir/app" <<'PYTEST'
 import sys, json, time, hmac, hashlib
 sys.path.insert(0, sys.argv[1])
@@ -69,7 +69,7 @@ healthy=0
 for attempt in 1 2 3 4 5; do
   if curl --disable --noproxy '*' --fail --silent --show-error --max-time 3 \
     http://127.0.0.1:18765/v1/capabilities --output "$work_dir/capabilities.json" && \
-    "$python_bin" -c 'import json,sys; assert json.load(open(sys.argv[1])).get("prepared_downloads") is True' "$work_dir/capabilities.json"; then
+    "$python_bin" -c 'import json,sys; caps=json.load(open(sys.argv[1])); assert caps.get("prepared_downloads") is True and caps.get("samsung_full_stream") is True' "$work_dir/capabilities.json"; then
     healthy=1
     break
   fi
