@@ -116,9 +116,9 @@ jobs:
         status=$(curl --silent --show-error --max-time 30 https://findmyrom.com/api/extract --output /dev/null --write-out '%{http_code}')
         test "$status" = 403
         printf 'Gateway rejects unsigned extraction requests: HTTP %s\n' "$status"
-    - name: Verify real Samsung image delivery through the deployed website and VPS
+    - name: Diagnose exact archived A54 firmware with bounded streaming only
       if: github.event_name == 'push'
-      run: '"$RUNNER_TEMP/fmr-service-${GITHUB_RUN_ID}/bin/python" -u -m fmr_ingest_stock.samsung_delivery_acceptance --token fw_9kXJalQRpgfh --partition boot'
+      run: '"$RUNNER_TEMP/fmr-service-${GITHUB_RUN_ID}/bin/python" -u -m fmr_ingest_stock.samsung_delivery_acceptance --token fw_mf0OHSvjak7G --direct-only --model SM-A546B --region EUX --version A546BXXSIEZC3/A546BOXMIEZC3/A546BXXSIEZC3/A546BXXSIEZC3 --partition boot'
     - name: Clean isolated environment
       if: always()
       run: rm -rf -- "$RUNNER_TEMP/fmr-service-${GITHUB_RUN_ID}"
@@ -128,5 +128,3 @@ jobs:
       cancel-in-progress: false
 
 # Test the current S24 Ultra build and bounded complete-package stream.
-
-# Compare direct bounded container parsing with the VPS.

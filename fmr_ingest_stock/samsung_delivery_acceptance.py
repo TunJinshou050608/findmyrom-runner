@@ -9,7 +9,23 @@ def main():
     parser=argparse.ArgumentParser()
     parser.add_argument('--token',required=True)
     parser.add_argument('--partition',default='boot',choices=['boot','init_boot','recovery'])
+    parser.add_argument('--direct-only',action='store_true')
+    parser.add_argument('--model',default='SM-S928B')
+    parser.add_argument('--region',default='EUX')
+    parser.add_argument('--version')
     args=parser.parse_args()
+    if args.direct_only:
+        from fmr_extractor.service import open_image
+        job=dict(brand='samsung',model=args.model,region=args.region,version=args.version,partition=args.partition,
+            package_type='samsung_encrypted',url='https://cloud-neofussvr.samsungmobile.com/firmware.enc4')
+        try:
+            with open_image(job) as (chunks,metrics,raw):
+                first=next(chunks)
+                print(json.dumps({'event':'samsung_exact_archive_probe','model':args.model,'bytes':len(first),'magic':first[:8].hex(),'upstream_bytes':raw.used}),flush=True)
+        except Exception as exc:
+            print(json.dumps({'event':'samsung_exact_archive_probe_failure','type':type(exc).__name__,'reason':str(exc)[:240]}),flush=True)
+            raise
+        return 0
     site='https://findmyrom.com'
     with httpx.Client(timeout=90,follow_redirects=False,trust_env=False) as client:
         deadline=time.monotonic()+660
