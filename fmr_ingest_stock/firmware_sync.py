@@ -75,14 +75,14 @@ FIRMWARE_SQL = f"""INSERT INTO stock_firmwares ({",".join(FIELDS)})
     WHERE stock_firmwares.public_token=excluded.public_token"""
 
 
-IDENTITY=('device_codename','model_code','region_code','version_str','package_type')
+IDENTITY=('device_codename','region_code','version_str','package_type')
 
 def read_identities(db,items):
     result=[]
     for offset in range(0,len(items),20):
         chunk=items[offset:offset+20]
         args=[item[k] for item in chunk for k in IDENTITY]
-        sql="WITH wanted("+','.join(IDENTITY)+") AS (VALUES "+','.join('(?,?,?,?,?)' for _ in chunk)+") SELECT f.public_token,f.device_codename,COALESCE(NULLIF(f.model_code,''),f.device_codename) AS model_code,f.region_code,f.version_str,f.package_type,f.extract_status FROM wanted w JOIN stock_firmwares f ON f.device_codename=w.device_codename AND COALESCE(NULLIF(f.model_code,''),f.device_codename)=w.model_code AND f.region_code=w.region_code AND f.version_str=w.version_str AND f.package_type=w.package_type"
+        sql="WITH wanted("+','.join(IDENTITY)+") AS (VALUES "+','.join('(?,?,?,?)' for _ in chunk)+") SELECT f.public_token,f.device_codename,f.region_code,f.version_str,f.package_type,f.extract_status FROM wanted w JOIN stock_firmwares f ON f.device_codename=w.device_codename AND f.region_code=w.region_code AND f.version_str=w.version_str AND f.package_type=w.package_type"
         result.extend(db.query(sql,args))
     return result
 
@@ -166,7 +166,7 @@ def sync_firmwares(
             continue
         unique = tuple(
             item[f]
-            for f in ("device_codename", "model_code", "region_code", "version_str", "package_type")
+            for f in ("device_codename", "region_code", "version_str", "package_type")
         )
         normalized[unique] = item
     entries = list(normalized.items())
@@ -181,7 +181,6 @@ def sync_firmwares(
                 r[f]
                 for f in (
                     "device_codename",
-                    "model_code",
                     "region_code",
                     "version_str",
                     "package_type",

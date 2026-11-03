@@ -6,7 +6,7 @@ from pathlib import Path
 import time
 from fmr_core.d1_client import D1Client
 from .catalogue_store import Store,digest
-from .catalogue_sync import publish_device,publish_release,package_kind,FirmwareIdentityPending
+from .catalogue_sync import publish_device,publish_release
 from .d1_budget import BudgetDB,D1BudgetReached
 from .staged_catalogue import Artifacts,ROOT,encrypt_file,open_local
 from .vendor_catalogue import VENDORS,SUPPRESSED_VENDORS
@@ -23,25 +23,12 @@ def open_ledger(path):
 
 def candidates(local,ledger,vendor):
     store=Store(local,vendor)
-    # Only identities that the old unique key could conflate are revalidated.
-    # Existing acknowledgements for all other releases remain untouched.
-    releases=list(store.rows('release'));identities={}
-    from .oem_sources import canonical_code
-    for key,value in releases:
-        if value.get('status')!='resolved':continue
-        device=value['device'];release=value['release']
-        code=device.get('canonical_code') or canonical_code(vendor,device.get('codename') or device['upstream_id'])
-        try:kind=package_kind(vendor,release)
-        except (ValueError,KeyError,TypeError):continue
-        identity=(code,release.get('region') or 'Global',release.get('version'),kind)
-        identities.setdefault(identity,{}).setdefault(str(device.get('codename') or device['upstream_id']),[]).append(key)
-    collisions={key for models in identities.values() if len(models)>1 for keys in models.values() for key in keys}
     for stage in ('release','model'):
-        for key,value in (releases if stage=='release' else store.rows(stage)):
+        for key,value in store.rows(stage):
             if value.get('status')=='excluded' or value['device'].get('catalogue_scope')=='non_android':continue
-            if stage=='release' and (value.get('status')!='resolved' or (value.get('published') and key not in collisions)):continue
+            if stage=='release' and (value.get('status')!='resolved' or value.get('published')):continue
             body=value['device'] if stage=='model' else [value['device'],value['release']]
-            fingerprint=digest([body,'model-identity-v2']) if key in collisions else digest(body)
+            fingerprint=digest(body)
             old=ledger.query('SELECT hash FROM published WHERE vendor=? AND key=?',(vendor,key))
             if old and old[0]['hash']==fingerprint:continue
             yield stage,key,value,fingerprint
@@ -50,11 +37,7 @@ def candidates(local,ledger,vendor):
 def sync_one(db,ledger,vendor,candidate):
     stage,key,value,fingerprint=candidate
     if stage=='model':publish_device(db,value['device']);result={'status':'published_new'}
-    else:
-        try:result=publish_release(db,value['device'],value['release'])
-        except FirmwareIdentityPending:
-            print(vendor+': 型号唯一键尚未迁移；本条保留待重试，不确认成功。',flush=True)
-            return False
+    else:result=publish_release(db,value['device'],value['release'])
     if result['status'] in ('published_new','preserved_existing'):
         # Commit local acknowledgement only after the D1 transaction succeeded.
         ledger.execute('INSERT INTO published(vendor,key,hash) VALUES (?,?,?) ON CONFLICT(vendor,key) DO UPDATE SET hash=excluded.hash',(vendor,key,fingerprint))

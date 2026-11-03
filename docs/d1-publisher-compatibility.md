@@ -24,7 +24,7 @@ A large 70,000-row database plus indexes can exceed a Free day's write allowance
 python -m fmr_core.schema_migrations --apply --through 6
 ```
 
-Until version 6 is applied, ordinary identities remain publishable. A colliding model stays queued and is logged as pending, never acknowledged as a successful existing firmware. Local reconciliation invalidates old acknowledgements only for potentially conflated model identities, so a previously silently ignored model can be retried without replaying every release or refetching firmware metadata.
+This rolled-back build deliberately keeps the legacy natural-key publisher. A colliding model is treated as the existing firmware (`preserved_existing`) and acknowledged, matching the pre-migration behavior. Version 6 can still be applied later, but this build does not write a second model row; restoring model-aware publishing requires the reverted identity patch.
 
 ## Successful publication and retry semantics
 
@@ -39,4 +39,4 @@ Until version 6 is applied, ordinary identities remain publishable. A colliding 
 
 Tests cover baseline/v5/v6 official publishing, signed refresh descriptors, complete source rows, native D1/DO execution in Web CI, firmware/image foreign keys and signatures, partially committed TG cohorts, retry idempotency, schema checksum guards, and workflow dependency order. No production firmware payload is downloaded for these tests.
 
-Live rollout on 2026-11-03: version 4 applied successfully, and the production coverage SELECT was verified at exactly 1 row read. Version 5 was rejected with D1 error 7500 (daily read allocation); its transaction rolled back, leaving no firmware_search table or new version-5 indices, and only version 4 in the registry. The routine workflow retries version 5 after quota recovery. Version 6 remains explicitly capacity-gated; model conflicts stay pending. Worker deployment and the SQLite budget namespace succeeded, with workers.dev and preview URLs disabled.
+Live rollout on 2026-11-03: version 4 applied successfully, and the production coverage SELECT was verified at exactly 1 row read. Version 5 was rejected with D1 error 7500 (daily read allocation); its transaction rolled back, leaving no firmware_search table or new version-5 indices, and only version 4 in the registry. The routine workflow retries version 5 after quota recovery. Version 6 remains explicitly capacity-gated; this build keeps the legacy natural-key publisher, so model conflicts preserve the existing row and are acknowledged instead of staying pending. Worker deployment and the SQLite budget namespace succeeded, with workers.dev and preview URLs disabled.
