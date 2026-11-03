@@ -1,6 +1,7 @@
 """Single-job native-image HTTP service, intended ONLY behind Cloudflare Tunnel.
 
-No shell execution, proxy settings, firmware files, image files or catalogue writes.
+No shell execution, proxy settings, firmware archive files or catalogue writes.
+Prepared downloads use one private temporary image, deleted after delivery/expiry.
 """
 import contextlib
 import hashlib
@@ -18,6 +19,8 @@ from urllib.parse import urlsplit
 import httpx
 from .streaming_probe import (RangeReader, DecryptedReader, image_stream,
                               samsung_source, LIMITS, ALLOWED)
+
+from .prepared import PreparedImages, verify_control
 
 LOG = logging.getLogger('fmr-extractor')
 MAX_BODY = 8192
@@ -90,6 +93,12 @@ class Server(ThreadingHTTPServer):
         self.replays = {}
         self.lock = threading.Lock()
         super().__init__(address, Handler)
+        self.prepared = PreparedImages(self)
+
+    def server_close(self):
+        if hasattr(self, 'prepared'):
+            self.prepared.close()
+        super().server_close()
 
     def process_request(self, request, client_address):
         if not self.connections.acquire(False):
@@ -134,11 +143,11 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.path == '/v1/capabilities':
-            return self.reply(200, json.dumps({'schema': 2, 'brands': sorted(BRANDS), 'partitions': ['boot', 'init_boot', 'recovery']}))
+            return self.reply(200, json.dumps({'schema': 3, 'prepared_downloads': True, 'brands': sorted(BRANDS), 'partitions': ['boot', 'init_boot', 'recovery']}))
         self.reply(404, 'Not found')
 
     def do_POST(self):
-        if self.path != '/v1/extract':
+        if self.path not in {'/v1/extract', '/v1/prepare', '/v1/job'}:
             return self.reply(404, 'Not found')
         length = self.headers.get('Content-Length', '')
         if (self.headers.get('Transfer-Encoding') or not length.isdecimal()
@@ -148,9 +157,22 @@ class Handler(BaseHTTPRequestHandler):
             body = self.rfile.read(int(length))
             if len(body) != int(length):
                 raise ValueError('Truncated job')
+            if self.path == '/v1/job':
+                control = verify_control(body, self.headers.get('X-FMR-Signature', ''), self.server.secret)
+                return self.control(control)
             job = verify_job(body, self.headers.get('X-FMR-Signature', ''), self.server.secret)
         except Exception:
             return self.reply(403, 'Forbidden')
+        if self.path == '/v1/prepare':
+            with self.server.lock:
+                now = int(time.time())
+                self.server.replays = {k: exp for k, exp in self.server.replays.items() if exp >= now}
+                if job['id'] in self.server.replays:
+                    return self.reply(409, 'Request already used')
+                if not self.server.prepared.start(job):
+                    return self.reply(429, 'Extraction server busy')
+                self.server.replays[job['id']] = job['expires']
+            return self.reply(202, json.dumps({'state': 'preparing'}))
         if not self.server.slot.acquire(False):
             return self.reply(429, 'Extraction server busy')
         started = False
@@ -213,6 +235,45 @@ class Handler(BaseHTTPRequestHandler):
         finally:
             self.close_connection = True
             self.server.slot.release()
+
+    def control(self, data):
+        if data['op'] == 'status':
+            result = self.server.prepared.status(data['id'])
+            return self.reply(200, json.dumps(result)) if result else self.reply(404, 'Job expired')
+        if data['op'] == 'cancel':
+            self.server.prepared.cancel(data['id'])
+            return self.reply(200, '{}')
+        started = False
+        try:
+            with self.server.prepared.claim(data['id']) as item:
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/octet-stream')
+                self.send_header('Content-Length', str(item['total']))
+                self.send_header('X-FMR-SHA256', item['sha256'])
+                self.send_header('Content-Disposition', 'attachment; filename="' + item['filename'] + '"')
+                self.send_header('Cache-Control', 'no-store, no-transform')
+                self.send_header('Connection', 'close')
+                self.end_headers()
+                started = True
+                begin = time.monotonic()
+                sent = 0
+                while True:
+                    if item['cancel'].is_set() or time.monotonic()-begin > 480:
+                        raise TimeoutError('Download cancelled')
+                    chunk = item['file'].read(65536)
+                    if not chunk:
+                        break
+                    self.wfile.write(chunk)
+                    self.wfile.flush()
+                    sent += len(chunk)
+                    delay = sent/self.server.bytes_per_second - (time.monotonic()-begin)
+                    if delay > 0:
+                        time.sleep(min(delay, 1))
+        except Exception:
+            if not started:
+                self.reply(409, 'Image expired or not ready')
+        finally:
+            self.close_connection = True
 
 
 def main():
