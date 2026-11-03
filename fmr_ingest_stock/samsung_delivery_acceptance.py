@@ -34,23 +34,9 @@ def main():
             caps.raise_for_status()
             info=caps.json()
             print(json.dumps({'event':'samsung_vps_capabilities',**info}),flush=True)
-            if info.get('samsung_full_stream'):break
+            if info.get('samsung_full_stream') and info.get('samsung_exact_builds'):break
             if time.monotonic()>deadline:raise RuntimeError('VPS automatic update has not applied')
             time.sleep(30)
-        # Isolate protocol/container handling on the 103 host before testing the VPS.
-        import xml.etree.ElementTree as ET
-        from fmr_extractor.service import open_image
-        current=client.get('https://fota-cloud-dn.ospserver.net/firmware/EUX/SM-S928B/version.xml',headers={'User-Agent':'Kies2.0_FUS'})
-        current.raise_for_status()
-        version=ET.fromstring(current.content).findtext('.//latest').strip()
-        job=dict(brand='samsung',model='SM-S928B',region='EUX',version=version,partition=args.partition,
-            package_type='samsung_encrypted',url='https://cloud-neofussvr.samsungmobile.com/firmware.enc4')
-        try:
-            with open_image(job) as (chunks,metrics,raw):
-                first=next(chunks)
-                print(json.dumps({'event':'samsung_direct_probe','bytes':len(first),'magic':first[:8].hex(),'upstream_bytes':raw.used}),flush=True)
-        except Exception as exc:
-            print(json.dumps({'event':'samsung_direct_probe_failure','type':type(exc).__name__,'reason':str(exc)[:240]}),flush=True)
         response=client.get(site+'/verify/'+args.token+'?partition='+args.partition)
         response.raise_for_status()
         response=client.post(site+'/api/extract-ticket',headers={'Origin':site,'Accept':'application/json'},
