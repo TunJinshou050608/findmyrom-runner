@@ -50,6 +50,18 @@ def main():
             raise RuntimeError('Image size, checksum or magic mismatch')
         print(json.dumps({'event':'samsung_image_verified','token':args.token,'partition':args.partition,
             'bytes':total,'sha256':digest.hexdigest(),'disk_bytes':0}),flush=True)
+        # Normal package ticket follows the signed refresh link to a live decrypted ZIP.
+        response=client.post(site+'/api/ticket',headers={'Origin':site},
+            json={'token':args.token,'line':'1'})
+        response.raise_for_status()
+        download=response.json()['download_url']
+        with client.stream('GET',site+download,follow_redirects=True) as response:
+            response.raise_for_status()
+            size=int(response.headers['Content-Length'])
+            first=next(response.iter_bytes(65536))
+            if not first.startswith(bytes([80,75,3,4])):raise RuntimeError('Decrypted ZIP signature missing')
+            print(json.dumps({'event':'samsung_full_zip_stream_verified','bytes_probed':len(first),
+                'download_total':size,'disk_bytes':0,'completed_full_package':False}),flush=True)
     return 0
 
 if __name__=='__main__':raise SystemExit(main())
