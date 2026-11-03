@@ -62,3 +62,23 @@
 - 为满足“完整 SHA-256 先于文件”及原生下载总大小，使用一份最大 256 MiB 的私有匿名临时镜像，绝不缓存整份固件。文件完成后最多保留 5 分钟；准备阶段无轮询 120 秒取消，单任务 480 秒上限。每 5 秒主动清理；进程退出由操作系统释放匿名文件。下载仍按原速率限制，480 秒上限。
 - 网站的准备进度轮询不读写 D1；600 秒浏览器票据绑定固件、分区和 job。旧接口仍兼容。
 - 网页先绘制完整镜像 SHA-256，再发起文件下载；下载阶段交由浏览器原生管理器呈现大小、速度及进度。总大小尚不确定时显示不定进度，绝不虚构百分比。
+
+## 自动检查并应用更新
+
+一次运行 `deploy/extractor/install-auto-update.sh` 即可安装。它安装独立的 `fmr-extractor-update.service` / `.timer` 和检查器；不把提取服务改成 root，也不改隧道、凭据或代理服务。检查器由 `/opt/fmr-extractor/venv/bin/python` 运行，只用 Python 标准库，不需要新增 pip 包或 GitHub Token。
+
+默认启动后 2 分钟检查，以后每次检查结束约 10 分钟检查一次，附加最多 60 秒随机延迟。安装时也立即执行一次。GitHub 检查固定为 `TunJinshou050608/findmyrom-runner` 的 main 分支和 `deploy/extractor/update-preparation.sh`，不扫描其他仓库或执行其他脚本。使用 ETag；脚本未变化时不会重复下载模块或重启服务。程序文件改动必须同步更新 sh 内的 SHA-256 清单。
+
+发现变更后，脚本与三个模块均固定到脚本变更所在的完整 commit SHA；先验证 shell 语法、模块 SHA-256 和 Python 导入，再备份、安装、重启提取服务并检查本机 capabilities。只有全部成功，才原子保存 `/var/lib/fmr-extractor-update/applied.json`。失败保留此前状态并在下轮重试；更新脚本对安装/健康检查失败自动恢复模块备份。文件锁阻止自动任务及手动更新互相重叠。检查器不自动更新自身；更换检查器或定时配置时重新运行安装脚本。
+
+检查器是独立、短时运行的 root oneshot，以便写入自己的程序目录及重启提取服务；系统文件只读，写入范围限于 `/opt/fmr-extractor`、私有临时目录和自己的状态目录，隐藏提取凭据目录及常见代理/SSH 配置目录。它仍是执行本用户仓库代码的更新通道，应仅由仓库所有者维护。更新会重启提取服务，正在传输的下载可能需要重试。
+
+查看下次检查：`systemctl list-timers --no-pager fmr-extractor-update.timer`
+
+查看日志：`journalctl -u fmr-extractor-update.service -n 50 --no-pager`
+
+立即检查：`systemctl start fmr-extractor-update.service`
+
+暂停自动更新：`systemctl disable --now fmr-extractor-update.timer`
+
+卸载定时器不会停止提取服务。网络失败或 GitHub 限流时仅本次检查失败，现有提取服务继续运行。

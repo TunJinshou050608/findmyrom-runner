@@ -5,6 +5,8 @@ set -euo pipefail
 umask 077
 unset HTTP_PROXY HTTPS_PROXY ALL_PROXY http_proxy https_proxy all_proxy
 if [ "$(id -u)" != 0 ]; then echo 'Run as root.' >&2; exit 1; fi
+exec 9>/opt/fmr-extractor/update.lock
+flock -n 9 || { echo 'Another extractor update is running.' >&2; exit 75; }
 app_dir=/opt/fmr-extractor/app
 python_bin=/opt/fmr-extractor/venv/bin/python
 if [ ! -x "$python_bin" ] || [ ! -f "$app_dir/fmr_extractor/service.py" ]; then
@@ -13,9 +15,13 @@ fi
 work_dir=$(mktemp -d)
 trap 'rm -rf -- "$work_dir"' EXIT
 cp -a "$app_dir" "$work_dir/app"
-base_url=https://raw.githubusercontent.com/TunJinshou050608/findmyrom-runner/main/fmr_extractor
+update_ref=${FMR_UPDATE_REF:-main}
+if [[ "$update_ref" != main && ! "$update_ref" =~ ^[0-9a-f]{40}$ ]]; then
+  echo 'Invalid update revision.' >&2; exit 1
+fi
+base_url=https://raw.githubusercontent.com/TunJinshou050608/findmyrom-runner/$update_ref/fmr_extractor
 for module in service.py streaming_probe.py prepared.py; do
-  curl --noproxy '*' --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+  curl --disable --noproxy '*' --fail --silent --show-error --location --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 30 \
     "$base_url/$module" --output "$work_dir/app/fmr_extractor/$module"
 done
 printf '%s  %s\n' '9fefdbbaf5f11eec6a5f0a2a4e53da35d151475a2646a6e235a7ac1b86313385' "$work_dir/app/fmr_extractor/service.py" '28f2ab9aac6f502c783f0c9e3a18395afe453cf519fb88561b4bf716f3a616e0' "$work_dir/app/fmr_extractor/streaming_probe.py" '1930309fb33a6e6513480910e716417c65bce8495a3e7b51799edd73469e7112' "$work_dir/app/fmr_extractor/prepared.py" | sha256sum --check --status
@@ -52,13 +58,25 @@ rollback() {
   systemctl restart fmr-extractor.service || true
 }
 trap rollback ERR
+trap 'rollback; exit 130' INT TERM
 for module in service.py streaming_probe.py prepared.py; do
   install -m 0644 "$work_dir/app/fmr_extractor/$module" "$app_dir/fmr_extractor/$module"
 done
 systemctl restart fmr-extractor.service
 sleep 1
 systemctl is-active --quiet fmr-extractor.service
-trap - ERR
+healthy=0
+for attempt in 1 2 3 4 5; do
+  if curl --disable --noproxy '*' --fail --silent --show-error --max-time 3 \
+    http://127.0.0.1:18765/v1/capabilities --output "$work_dir/capabilities.json" && \
+    "$python_bin" -c 'import json,sys; assert json.load(open(sys.argv[1])).get("prepared_downloads") is True' "$work_dir/capabilities.json"; then
+    healthy=1
+    break
+  fi
+  sleep 1
+done
+[ "$healthy" = 1 ]
+trap - ERR INT TERM
 printf '%s\n' 'Preparation progress and checksum support installed. Only fmr-extractor.service was restarted.'
-curl --noproxy '*' --fail --silent --show-error --max-time 15 https://extract-origin.findmyrom.com/v1/capabilities || true
+cat "$work_dir/capabilities.json"
 printf '\n'

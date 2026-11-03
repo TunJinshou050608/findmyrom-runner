@@ -1,0 +1,38 @@
+[Unit]
+Description=Check and apply FindMyROM extractor updates
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+ExecStart=/opt/fmr-extractor/venv/bin/python -B /opt/fmr-extractor/updater/auto_update.py
+WorkingDirectory=/var/lib/fmr-extractor-update
+StateDirectory=fmr-extractor-update
+StateDirectoryMode=0700
+UMask=0077
+TimeoutStartSec=8min
+KillMode=control-group
+Nice=19
+CPUQuota=20%
+MemoryMax=128M
+MemorySwapMax=0
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectSystem=strict
+ReadWritePaths=/opt/fmr-extractor /var/lib/fmr-extractor-update
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+InaccessiblePaths=-/etc/fmr-extractor -/etc/xray -/etc/hysteria -/etc/ssh -/root -/home -/usr/local/etc -/etc/shadow -/etc/gshadow -/etc/ssl/private
+UnsetEnvironment=HTTP_PROXY HTTPS_PROXY ALL_PROXY http_proxy https_proxy all_proxy PYTHONPATH PYTHONHOME BASH_ENV ENV
+Environment=PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1

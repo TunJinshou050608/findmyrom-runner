@@ -1,0 +1,12 @@
+[Unit]
+Description=Check FindMyROM extractor update script every ten minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitInactiveSec=10min
+RandomizedDelaySec=60s
+AccuracySec=15s
+Unit=fmr-extractor-update.service
+
+[Install]
+WantedBy=timers.target

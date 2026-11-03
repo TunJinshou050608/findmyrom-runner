@@ -50,3 +50,11 @@
 ## 验证边界
 
 本机执行网站类型检查、原有回归、新增鉴权/转发/取消测试；服务端使用合成数据测试 HMAC、防重放、忙时拒绝、完整输出、取消清理和损坏流失败行为。Mac 沙箱禁止监听套接字，真实 loopback HTTP 与已有 HTTP 探针交由 Linux runner 检查。真实 VPS cgroup/挂载隔离、连通性和官包交付必须在用户安装后另行验收；部署代码不代表这部分已通过。
+
+## 自动更新（已有安装）
+
+运行一次 `install-auto-update.sh` 安装独立定时器。现有 venv 每约 10 分钟检查 GitHub 上的 `update-preparation.sh`；无变化不重启，有变化时固定到同一个提交校验并应用。安装/健康检查失败自动恢复旧模块，下次重试。提取服务仍使用原来的独立账号；不改代理或隧道。
+
+日志：`journalctl -u fmr-extractor-update.service -n 50 --no-pager`
+
+停用：`systemctl disable --now fmr-extractor-update.timer`
