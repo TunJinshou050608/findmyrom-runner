@@ -120,7 +120,8 @@ class MetadataHTTP:
         self.client=client or httpx.Client(timeout=30,follow_redirects=False,
             headers={'User-Agent':'FindMyROM-Catalogue/1.0','Accept':'text/html,application/json,application/xml,text/plain'})
         self.owned=client is None
-        self.cache={}
+        from .cache_lifecycle import ByteLRU
+        self.cache=ByteLRU(16*1024*1024)
         self.snapshots={}
 
     def close(self):

@@ -1,7 +1,8 @@
-"""Bounded text-only HTTP cache in private D1, with conditional revalidation."""
+"""Bounded task-side text-only cache, with conditional revalidation."""
 import base64
 import binascii
 import hashlib
+import json
 from contextlib import contextmanager
 import re
 import time
@@ -9,6 +10,7 @@ from urllib.parse import unquote,urlsplit
 import zlib
 import httpx
 from .catalogue_store import digest
+from .cache_lifecycle import PageCache,ByteLRU,MEMORY_BYTES,MAX_RETENTION
 from .oem_sources import METADATA_HOSTS,safe_url
 
 MEDIA={'text/html','text/plain','application/json','application/xml','text/xml','application/xhtml+xml'}
@@ -27,10 +29,16 @@ class CachedClient:
         self.force=force
         self.now=now or time.time
         self.stats={'network':0,'cache_hits':0,'not_modified':0}
-        self.memory={}
+        self.pages=PageCache(store,now=self.now)
+        self.memory=ByteLRU(MEMORY_BYTES,lambda value:len(json.dumps(value,separators=(',',':')).encode()))
         self.deadline=time.monotonic()+45*60
 
     def close(self):
+        self.pages.flush()
+        self.stats.update(cache_bytes=self.pages.bytes,cache_entries=len(self.pages.entries),cache_evictions=self.pages.evicted)
+        print(json.dumps({'event':'metadata_cache_budget','vendor':self.store.vendor,'bytes':self.pages.bytes,
+                          'entries':len(self.pages.entries),'evicted':self.pages.evicted,'memory_bytes':self.memory.used}),flush=True)
+        self.memory.clear()
         if self.owned:self.raw.close()
 
     @staticmethod
@@ -45,6 +53,8 @@ class CachedClient:
 
     @staticmethod
     def unpack(row):
+        if not isinstance(row,dict) or not isinstance(row.get('checked_at'),(int,float)) or not isinstance(row.get('headers'),dict):
+            raise ValueError('Invalid cached metadata fields')
         decoder=zlib.decompressobj()
         body=decoder.decompress(base64.b64decode(row['body'],validate=True),MAX_BODY+1)
         if len(body)>MAX_BODY or not decoder.eof or decoder.unused_data or decoder.unconsumed_tail:
@@ -61,13 +71,14 @@ class CachedClient:
         ttl=self.lifetime(str(url));now=int(self.now())
         key=self.store.key('page',[str(url),kwargs.get('cookies') or {}])
         cached=self.memory.get(key)
+        if cached:self.pages.touch(key)
         if cached is None and ttl:
-            cached=self.store.get(key)
+            cached=self.pages.get(key)
             if cached:self.memory[key]=cached
         cached_body=None
         if cached:
             try:cached_body=self.unpack(cached)
-            except (ValueError,KeyError,zlib.error,binascii.Error):
+            except (ValueError,TypeError,KeyError,zlib.error,binascii.Error):
                 # Rebuild a damaged cache document from its trusted source; never
                 # clear the successfully resolved model/release checkpoints.
                 cached=None;self.memory.pop(key,None)
@@ -86,7 +97,8 @@ class CachedClient:
             if original.status_code==304:
                 if not cached:raise ValueError('304 without a cached document')
                 data=cached_body;cached['checked_at']=now
-                self.store.put(key,cached);self.memory[key]=cached
+                cached['retained_until']=now+min(MAX_RETENTION,ttl+86400)
+                self.pages.put(key,cached);self.memory[key]=cached
                 self.stats['not_modified']+=1
                 response=httpx.Response(200,headers=cached['headers'],content=data,request=original.request)
             elif original.status_code==200:
@@ -100,10 +112,10 @@ class CachedClient:
                 response=httpx.Response(200,headers={'Content-Type':media},content=data,request=original.request)
                 packed=base64.b64encode(zlib.compress(data)).decode()
                 if ttl and len(packed)<1000000:
-                    cached={'checked_at':now,'body':packed,'digest':hashlib.sha256(data).hexdigest(),
+                    cached={'checked_at':now,'retained_until':now+min(MAX_RETENTION,ttl+86400),'body':packed,'digest':hashlib.sha256(data).hexdigest(),
                         'headers':{'Content-Type':media},'etag':original.headers.get('ETag'),
                         'last_modified':original.headers.get('Last-Modified')}
-                    self.store.put(key,cached);self.memory[key]=cached
+                    self.pages.put(key,cached);self.memory[key]=cached
             else:
                 # Redirect locations and errors are interpreted by the adapters.
                 # Their bodies are never read or cached here.

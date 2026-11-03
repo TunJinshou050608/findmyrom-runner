@@ -27,8 +27,7 @@ from . import vendor_catalogue as job
 ROOT=Path(os.environ.get('FMR_CATALOGUE_STATE_DIR','catalogue-state'))
 PREFIX='catalogue-v3-'
 BASELINE=PREFIX+'baseline'
-# Xiaomi history plus cached metadata legitimately exceeds the old 256 MiB
-# decoded limit. Keep separate hard caps for the encrypted transfer and SQLite.
+# Existing hard caps stay unchanged. Disposable page caches are not backed up.
 MAX_ENCRYPTED_SNAPSHOT=256*1024*1024
 MAX_SNAPSHOT=1024*1024*1024
 
@@ -62,12 +61,13 @@ def state_lock(path,suffix):
         finally:fcntl.flock(handle,fcntl.LOCK_UN)
 
 
-def checkpoint_stamp(path,*,artifact_id=None,writer_run_id=None):
+def checkpoint_stamp(path,*,artifact_id=None,writer_run_id=None,dirty=None):
     stamp=Path(path).with_suffix('.checkpoint.json')
     with state_lock(path,'.stamp.lock'):
         value=json.loads(stamp.read_text()) if stamp.exists() else {}
         if artifact_id is not None:value['artifact_id']=max(int(value.get('artifact_id',0)),int(artifact_id))
         if writer_run_id is not None:value['writer_run_id']=str(writer_run_id)
+        if dirty is not None:value['dirty']=dirty
         with tempfile.NamedTemporaryFile(mode='w',dir=stamp.parent,delete=False) as temp:
             json.dump(value,temp);name=temp.name
         Path(name).replace(stamp)
@@ -101,7 +101,11 @@ class Artifacts:
                 if table is None:raise RuntimeError('InvalidLocalCatalogueState')
             stamp_path=path.with_suffix('.checkpoint.json')
             if not stamp_path.exists():raise RuntimeError('UntrackedLocalCatalogueState')
-            stamp=json.loads(stamp_path.read_text());items=self.list(PREFIX+scope)
+            stamp=json.loads(stamp_path.read_text())
+            if stamp.get('dirty'):
+                print(scope+': 本地有尚未成功备份的提交；保留本机新进度，不用远端旧快照覆盖。',flush=True)
+                return 'local'
+            items=self.list(PREFIX+scope)
             latest=items[0] if items else None
             remote_run=(latest.get('workflow_run') or {}).get('id') if latest else None
             unchanged=not latest or latest['id']<=stamp.get('artifact_id',0)
@@ -157,6 +161,8 @@ def open_local(path,initialize=True):
 
 def encrypt_file(scope,path):
     target=ROOT/'upload'/(scope+'.sqlite.enc');target.parent.mkdir(parents=True,exist_ok=True)
+    # A failed new export must never leave an old file eligible for upload.
+    target.unlink(missing_ok=True)
     # Online backup produces a consistent SQLite image while another runner
     # reads/updates the shared database. Never copy live database bytes directly.
     with tempfile.TemporaryDirectory(dir=ROOT) as directory:
@@ -164,23 +170,54 @@ def encrypt_file(scope,path):
         with closing(sqlite3.connect(Path(path).resolve().as_uri()+'?mode=ro',uri=True,timeout=30)) as source:
             with closing(sqlite3.connect(copy)) as destination:
                 source.backup(destination)
+                tables={r[0] for r in destination.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+                if 'crawler_sources' in tables:
+                    destination.execute("DELETE FROM crawler_sources WHERE source_kind=? AND source_target GLOB 'v2:*:page:*'",(KIND,))
+                    destination.commit()
                 # Reclaim free pages from completed history without dropping
-                # checkpoints/cache entries or mutating the live local database.
+                # checkpoints or mutating the live local database.
                 destination.execute('VACUUM')
-        target.write_bytes(seal(copy.read_bytes(),scope))
-    checkpoint_stamp(path,writer_run_id=os.environ.get('GITHUB_RUN_ID','local'))
+        payload=seal(copy.read_bytes(),scope)
+        with tempfile.NamedTemporaryFile(dir=target.parent,delete=False) as handle:
+            handle.write(payload);temporary=Path(handle.name)
+        try:temporary.replace(target)
+        finally:temporary.unlink(missing_ok=True)
+        print(json.dumps({'event':'checkpoint_export','scope':scope,'sqlite_bytes':copy.stat().st_size,'encrypted_bytes':len(payload),'page_cache_included':False}),flush=True)
+    checkpoint_stamp(path,writer_run_id=os.environ.get('GITHUB_RUN_ID','local'),dirty=False)
+
+
+def maintain_cache(vendor):
+    """One local repair before restore; retain all model/release/control records."""
+    from .cache_lifecycle import PageCache,inventory
+    path=ROOT/(vendor+'.sqlite')
+    if not path.exists():return
+    if not path.with_suffix('.checkpoint.json').exists():raise RuntimeError('UntrackedLocalCatalogueState')
+    with state_lock(path,'.maintenance.lock'):
+        db=open_local(path,initialize=False)
+        try:
+            before=inventory(db);cache=PageCache(Store(db,vendor));after=inventory(db)
+            if cache.evicted:checkpoint_stamp(path,dirty=True)
+            conn=db._get_sqlite_conn()
+            free=conn.execute('PRAGMA freelist_count').fetchone()[0]*conn.execute('PRAGMA page_size').fetchone()[0]
+            old_bytes=path.stat().st_size
+            if free>=32*1024*1024:conn.execute('VACUUM')
+            print(json.dumps({'event':'metadata_cache_maintenance','vendor':vendor,'before':before,'after':after,'evicted':cache.evicted,
+                              'database_bytes_before':old_bytes,'database_bytes_after':path.stat().st_size,'page_cache_bytes':cache.bytes}),flush=True)
+        finally:db.close()
 
 
 def collect(vendor,operation='incremental',seconds=420):
     if vendor in job.SUPPRESSED_VENDORS:
         print(vendor+': paused by user; no network or D1 requests.',flush=True);return 0
     ROOT.mkdir(parents=True,exist_ok=True,mode=0o700);path=ROOT/(vendor+'.sqlite')
+    (ROOT/'upload'/(vendor+'.sqlite.enc')).unlink(missing_ok=True)
     artifacts=Artifacts()
     try:
         if not artifacts.restore(vendor,path):
             # A missing baseline is not permission to refetch all history.
             raise RuntimeError('MigrationBaselineMissing')
         db=open_local(path)
+        checkpoint_stamp(path,dirty=True)
         deadline=time.monotonic()+seconds
         result=0
         try:
@@ -270,14 +307,17 @@ def prepare():
 
 def main(argv=None):
     parser=argparse.ArgumentParser()
-    parser.add_argument('command',choices=['prepare','baseline','collect','next','prune'])
+    parser.add_argument('command',choices=['prepare','baseline','collect','next','prune','maintain-cache'])
     parser.add_argument('--vendor',choices=job.VENDORS)
     parser.add_argument('--operation',default='incremental',choices=['incremental','retry_failed','refresh_sources'])
+    parser.add_argument('--seconds',type=int,default=420)
     args=parser.parse_args(argv)
+    if not 10<=args.seconds<=600:parser.error('--seconds must be 10..600')
     if args.command=='prepare':prepare();return 0
     if args.command=='baseline':baseline();return 0
     if not args.vendor:parser.error('--vendor required')
-    if args.command=='collect':return collect(args.vendor,args.operation)
+    if args.command=='maintain-cache':maintain_cache(args.vendor);return 0
+    if args.command=='collect':return collect(args.vendor,args.operation,args.seconds)
     if args.command=='next':next_batch(args.vendor)
     if args.command=='prune':
         a=Artifacts()
