@@ -3,6 +3,7 @@
 
 import json
 import os
+import re
 from pathlib import Path
 import subprocess
 import sys
@@ -25,7 +26,7 @@ def run(args, env, expected=0):
 def main():
     env = {**os.environ, "FMR_TEST_NO_SLEEP": "1"}
     output = run([sys.executable, "-m", "pytest", "-v"], env)
-    if "skipped" in output.lower():
+    if re.search(r"\b[1-9]\d*\s+skipped\b", output, re.I):
         raise AssertionError("No skips allowed")
     with tempfile.TemporaryDirectory(prefix="fmr-sp03-dod-") as temp:
         env.update(

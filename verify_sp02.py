@@ -38,7 +38,7 @@ def main():
             if path.is_file() and "__pycache__" not in path.parts:
                 print(path.relative_to(ROOT))
     output = run([sys.executable, "-m", "pytest", "-v"])
-    require("skipped" not in output.lower(), "Tests must run without skips")
+    require(re.search(r"\b[1-9]\d*\s+skipped\b", output, re.I) is None, "Tests must run without skips")
     with tempfile.TemporaryDirectory(prefix="fmr-sp02-") as temp:
         db_path = str(Path(temp) / "dod.db")
         env = {
