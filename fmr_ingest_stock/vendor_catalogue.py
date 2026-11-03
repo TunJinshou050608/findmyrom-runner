@@ -35,16 +35,16 @@ def upgrade_adapters(store,status):
     """Retry affected local records once per adapter revision, never per start."""
     if store.vendor=='samsung':
         key=store.key('samsung_source_revision')
-        if (store.get(key) or {}).get('revision')=='fota-reference-1':return
+        if (store.get(key) or {}).get('revision')=='fus-resolver-2':return
         changes=[]
         for target,value in store.rows('release'):
             row=value['release']
             if row.get('metadata_source')!='samsung_fota_version_xml' or row.get('download_url'):continue
             row.pop('detail_page',None);row['resolution']='requires_samsung_fus'
-            value.update(status='blocked',error='SamsungFotaNeedsDownloadResolver',next_check=2**40)
+            value.update(status='pending',error=None,next_check=0,last_cycle='',attempts=0)
             changes.append((target,value))
-        store.put_many(changes);store.put(key,{'revision':'fota-reference-1'})
-        status.log(f'三星 FOTA 线索已纠正 {len(changes)} 条；不再请求推测出的第三方详情地址。')
+        store.put_many(changes);store.put(key,{'revision':'fus-resolver-2'})
+        status.log(f'三星 FUS 解析已接入；重新排队 {len(changes)} 条旧记录，按确切版本核验。')
         return
     if store.vendor not in ('oneplus','oppo','realme','vivo','asus'):return
     revision=ADAPTER_REVISION+('-asus-2' if store.vendor=='asus' else '-version-3' if store.vendor=='oneplus' else '-gate-2' if store.vendor=='realme' else '')
@@ -331,12 +331,16 @@ def batch(store,control,http,status):
         try:
             row=value['release']
             if store.vendor=='samsung' and row.get('metadata_source')=='samsung_fota_version_xml' and not row.get('download_url'):
-                row.pop('detail_page',None);row['resolution']='requires_samsung_fus'
-                value.update(release=row,status='blocked',error='SamsungFotaNeedsDownloadResolver',
-                    checked_at=now,next_check=2**40,last_cycle=cycle)
-                store.put(key,value);store.advance('release',key);changed+=1
-                status.update(checkpoint=True)
-                continue
+                from .samsung_fus import resolve_release,FirmwareUnavailable
+                try:
+                    row=resolve_release(value['device'],row,http.client.raw)
+                    http.client.stats['network']+=2
+                except FirmwareUnavailable as exc:
+                    value.update(status='unavailable',error=str(exc),checked_at=now,
+                                 next_check=now+7*86400,last_cycle=cycle)
+                    store.put(key,value);store.advance('release',key);changed+=1
+                    status.update(checkpoint=True)
+                    continue
             if value.get('status')!='resolved' or not durable_download(store.vendor,row) or value.get('checked_at',0)+RELEASE_TTL<=now:
                 if row.get('detail_page'):row=resolve_atlas(row,http)
                 if not durable_download(store.vendor,row):

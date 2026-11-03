@@ -32,6 +32,7 @@ def package_kind(vendor,release):
     if release.get('refresh_source'):
         from .download_refresh import valid_release
         if not valid_release(vendor,release):raise ValueError('Invalid refresh release')
+        if vendor=='samsung':return 'samsung_encrypted'
         return 'incremental_zip' if release.get('kind') in ('incremental','delta') else 'recovery_zip'
     path=urlsplit(release['download_url']).path.lower()
     if path.endswith('.ozip'):return 'recovery_ozip'

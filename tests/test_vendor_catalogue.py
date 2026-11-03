@@ -344,12 +344,12 @@ def test_existing_samsung_fota_queue_is_repaired_without_any_network(env):
   'metadata_source':'samsung_fota_version_xml','detail_page':'https://fwatlas.com/samsung/sample/guessed'},'status':'retry','attempts':1})
  with job.Status('samsung',interval=100) as status:job.upgrade_adapters(store,status)
  value=store.get(key)
- assert value['status']=='blocked' and value['error']=='SamsungFotaNeedsDownloadResolver'
+ assert value['status']=='pending' and value['error'] is None
  assert 'detail_page' not in value['release']
- assert not store.due('release','new',1)
+ assert store.due('release','new',1)
 
 
-def test_fota_only_samsung_references_stay_out_of_even_forced_web_retry_queue(env):
+def test_fota_samsung_references_enter_the_fus_retry_queue(env):
  db,_=env;store=Store(db,'samsung');key=store.key('release','fota')
  store.put(key,{'device':{'vendor':'samsung','upstream_id':'sample'},'release':{'resolution':'requires_samsung_fus'},'status':'blocked','next_check':0})
- assert not store.due('release','new',10,operation='retry_failed')
+ assert store.due('release','new',10,operation='retry_failed')

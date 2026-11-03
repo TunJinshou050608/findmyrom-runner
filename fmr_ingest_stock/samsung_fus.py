@@ -13,6 +13,10 @@ HOST='https://neofussvr.sslcs.cdngc.net/'
 AUTH_KEY=bytes.fromhex('422e73733617ae2b198940fd4e32b0a5')
 
 
+class FirmwareUnavailable(ValueError):
+    """FUS explicitly declines this exact archived build, rather than a network failure."""
+
+
 def normalize_version(value):
     if not re.fullmatch(r'[A-Za-z0-9_./-]{4,256}',value):raise ValueError('Invalid Samsung version')
     parts=value.split('/')
@@ -72,7 +76,8 @@ class SmartFUS:
         reply=ET.fromstring(self.request('NF_SmartDownloadBinaryInform.do',ET.tostring(root,encoding='unicode')))
         status=reply.findtext('./FUSBody/Results/Status')
         if status not in ('200','S00'):
-            raise ValueError('FUS metadata unavailable: '+(status if status and re.fullmatch('[A-Za-z0-9]{1,8}',status) else 'unknown'))
+            error = FirmwareUnavailable if status in ('404','F00','F01','F02','F03','F05','F11') else ValueError
+            raise error('FUS metadata unavailable: '+(status if status and re.fullmatch('[A-Za-z0-9]{1,8}',status) else 'unknown'))
         fields={node.tag:node.findtext('Data') for node in reply.iter() if node.find('Data') is not None}
         actual=normalize_version(fields.get('BINARY_SW_VERSION') or fields.get('LATEST_FW_VERSION') or '')
         if actual!=version:raise ValueError('FUS returned a different build')
@@ -83,3 +88,16 @@ class SmartFUS:
         if size<=0:raise ValueError('Invalid FUS package size')
         return {'version':actual,'filename':filename,'path':path,'size':size,
             'resolution':'fus_metadata_only','download_service_required':True}
+
+
+def resolve_release(device, release, client):
+    """Only nonce/Inform metadata here; binary bytes and session keys stay on VPS."""
+    from .download_refresh import fingerprint, PREFIX
+    model=device.get('codename') or device['upstream_id']
+    region=release['region']
+    info=SmartFUS(client).binary_info(model,region,release['version'])
+    source={'schema':1,'vendor':'samsung','model':model,'region':region,
+            **{k:info[k] for k in ('version','filename','path','size')}}
+    return {**release,'version':info['version'],'download_url':PREFIX+fingerprint(source),
+            'refresh_source':source,'filename':info['filename'],'size':str(info['size'])+' bytes',
+            'resolution':'resolved','origin_kind':'oem_on_demand'}

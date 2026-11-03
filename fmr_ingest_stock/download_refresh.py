@@ -16,6 +16,18 @@ def expiring(url):
 
 
 def validate(source):
+    if source.get('vendor') == 'samsung':
+        from .samsung_fus import normalize_version
+        if (set(source) != {'schema','vendor','version','model','region','filename','path','size'}
+                or type(source['schema']) is not int or source['schema'] != 1
+                or not re.fullmatch(r'(?:SM|GT)-[A-Z0-9]{3,16}',source['model'])
+                or not re.fullmatch(r'[A-Z0-9]{3}',source['region'])
+                or normalize_version(source['version']) != source['version']
+                or not re.fullmatch(r'[A-Za-z0-9_.-]{1,240}\.enc[24]',source['filename'])
+                or not re.fullmatch(r'/[A-Za-z0-9_/-]{1,160}/',source['path'])
+                or type(source['size']) is not int or not 0 < source['size'] <= 64*1024**3):
+            raise ValueError('Invalid Samsung FUS descriptor')
+        return source
     if set(source) != {'schema', 'vendor', 'version', 'landing_page', 'filename'}:
         raise ValueError('Invalid refresh descriptor fields')
     if type(source['schema']) is not int or source['schema'] != 1 or source['vendor'] not in VENDORS:

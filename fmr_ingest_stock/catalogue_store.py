@@ -129,6 +129,4 @@ class Store:
             condition="(COALESCE(json_extract(last_cursor_val,'$.next_check'),0)<=? OR (?='retry_failed' AND json_extract(last_cursor_val,'$.status') IN ('failed','blocked')) OR (?=1 AND json_extract(last_cursor_val,'$.status')='resolved' AND COALESCE(json_extract(last_cursor_val,'$.published'),0)=0))"
             args=[now,operation,int(publish)]
         condition="COALESCE(json_extract(last_cursor_val,'$.status'),'pending')!='excluded' AND COALESCE(json_extract(last_cursor_val,'$.last_cycle'),'')!=? AND "+condition
-        if stage=='release' and self.vendor=='samsung':
-            condition+=" AND (COALESCE(json_extract(last_cursor_val,'$.release.resolution'),'')!='requires_samsung_fus' OR COALESCE(json_extract(last_cursor_val,'$.release.download_url'),'')!='')"
         return self._select(stage,condition,[cycle,*args],limit)
