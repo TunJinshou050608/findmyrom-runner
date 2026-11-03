@@ -33,10 +33,15 @@ jobs:
           for (const status of ['queued','in_progress','waiting','pending','requested']) {
             runs.push(...await github.paginate(github.rest.actions.listWorkflowRunsForRepo, {...context.repo, status, per_page:100}));
           }
-          for (const run of runs) {
+          for (const run of new Map(runs.map(run=>[run.id,run])).values()) {
             if (!active.has(run.status) || run.id === context.runId || run.path === '.github/workflows/ci.yml') continue;
-            await github.rest.actions.cancelWorkflowRun({...context.repo, run_id:run.id});
-            core.info(`Cancellation requested for ${run.id}: ${run.name}`);
+            try {
+              await github.rest.actions.cancelWorkflowRun({...context.repo, run_id:run.id});
+              core.info(`Cancellation requested for ${run.id}: ${run.name}`);
+            } catch (error) {
+              if (error.status !== 409) throw error;
+              core.info(`Execution ${run.id} already completed during cancellation.`);
+            }
           }
     - uses: actions/setup-python@v5
       with:
@@ -73,8 +78,12 @@ jobs:
           for (const status of ['queued','in_progress','waiting','pending','requested']) {
             runs.push(...await github.paginate(github.rest.actions.listWorkflowRunsForRepo, {...context.repo, status, per_page:100}));
           }
-          const others = runs.filter(run => active.has(run.status) && run.id !== context.runId &&
-            run.path !== '.github/workflows/ci.yml' && run.path !== '.github/workflows/d1_identity_migration.yml');
+          const others = [];
+          for (const run of new Map(runs.map(run=>[run.id,run])).values()) {
+            if (!active.has(run.status) || run.id === context.runId || run.path === '.github/workflows/ci.yml' || run.path === '.github/workflows/d1_identity_migration.yml') continue;
+            const latest = await github.rest.actions.getWorkflowRun({...context.repo, run_id:run.id});
+            if (active.has(latest.data.status)) others.push(latest.data);
+          }
           if (others.length) throw new Error(`Other executions still active: ${others.map(r=>r.id).join(',')}; no D1 request started.`);
     - name: 数据与断点在同一事务提交；无重试、无重抓、无固件下载
       env:
