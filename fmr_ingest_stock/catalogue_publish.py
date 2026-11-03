@@ -49,17 +49,21 @@ def main():
     if os.environ.get('FMR_D1_WRITES_PAUSED')=='true':
         print('D1 发布已暂停；本次不连接 D1，不读取远端快照，不改动确认点。',flush=True)
         return 0
+    requested=os.environ.get('FMR_CATALOGUE_PUBLISH_VENDORS','').strip()
+    selected=tuple(v.strip() for v in requested.split(',') if v.strip()) if requested else VENDORS
+    if not selected or len(set(selected))!=len(selected) or any(v not in VENDORS for v in selected):raise ValueError('Invalid publication vendor selection')
+    slot_key='slot:'+','.join(sorted(selected)) if requested else 'slot'
     ROOT.mkdir(parents=True,exist_ok=True,mode=0o700);path=ROOT/'publisher.sqlite';artifacts=Artifacts();ledger=None;db=None
     completed=failed=0
     try:
         artifacts.restore('publisher',path,baseline=False)
         ledger=open_ledger(path)
         slot=int(time.time())//600
-        old=ledger.query("SELECT value FROM control WHERE key='slot'")
+        old=ledger.query("SELECT value FROM control WHERE key=?",(slot_key,))
         if old and int(old[0]['value'])>=slot:
             print('本 10 分钟窗口已同步，跳过重复触发；D1 请求为 0。',flush=True);return 0
         # Round-robin prevents a large Xiaomi backlog starving every other vendor.
-        offset=slot%len(VENDORS);vendors=VENDORS[offset:]+VENDORS[:offset]
+        offset=slot%len(selected);vendors=selected[offset:]+selected[:offset]
         work={}
         for vendor in vendors:
             if vendor in SUPPRESSED_VENDORS:continue
@@ -101,7 +105,7 @@ def main():
                         if consecutive_errors>=3:raise RuntimeError('PublicationCircuitOpen') from exc
                     if attempted%20==0:print(f'已同步 {completed} 条；失败待重试 {failed}；D1 读 {db.rows_read} 行 / 写 {db.rows_written} 行。',flush=True)
                     if attempted>=MAX_RECORDS:break
-        ledger.execute("INSERT INTO control(key,value) VALUES ('slot',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",(str(slot),))
+        ledger.execute("INSERT INTO control(key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",(slot_key,str(slot)))
         summary=f'本次新增/确认 {completed} 条，失败待重试 {failed} 条。D1 读 {db.rows_read if db else 0} 行，写 {db.rows_written if db else 0} 行。采集检查点/页面缓存不写 D1。'
         print(summary,flush=True)
         if os.environ.get('GITHUB_STEP_SUMMARY'):Path(os.environ['GITHUB_STEP_SUMMARY']).write_text('# 统一 D1 增量同步\n\n'+summary+'\n\n每 10 分钟计划执行；GitHub 排队可能延后。未完成队列保留，下一批继续。\n')
