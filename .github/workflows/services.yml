@@ -128,3 +128,5 @@ jobs:
       cancel-in-progress: false
 
 # Test the current S24 Ultra build and bounded complete-package stream.
+
+# Compare direct bounded container parsing with the VPS.
