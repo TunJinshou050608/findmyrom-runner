@@ -58,3 +58,33 @@ def test_bounded_async_calls_resume_from_cache_and_report_usage(tmp_path,monkeyp
   assert len(result)==2 and len(calls)==2 and stats['local_cache_hits']==1
   assert stats['prompt_cache_hit_tokens']==100
  finally:store.close()
+
+def test_aosp_system_base_grounded_by_project_quote():
+    o=output()
+    o['resource_kind']='rom'
+    o['system_base']={'value':'AOSP','evidence_quote':'Hydrogen Kernel 4.14.336'}
+    assert verify(o,TEXT) is not None
+
+def test_maintainer_credit_proximity_in_text():
+    o=output()
+    o['maintainer']={'handle':None,'display_name':'darkphnx & Ziad Fekry','evidence_quote':'darkphnx & Ziad Fekry'}
+    assert verify(o,TEXT) is not None
+
+def test_target_devices_marketing_names_grounded():
+    text='crDroid 10.8 | Android 14\nPOCO F3 (alioth)\nMaintainer: @john_doe\nstable'
+    o={'is_release':True,'resource_kind':'rom','project_name':{'value':'crDroid','evidence_quote':'crDroid 10.8'},
+       'project_version':{'value':'10.8','evidence_quote':'crDroid 10.8'},'android_version':{'value':'14','evidence_quote':'Android 14'},
+       'system_base':{'value':'AOSP','evidence_quote':'crDroid 10.8'},'release_stage':{'value':'stable','evidence_quote':'stable'},
+       'maintainer':{'handle':'@john_doe','display_name':None,'evidence_quote':'@john_doe'},
+       'target_devices':{'codenames':['alioth'],'marketing_names':['POCO F3'],'evidence_quote':'POCO F3'},'build_variants':[]}
+    assert verify(o,text) is not None
+
+def test_null_nodes_normalized_without_raising():
+    text='crDroid 10.8\nPOCO F3 (alioth)\nBy @john_doe'
+    o={'is_release':True,'resource_kind':'rom','project_name':{'value':'crDroid','evidence_quote':'crDroid 10.8'},
+       'project_version':{'value':'10.8','evidence_quote':'crDroid 10.8'},'android_version':None,'system_base':None,'release_stage':None,
+       'maintainer':{'handle':'@john_doe','display_name':None,'evidence_quote':'@john_doe'},
+       'target_devices':{'codenames':['alioth'],'marketing_names':['POCO F3'],'evidence_quote':'POCO F3'},'build_variants':[]}
+    v=verify(o,text)
+    assert v['android_version']=={'value':None,'evidence_quote':None}
+

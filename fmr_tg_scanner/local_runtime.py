@@ -104,6 +104,10 @@ def clean_once(root):
     run_id=str(time.time_ns());original=os.environ.get('GITHUB_RUN_ID')
     os.environ['GITHUB_RUN_ID']=run_id
     try:out=audit(clean)
+    except Exception as exc:
+        if type(exc).__name__=='DeferredAudit':
+            return {'status':'deferred','reason':str(exc)}
+        raise
     finally:
         if original is None:os.environ.pop('GITHUB_RUN_ID',None)
         else:os.environ['GITHUB_RUN_ID']=original
@@ -139,7 +143,7 @@ def loop(root, role, worker=0, duration=6000, period=600):
                     result=produce(root/'workers'/str(worker),shard=worker,shards=WORKERS)
                 else:
                     result=clean_once(root)
-                    if result['status']=='audit_ready':dispatch('catalogue_publish.yml',{'scope':'tg'})
+                    if result.get('status')=='audit_ready':dispatch('catalogue_publish.yml',{'scope':'tg'})
                 atomic_json(root/(role+'-'+str(worker)+'-latest.json'),{'at':time.time(),'worker':worker,'result':result})
                 print(json.dumps({'event':'local_TG_cycle','role':role,'worker':worker,'cycle':cycle,'status':result.get('status',result.get('activity'))}),flush=True)
             except Exception as exc:

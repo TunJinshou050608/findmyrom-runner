@@ -35,28 +35,63 @@ def verify(out,text):
     if not isinstance(out,dict) or type(out.get('is_release')) is not bool:raise ValueError('invalid_boolean')
     if not out['is_release']:return out
     if out.get('resource_kind') not in {'rom','kernel','recovery','boot_image'}:raise ValueError('invalid_kind')
+    norm_text=norm(text)
     def claim(value,quote):
         if not isinstance(value,str) or not value.strip() or len(value)>200:raise ValueError('invalid_value')
-        if not isinstance(quote,str) or not quote.strip() or norm(quote) not in norm(text) or norm(value).lstrip('@') not in norm(quote):raise ValueError('ungrounded_value')
+        if not isinstance(quote,str) or not quote.strip() or norm(quote) not in norm_text or norm(value).lstrip('@') not in norm(quote):raise ValueError('ungrounded_value')
     for field in ('project_name','project_version','android_version','system_base','release_stage'):
         node=out.get(field)
-        if not isinstance(node,dict):raise ValueError('missing_node')
-        if node.get('value') not in (None,'unknown'):claim(node['value'],node.get('evidence_quote'))
-    for field,keys in [('maintainer',('handle','display_name')),('target_devices',('codenames','marketing_names'))]:
-        node=out.get(field)
-        if not isinstance(node,dict):raise ValueError('missing_identity')
-        for key in keys:
-            values=node.get(key)
-            if field=='target_devices':
-                if not isinstance(values,list) or len(values)>30:raise ValueError('invalid_devices')
-            else:values=[] if values is None else [values]
-            for value in values:claim(value,node.get('evidence_quote'))
+        if node is None:node={'value':None,'evidence_quote':None};out[field]=node
+        if not isinstance(node,dict):raise ValueError('missing_node:'+field)
+        val=node.get('value');quote=node.get('evidence_quote')
+        if val not in (None,'unknown'):
+            if field=='system_base' and val=='AOSP':
+                if quote and norm(quote) not in norm_text:raise ValueError('ungrounded_system_base_quote')
+            else:claim(val,quote)
+    m_node=out.get('maintainer')
+    if m_node is None:m_node={'handle':None,'display_name':None,'evidence_quote':None};out['maintainer']=m_node
+    if not isinstance(m_node,dict):raise ValueError('missing_identity:maintainer')
+    m_quote=m_node.get('evidence_quote')
+    handle=m_node.get('handle');disp=m_node.get('display_name')
+    if (handle or disp) and not (isinstance(m_quote,str) and m_quote.strip()):raise ValueError('missing_maintainer_quote')
+    if m_quote and norm(m_quote) not in norm_text:raise ValueError('ungrounded_maintainer_quote')
+    if handle:
+        if not re.fullmatch(r'@?[A-Za-z][A-Za-z0-9_]{3,31}',handle):raise ValueError('invalid_handle')
+        h_norm=norm(handle).lstrip('@')
+        if not (m_quote and h_norm in norm(m_quote)) and h_norm not in norm_text:raise ValueError('ungrounded_handle')
+    if disp:
+        if not isinstance(disp,str) or len(disp)>200:raise ValueError('invalid_display_name')
+        d_norm=norm(disp)
+        if not (m_quote and d_norm in norm(m_quote)) and d_norm not in norm_text:raise ValueError('ungrounded_display_name')
+    credit=handle or disp
+    if credit:
+        role_pat=r'(?i)\b(?:by|maintainer|developer|author|builder)\b'
+        has_role=bool(m_quote and re.search(role_pat,m_quote))
+        if not has_role:
+            cand=handle.lstrip('@') if handle else disp
+            for m in re.finditer(re.escape(cand),text,re.IGNORECASE):
+                w=text[max(0,m.start()-35):min(len(text),m.end()+35)]
+                if re.search(role_pat,w):has_role=True;break
+        if not has_role:raise ValueError('missing_credit_role')
+    dev_node=out.get('target_devices')
+    if dev_node is None:dev_node={'codenames':[],'marketing_names':[],'evidence_quote':None};out['target_devices']=dev_node
+    if not isinstance(dev_node,dict):raise ValueError('missing_identity:target_devices')
+    d_quote=dev_node.get('evidence_quote')
+    codenames=dev_node.get('codenames') or [];marketing_names=dev_node.get('marketing_names') or []
+    if (codenames or marketing_names) and not (isinstance(d_quote,str) and d_quote.strip()):raise ValueError('missing_devices_quote')
+    if d_quote and norm(d_quote) not in norm_text:raise ValueError('ungrounded_device_quote')
+    if not isinstance(codenames,list) or len(codenames)>30:raise ValueError('invalid_devices:codenames')
+    if not isinstance(marketing_names,list) or len(marketing_names)>30:raise ValueError('invalid_devices:marketing_names')
+    for c in codenames:
+        if not isinstance(c,str) or not c.strip() or len(c)>100:raise ValueError('invalid_value:codename')
+        c_norm=norm(c)
+        if not (d_quote and c_norm in norm(d_quote)) and c_norm not in norm_text:raise ValueError('ungrounded_device:'+c)
+    for m in marketing_names:
+        if not isinstance(m,str) or not m.strip() or len(m)>100:raise ValueError('invalid_value:marketing_name')
+        m_norm=norm(m)
+        if not (d_quote and m_norm in norm(d_quote)) and m_norm not in norm_text:raise ValueError('ungrounded_device:'+m)
     if out['system_base'].get('value') not in {None,'unknown','AOSP','HyperOS','MIUI','One UI','OxygenOS','ColorOS','OriginOS'}:raise ValueError('invalid_base')
     if out['release_stage'].get('value') not in {None,'unknown','alpha','beta','stable','official','unofficial'}:raise ValueError('invalid_stage')
-    handle=out['maintainer'].get('handle')
-    if handle and not re.fullmatch(r'@?[A-Za-z][A-Za-z0-9_]{3,31}',handle):raise ValueError('invalid_handle')
-    credit=out['maintainer'].get('handle') or out['maintainer'].get('display_name')
-    if credit and not re.search(r'(?i)\b(?:by|maintainer|developer|author|builder)\b',out['maintainer'].get('evidence_quote') or ''):raise ValueError('missing_credit_role')
     variants=out.get('build_variants')
     if not isinstance(variants,list) or any(v not in ('vanilla','gapps','microg') or not re.search(r'(?i)\b'+v+r'\b',text) for v in variants):raise ValueError('invalid_variant')
     return out
@@ -96,12 +131,15 @@ def extract_all(items,names,store):
                         data=json.loads(body);choice=data['choices'][0]
                         if choice.get('finish_reason')!='stop':raise ValueError('Truncated output')
                         return ident,cache,verify(json.loads(choice['message']['content']),msg['text']),data.get('usage',{}),None
-                    except Exception as error:return ident,cache,None,{},type(error).__name__
+                    except Exception as error:return ident,cache,None,{},f"{type(error).__name__}:{error}"
             return await asyncio.gather(*(one(item) for item in pending[:limit]))
     if pending:
         for ident,key,out,usage,error in asyncio.run(batch()):
             stats['model_calls']+=1
-            if error:stats['quarantined']+=1;continue
+            if error:
+                stats['quarantined']+=1
+                stats[f'err_{error.split(":")[0]}']+=1
+                continue
             store.set_meta(key,out);results[ident]=out
             for metric in ('prompt_cache_hit_tokens','prompt_cache_miss_tokens','completion_tokens'):
                 value=usage.get(metric,0)
