@@ -98,26 +98,18 @@ jobs:
   check:
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: [self-hosted, Linux, X64, findmyrom-metadata]
-    timeout-minutes: 12
+    timeout-minutes: 3
     concurrency:
-      group: samsung-live-archive-recheck
+      group: samsung-publication-handoff
       cancel-in-progress: false
     steps:
-      - name: Cancel only the hung Samsung acceptance run
+      - name: Confirm unified publication is active and hand off current Samsung backlog
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh api --method POST repos/TunJinshou050608/findmyrom-runner/actions/runs/41589883620/cancel
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-          path: samsung-check-${{ github.run_id }}
-      - name: Prepare isolated environment
         run: |
-          python3 -m venv "$RUNNER_TEMP/samsung-check-${GITHUB_RUN_ID}"
-          "$RUNNER_TEMP/samsung-check-${GITHUB_RUN_ID}/bin/python" -m pip install -r "samsung-check-${GITHUB_RUN_ID}/requirements.txt"
-      - name: Historical Samsung image and complete ZIP live delivery
-        working-directory: samsung-check-${{ github.run_id }}
-        run: '"$RUNNER_TEMP/samsung-check-${GITHUB_RUN_ID}/bin/python" -u -m fmr_ingest_stock.samsung_delivery_acceptance --token fw_mf0OHSvjak7G --partition boot'
-      - name: Remove isolated test environment
-        if: always()
-        run: rm -rf -- "$RUNNER_TEMP/samsung-check-${GITHUB_RUN_ID}"
+          gh api repos/TunJinshou050608/findmyrom-runner/actions/workflows/catalogue_publish.yml --jq '{name: .name, state: .state}'
+          workflow_state=$(gh api repos/TunJinshou050608/findmyrom-runner/actions/workflows/catalogue_publish.yml --jq '.state')
+          if [ "$workflow_state" != active ]; then
+            gh api --method PUT repos/TunJinshou050608/findmyrom-runner/actions/workflows/catalogue_publish.yml/enable
+          fi
+          gh workflow run catalogue_publish.yml --repo TunJinshou050608/findmyrom-runner --ref main -f scope=all
