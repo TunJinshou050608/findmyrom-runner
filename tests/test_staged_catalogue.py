@@ -241,6 +241,10 @@ def test_metadata_runner_routing_keeps_binary_and_pr_jobs_off_local_host():
             assert 'FMR_CATALOGUE_RUNNER' in job['runs-on']
             if path.name in ('catalogue_huawei.yml','catalogue_honor.yml'):
                 assert job['if']=="github.ref == 'refs/heads/main' && false"
+            elif path.name=='catalogue_publish.yml' and job_name=='samsung':
+                assert job['if']=="github.ref == 'refs/heads/main' && vars.FMR_D1_WRITES_PAUSED == 'true' && vars.FMR_SAMSUNG_D1_WRITES_PAUSED != 'true' && inputs.scope != 'tg'"
+                assert job['env']['FMR_CATALOGUE_PUBLISH_VENDORS']=='samsung'
+                assert job['concurrency']['group']=='catalogue-d1-publisher'
             elif path.name=='catalogue_publish.yml':
                 assert job['if']=="github.ref == 'refs/heads/main' && vars.FMR_D1_WRITES_PAUSED != 'true' && github.event_name != 'push' && inputs.scope != 'tg'"
             else:assert job['if']=="github.ref == 'refs/heads/main'"
