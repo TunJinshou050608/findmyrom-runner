@@ -159,8 +159,8 @@ def test_workflow_single_writer_and_upload_before_handoff():
             assert upload<resume
             continue
         if path.name=='catalogue_publish.yml':
-            assert data[True]['schedule'][0]['cron']=='*/10 * * * *'
-            assert data['concurrency']['group']=='catalogue-d1-publisher'
+            assert data['on']['schedule'][0]['cron']=='*/10 * * * *'
+            assert data['jobs']['publish']['concurrency']['group']=='catalogue-d1-publisher'
         else:
             assert 'CF_API_TOKEN' not in path.read_text()
             steps=data['jobs']['catalogue']['steps']
@@ -234,16 +234,19 @@ def test_metadata_runner_routing_keeps_binary_and_pr_jobs_off_local_host():
     import yaml
     root=Path(__file__).parents[1]/'.github/workflows'
     for path in root.glob('catalogue_*.yml'):
-        for job in yaml.safe_load(path.read_text())['jobs'].values():
+        for job_name,job in yaml.safe_load(path.read_text())['jobs'].items():
+            if job_name=='telegram':
+                assert job['runs-on']==['self-hosted','findmyrom-metadata']
+                continue
             assert 'FMR_CATALOGUE_RUNNER' in job['runs-on']
             if path.name=='catalogue_samsung.yml':
                 assert job['if']=="github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || vars.FMR_SAMSUNG_AUTO_ENABLED == 'true')"
             elif path.name in ('catalogue_huawei.yml','catalogue_honor.yml'):
                 assert job['if']=="github.ref == 'refs/heads/main' && false"
             elif path.name=='catalogue_publish.yml':
-                assert job['if']=="github.ref == 'refs/heads/main' && vars.FMR_D1_WRITES_PAUSED != 'true'"
+                assert job['if']=="github.ref == 'refs/heads/main' && vars.FMR_D1_WRITES_PAUSED != 'true' && github.event_name != 'workflow_run'"
             else:assert job['if']=="github.ref == 'refs/heads/main'"
-    for name in ('batch_extract.yml','history_sweep.yml','sony_bundle.yml','ci.yml','telegram_trial.yml'):
+    for name in ('ci.yml','telegram_fetch.yml','telegram_clean.yml','services.yml'):
         assert 'FMR_CATALOGUE_RUNNER' not in (root/name).read_text()
 
 
@@ -317,7 +320,7 @@ def test_persistent_metadata_state_lives_outside_checkout_and_uploads_from_that_
     root=Path(__file__).parents[1]/'.github/workflows'
     for path in root.glob('catalogue_*.yml'):
         for job in yaml.safe_load(path.read_text())['jobs'].values():
-            assert '/../.fmr-catalogue-state-v3' in job['env']['FMR_CATALOGUE_STATE_DIR']
+            assert '/var/lib/findmyrom/catalogue-v3' in job['env']['FMR_CATALOGUE_STATE_DIR']
             assert 'vars.FMR_CATALOGUE_STATE_DIR' in job['env']['FMR_CATALOGUE_STATE_DIR']
             for step in job['steps']:
                 if step.get('uses')=='actions/upload-artifact@v4':
@@ -362,7 +365,7 @@ def test_snapshot_uses_sqlite_backup_so_uncheckpointed_wal_rows_are_saved(env,tm
 
 def test_completed_migration_marker_prevents_reimport_when_baseline_expires(env,tmp_path,monkeypatch):
     import yaml
-    workflow=yaml.safe_load((Path(__file__).parents[1]/'.github/workflows/catalogue_bootstrap.yml').read_text())
+    workflow=yaml.safe_load((Path(__file__).parents[1]/'docs/archive/workflows/catalogue_bootstrap.yml.disabled').read_text())
     step=next(item for item in workflow['jobs']['restore']['steps'] if item.get('id')=='baseline')
     code='\n'.join(step['run'].splitlines()[1:-1])
     class Artifacts:

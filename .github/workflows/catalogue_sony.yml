@@ -1,25 +1,30 @@
-name: "Sony Xperia · 固件目录更新"
-run-name: "Sony Xperia · 增量更新 · 第 ${{ inputs.batch || '1' }} 批"
-on:
+name: 固件采集 · Sony Xperia
+run-name: Sony Xperia · 增量更新 · 第 ${{ inputs.batch || '1' }} 批
+'on':
   schedule:
-    - cron: '5 */6 * * *'
+  - cron: 5 */6 * * *
   workflow_dispatch:
     inputs:
       operation:
-        description: "增量续跑 / 重试失败项 / 重新核对来源"
+        description: 增量续跑 / 重试失败项 / 重新核对来源
         type: choice
-        options: [incremental, retry_failed, refresh_sources]
+        options:
+        - incremental
+        - retry_failed
+        - refresh_sources
         default: incremental
       mode:
-        description: "兼容旧入口；采集仅暂存，由每10分钟统一发布"
+        description: 兼容旧入口；采集仅暂存，由每10分钟统一发布
         type: choice
-        options: [audit, publish]
+        options:
+        - audit
+        - publish
         default: audit
       cycle:
-        description: "兼容旧续跑参数，手动留空"
+        description: 兼容旧续跑参数，手动留空
         default: ''
       batch:
-        description: "自动续跑批次"
+        description: 自动续跑批次
         default: '1'
 permissions:
   contents: read
@@ -29,48 +34,48 @@ concurrency:
   cancel-in-progress: false
 jobs:
   catalogue:
-    name: "采集、复用缓存、加密保存断点（不访问D1）"
+    name: 采集、复用缓存、加密保存断点（不访问D1）
     if: github.ref == 'refs/heads/main'
-    runs-on: ${{ fromJSON(vars.FMR_CATALOGUE_RUNNER || '"ubuntu-latest"') }}
+    runs-on: ${{ fromJSON(vars.FMR_CATALOGUE_RUNNER || '["self-hosted","findmyrom-metadata"]') }}
     timeout-minutes: 20
     environment: production
     env:
       GH_WORKFLOW_TOKEN: ${{ github.token }}
-      FMR_CATALOGUE_LOCAL_STATE: ${{ vars.FMR_CATALOGUE_RUNNER != '' && 'true' || 'false' }}
-      FMR_CATALOGUE_STATE_DIR: ${{ vars.FMR_CATALOGUE_STATE_DIR || (vars.FMR_CATALOGUE_RUNNER != '' && format('{0}/../.fmr-catalogue-state-v3', github.workspace) || 'catalogue-state') }}
+      FMR_CATALOGUE_LOCAL_STATE: 'true'
+      FMR_CATALOGUE_STATE_DIR: ${{ vars.FMR_CATALOGUE_STATE_DIR || '/var/lib/findmyrom/catalogue-v3' }}
       SIGN_PRIVATE_KEY_HEX: ${{ secrets.SIGN_PRIVATE_KEY_HEX }}
     steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-      - name: Prepare isolated Python environment
-        shell: bash
-        run: |
-          python3 -m venv "$RUNNER_TEMP/fmr-python"
-          printf '%s\n' "$RUNNER_TEMP/fmr-python/bin" >> "$GITHUB_PATH"
-      - run: python -m pip install -r requirements.txt
-      - name: "接续检查点采集（每30秒心跳，D1零请求）"
-        id: collect
-        continue-on-error: true
-        env:
-          CATALOGUE_OPERATION: ${{ inputs.operation || 'incremental' }}
-        run: python -u -m fmr_ingest_stock.staged_catalogue collect --vendor sony --operation "$CATALOGUE_OPERATION"
-      - name: "持久保存加密进度；断开后可续接"
-        if: always()
-        id: snapshot
-        uses: actions/upload-artifact@v4
-        with:
-          name: catalogue-v3-sony
-          path: ${{ env.FMR_CATALOGUE_STATE_DIR }}/upload/sony.sqlite.enc
-          if-no-files-found: error
-          retention-days: 90
-          compression-level: 0
-      - name: "仅保留最近三份加密快照"
-        if: steps.snapshot.outcome == 'success'
-        run: python -m fmr_ingest_stock.staged_catalogue prune --vendor sony
-      - name: "有积压就自动接下一批"
-        if: steps.snapshot.outcome == 'success' && steps.collect.outcome == 'success'
-        run: python -m fmr_ingest_stock.staged_catalogue next --vendor sony
-      - name: "报告本批中断"
-        if: steps.collect.outcome == 'failure'
-        run: exit 1
+    - uses: actions/checkout@v4
+      with:
+        persist-credentials: false
+    - name: Prepare isolated Python environment
+      shell: bash
+      run: |
+        python3 -m venv "$RUNNER_TEMP/fmr-python"
+        printf '%s\n' "$RUNNER_TEMP/fmr-python/bin" >> "$GITHUB_PATH"
+    - run: python -m pip install -r requirements.txt
+    - name: 接续检查点采集（每30秒心跳，D1零请求）
+      id: collect
+      continue-on-error: true
+      env:
+        CATALOGUE_OPERATION: ${{ inputs.operation || 'incremental' }}
+      run: python -u -m fmr_ingest_stock.staged_catalogue collect --vendor sony --operation "$CATALOGUE_OPERATION"
+    - name: 持久保存加密进度；断开后可续接
+      if: always()
+      id: snapshot
+      uses: actions/upload-artifact@v4
+      with:
+        name: catalogue-v3-sony
+        path: ${{ env.FMR_CATALOGUE_STATE_DIR }}/upload/sony.sqlite.enc
+        if-no-files-found: error
+        retention-days: 90
+        compression-level: 0
+    - name: 仅保留最近三份加密快照
+      if: steps.snapshot.outcome == 'success'
+      run: python -m fmr_ingest_stock.staged_catalogue prune --vendor sony
+    - name: 有积压就自动接下一批
+      if: steps.snapshot.outcome == 'success' && steps.collect.outcome == 'success'
+      run: python -m fmr_ingest_stock.staged_catalogue next --vendor sony
+    - name: 报告本批中断
+      if: steps.collect.outcome == 'failure'
+      run: exit 1

@@ -1,59 +1,114 @@
-name: "统一发布 · 每10分钟增量同步D1"
-on:
+name: D1 · 统一发布
+'on':
   schedule:
-    - cron: '*/10 * * * *'
-  workflow_dispatch:
+  - cron: '*/10 * * * *'
+  workflow_dispatch: null
+  workflow_run:
+    workflows:
+    - TG · 清洗
+    types:
+    - completed
+    branches:
+    - main
 permissions:
   contents: read
   actions: write
-concurrency:
-  group: catalogue-d1-publisher
-  cancel-in-progress: false
 jobs:
   publish:
-    if: github.ref == 'refs/heads/main' && vars.FMR_D1_WRITES_PAUSED != 'true'
-    runs-on: ${{ fromJSON(vars.FMR_PUBLISH_RUNNER || vars.FMR_CATALOGUE_RUNNER || '"ubuntu-latest"') }}
+    if: github.ref == 'refs/heads/main' && vars.FMR_D1_WRITES_PAUSED != 'true' && github.event_name != 'workflow_run'
+    runs-on: ${{ fromJSON(vars.FMR_PUBLISH_RUNNER || vars.FMR_CATALOGUE_RUNNER || '["self-hosted","findmyrom-metadata"]') }}
     timeout-minutes: 115
     environment: production
     env:
       GH_WORKFLOW_TOKEN: ${{ github.token }}
-      FMR_CATALOGUE_LOCAL_STATE: ${{ vars.FMR_CATALOGUE_RUNNER != '' && 'true' || 'false' }}
-      FMR_CATALOGUE_STATE_DIR: ${{ vars.FMR_CATALOGUE_STATE_DIR || (vars.FMR_CATALOGUE_RUNNER != '' && format('{0}/../.fmr-catalogue-state-v3', github.workspace) || 'catalogue-state') }}
+      FMR_CATALOGUE_LOCAL_STATE: 'true'
+      FMR_CATALOGUE_STATE_DIR: ${{ vars.FMR_CATALOGUE_STATE_DIR || '/var/lib/findmyrom/catalogue-v3' }}
       SIGN_PRIVATE_KEY_HEX: ${{ secrets.SIGN_PRIVATE_KEY_HEX }}
       FMR_D1_WRITES_PAUSED: ${{ vars.FMR_D1_WRITES_PAUSED }}
     steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-      - name: Prepare isolated Python environment
-        shell: bash
-        run: |
-          python3 -m venv "$RUNNER_TEMP/fmr-python"
-          printf '%s\n' "$RUNNER_TEMP/fmr-python/bin" >> "$GITHUB_PATH"
-      - run: python -m pip install -r requirements.txt
-      - name: "去重后批量入库；按实际行数控制预算"
-        env:
-          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
-          CF_D1_DATABASE_ID: ${{ secrets.CF_D1_DATABASE_ID }}
-          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
-        run: python -u -m fmr_ingest_stock.catalogue_publish_monitor
-      - name: "保存发布确认点，失败也保留成功部分"
-        if: always()
-        id: snapshot
-        uses: actions/upload-artifact@v4
-        with:
-          name: catalogue-v3-publisher
-          path: ${{ env.FMR_CATALOGUE_STATE_DIR }}/upload/publisher.sqlite.enc
-          if-no-files-found: error
-          retention-days: 90
-          compression-level: 0
-      - name: "仅保留最近三份发布确认点"
-        if: steps.snapshot.outcome == 'success'
-        run: |
-          python -c 'from fmr_ingest_stock.staged_catalogue import Artifacts; a=Artifacts(); a.prune("publisher"); a.close()'
-      - name: "交接下一驻留执行器；cron保留作故障恢复"
-        if: success() && steps.snapshot.outcome == 'success'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-        run: gh workflow run catalogue_publish.yml --ref main
+    - uses: actions/checkout@v4
+      with:
+        persist-credentials: false
+    - name: Prepare isolated Python environment
+      shell: bash
+      run: |
+        python3 -m venv "$RUNNER_TEMP/fmr-python"
+        printf '%s\n' "$RUNNER_TEMP/fmr-python/bin" >> "$GITHUB_PATH"
+    - run: python -m pip install -r requirements.txt
+    - name: 去重后批量入库；按实际行数控制预算
+      env:
+        CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+        CF_D1_DATABASE_ID: ${{ secrets.CF_D1_DATABASE_ID }}
+        CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+      run: python -u -m fmr_ingest_stock.catalogue_publish_monitor
+    - name: 保存发布确认点，失败也保留成功部分
+      if: always()
+      id: snapshot
+      uses: actions/upload-artifact@v4
+      with:
+        name: catalogue-v3-publisher
+        path: ${{ env.FMR_CATALOGUE_STATE_DIR }}/upload/publisher.sqlite.enc
+        if-no-files-found: error
+        retention-days: 90
+        compression-level: 0
+    - name: 仅保留最近三份发布确认点
+      if: steps.snapshot.outcome == 'success'
+      run: |
+        python -c 'from fmr_ingest_stock.staged_catalogue import Artifacts; a=Artifacts(); a.prune("publisher"); a.close()'
+    - name: 交接下一驻留执行器；cron保留作故障恢复
+      if: success() && steps.snapshot.outcome == 'success'
+      env:
+        GH_TOKEN: ${{ github.token }}
+        GH_REPO: ${{ github.repository }}
+      run: gh workflow run catalogue_publish.yml --ref main
+    name: 官包 · 每10分钟增量发布
+    concurrency:
+      group: catalogue-d1-publisher
+      cancel-in-progress: false
+  telegram:
+    if: github.ref == 'refs/heads/main' && vars.FMR_D1_WRITES_PAUSED != 'true' && (github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_repository.full_name
+      == github.repository))
+    runs-on:
+    - self-hosted
+    - findmyrom-metadata
+    timeout-minutes: 90
+    environment: production
+    env:
+      FMR_CATALOGUE_STATE_DIR: ${{ vars.FMR_CATALOGUE_STATE_DIR || '/var/lib/findmyrom/catalogue-v3' }}
+    name: TG · 发布最新清洗合格批次
+    concurrency:
+      group: tg01-annibale-private-trial
+      cancel-in-progress: false
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        path: runner
+        persist-credentials: false
+    - uses: actions/checkout@v4
+      with:
+        repository: TunJinshou050608/findmyrom-tg01-test
+        path: state
+        ssh-key: ${{ secrets.GH_TG_TEST_SSH_KEY }}
+        persist-credentials: true
+    - name: Prepare local container Python
+      run: |-
+        python3 -m venv "$RUNNER_TEMP/fmr-tg-${GITHUB_RUN_ID}"
+        printf '%s\n' "$RUNNER_TEMP/fmr-tg-${GITHUB_RUN_ID}/bin" >> "$GITHUB_PATH"
+    - run: python -m pip install -r runner/requirements.txt
+    - name: Publish pending audited cohort and verify website; unchanged batches skip D1
+      working-directory: runner
+      env:
+        CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+        CF_D1_DATABASE_ID: ${{ secrets.CF_D1_DATABASE_ID }}
+        CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+        SIGN_PRIVATE_KEY_HEX: ${{ secrets.SIGN_PRIVATE_KEY_HEX }}
+      run: python -u -m fmr_tg_scanner.pipeline --state-dir ../state
+    - name: Save private checkpoints and receipts
+      if: always()
+      working-directory: runner
+      run: |-
+        python - <<'PYCODE'
+        from pathlib import Path
+        from fmr_tg_scanner.watch import publish_private
+        publish_private(Path('../state').resolve())
+        PYCODE

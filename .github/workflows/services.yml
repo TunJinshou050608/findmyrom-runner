@@ -1,0 +1,122 @@
+name: 服务 · 维护与检查
+'on':
+  schedule:
+  - cron: '*/15 * * * *'
+  - cron: 43 */6 * * *
+  workflow_dispatch:
+    inputs:
+      service:
+        type: choice
+        options:
+        - check
+        - sony_bundle
+        - public_index
+        default: check
+        description: 选择维护任务
+permissions:
+  contents: read
+jobs:
+  sony_bundle:
+    if: github.ref == 'refs/heads/main' && ((github.event_name == 'workflow_dispatch' && inputs.service == 'sony_bundle') || (github.event_name == 'schedule' && github.event.schedule == '*/15 * * * *'))
+    name: 按需下载并打包成一个 ZIP（不提取镜像）
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    environment: production
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        persist-credentials: false
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+        cache: pip
+    - run: python -m pip install -r requirements.txt
+    - name: 有请求才构建，成品为单个完整 ZIP
+      env:
+        CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+        CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+        CF_D1_DATABASE_ID: ${{ secrets.CF_D1_DATABASE_ID }}
+        SONY_BUNDLE_UPLOAD_SECRET: ${{ secrets.SONY_BUNDLE_UPLOAD_SECRET }}
+      run: python -u -m fmr_ingest_stock.sony_bundle
+    concurrency:
+      group: sony-complete-bundle-cache
+      cancel-in-progress: false
+  public_index:
+    if: github.ref == 'refs/heads/main' && (vars.FMR_JUMPER_ENABLED == 'true') && ((github.event_name == 'workflow_dispatch' && inputs.service == 'public_index') || (github.event_name == 'schedule' && github.event.schedule
+      == '43 */6 * * *'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: production
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        path: runner
+        persist-credentials: false
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+    - run: python -m pip install -r runner/requirements.txt
+    - name: Generate public Markdown only
+      working-directory: runner
+      env:
+        CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+        CF_D1_DATABASE_ID: ${{ secrets.CF_D1_DATABASE_ID }}
+        CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+        PUBLIC_SITE_URL: https://findmyrom.com
+      run: python -m fmr_extractor.jumper_sync --output-dir ../projection
+    - name: Check out public index with its dedicated write key
+      uses: actions/checkout@v4
+      with:
+        repository: TunJinshou050608/android-boot-images-index
+        path: public-index
+        ssh-key: ${{ secrets.GH_JUMPER_SSH_KEY }}
+        persist-credentials: true
+    - name: Publish changed Markdown
+      shell: bash
+      run: |
+        set -euo pipefail
+        cp projection/README.md public-index/README.md
+        mkdir -p projection/devices
+        mkdir -p public-index/devices
+        rsync -a --delete projection/devices/ public-index/devices/
+        cd public-index
+        git add -- README.md devices
+        if git diff --cached --quiet; then
+          echo 'Public index is unchanged.' >> "$GITHUB_STEP_SUMMARY"
+          exit 0
+        fi
+        git -c user.name=FindMyROM -c user.email=automation@findmyrom.com commit -m 'Update firmware and boot image index'
+        git push origin HEAD:main
+        echo 'Published public Markdown; all downloads return to findmyrom.com.' >> "$GITHUB_STEP_SUMMARY"
+    concurrency:
+      group: public-jumper-index
+      cancel-in-progress: false
+  check:
+    runs-on:
+    - self-hosted
+    - Linux
+    - X64
+    - findmyrom-metadata
+    timeout-minutes: 10
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        persist-credentials: false
+    - name: Test service and HTTP delivery without downloading firmware
+      run: |
+        python3 -m venv "$RUNNER_TEMP/fmr-service-${GITHUB_RUN_ID}"
+        "$RUNNER_TEMP/fmr-service-${GITHUB_RUN_ID}/bin/python" -m pip install -r requirements.txt
+        "$RUNNER_TEMP/fmr-service-${GITHUB_RUN_ID}/bin/python" -m pytest -q tests/test_extractor_service.py tests/test_streaming_probe.py
+    - name: Check deployed website without downloading images
+      run: |
+        curl --fail --silent --show-error --max-time 30 https://findmyrom.com/ --output /dev/null
+        status=$(curl --silent --show-error --max-time 30 https://findmyrom.com/api/extract --output /dev/null --write-out '%{http_code}')
+        test "$status" = 403
+        printf 'Gateway rejects unsigned extraction requests: HTTP %s\n' "$status"
+    - name: Clean isolated environment
+      if: always()
+      run: rm -rf -- "$RUNNER_TEMP/fmr-service-${GITHUB_RUN_ID}"
+    if: github.ref == 'refs/heads/main' && ((github.event_name == 'workflow_dispatch' && inputs.service == 'check'))
+    concurrency:
+      group: extractor-service-check
+      cancel-in-progress: false

@@ -1,5 +1,9 @@
 # FindMyROM Runner
 
+当前操作入口见 [工作流清单](docs/workflows.md)：13 个厂商各一个采集任务、一个 D1 发布任务、TG 抓取与清洗各一个，另保留 CI 和服务维护。TG 抓取保持暂停。历史工作流已归档，不再作为 Actions 入口。
+
+VPS 常驻服务的安装与历史补丁见 [部署入口](deploy/README.md)。下文保留各阶段的实现与验收记录；当前调度和任务名称以上述清单为准。
+
 https://findmyrom.com
 
 SP01 provides the database and cryptographic primitives. SP02 imports YAML device
