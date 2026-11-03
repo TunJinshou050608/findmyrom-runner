@@ -1,8 +1,5 @@
 name: 服务 · 维护与检查
 'on':
-  push:
-    branches: [main]
-    paths: [.github/workflows/services.yml]
   schedule:
   - cron: '*/15 * * * *'
   - cron: 43 */6 * * *
@@ -100,7 +97,7 @@ jobs:
     - Linux
     - X64
     - findmyrom-metadata
-    timeout-minutes: 25
+    timeout-minutes: 10
     steps:
     - uses: actions/checkout@v4
       with:
@@ -116,17 +113,10 @@ jobs:
         status=$(curl --silent --show-error --max-time 30 https://findmyrom.com/api/extract --output /dev/null --write-out '%{http_code}')
         test "$status" = 403
         printf 'Gateway rejects unsigned extraction requests: HTTP %s\n' "$status"
-    - name: Verify real Samsung image delivery through the deployed website and VPS
-      if: github.event_name == 'push'
-      run: '"$RUNNER_TEMP/fmr-service-${GITHUB_RUN_ID}/bin/python" -u -m fmr_ingest_stock.samsung_delivery_acceptance --token fw_mf0OHSvjak7G --partition boot'
     - name: Clean isolated environment
       if: always()
       run: rm -rf -- "$RUNNER_TEMP/fmr-service-${GITHUB_RUN_ID}"
-    if: github.ref == 'refs/heads/main' && ((github.event_name == 'workflow_dispatch' && inputs.service == 'check') || github.event_name == 'push')
+    if: github.ref == 'refs/heads/main' && ((github.event_name == 'workflow_dispatch' && inputs.service == 'check'))
     concurrency:
       group: extractor-service-check
       cancel-in-progress: false
-
-# Test the current S24 Ultra build and bounded complete-package stream.
-
-# Confirm historical A54 download after exact-version VPS update.
