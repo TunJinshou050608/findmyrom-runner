@@ -222,10 +222,14 @@ def samsung_source(client, model='SM-S928B', region='EUX', expected_version=None
         put=ET.SubElement(ET.SubElement(root,'FUSBody'),'Put')
         for k,v in values.items(): ET.SubElement(ET.SubElement(put,k),'Data').text=v
         return root
-    version_xml=bounded_get(client,f'https://fota-cloud-dn.ospserver.net/firmware/{region}/{model}/version.xml',headers={'User-Agent':'Kies2.0_FUS'})
-    version=normalize_version(ET.fromstring(version_xml).findtext('./firmware/version/latest'))
-    if expected_version is not None and expected_version not in (version, version.split('/')[0]):
-        raise ValueError('Requested Samsung version is not currently available; refusing substitution')
+    if expected_version and '/' in expected_version:
+        version=normalize_version(expected_version)
+    else:
+        version_xml=bounded_get(client,f'https://fota-cloud-dn.ospserver.net/firmware/{region}/{model}/version.xml',headers={'User-Agent':'Kies2.0_FUS'})
+        version=normalize_version(ET.fromstring(version_xml).findtext('./firmware/version/latest'))
+        if expected_version is not None and expected_version != version.split('/')[0]:
+            raise ValueError('Full Samsung build identity required for historical firmware')
+    requested=version
     request('NF_SmartDownloadGenerateNonce.do')
     root=xml({'ACCESS_MODE':'1','BINARY_NATURE':'1','REQUEST_TYPE':'2','LOGIC_CHECK':logic(version,nonce),
               'BINARY_SW_VERSION':version,'BINARY_LOCAL_CODE':region,'BINARY_MODEL_NAME':model})
@@ -238,8 +242,8 @@ def samsung_source(client, model='SM-S928B', region='EUX', expected_version=None
     filename=data['BINARY_NAME'];path=data['MODEL_PATH']
     if not re.fullmatch(r'[A-Za-z0-9_.-]+\.enc[24]',filename) or not re.fullmatch(r'/[A-Za-z0-9_/-]+/',path):
         raise ValueError('Invalid FUS filename/path')
-    version=data.get('BINARY_SW_VERSION',version)
-    if expected_version is not None and expected_version not in (version, version.split('/')[0]):
+    version=normalize_version(data.get('BINARY_SW_VERSION') or data.get('LATEST_FW_VERSION') or '')
+    if version != requested:
         raise ValueError('FUS returned a different version')
     if filename.endswith('.enc2'):
         seed=f'{region}:{model}:{version}'

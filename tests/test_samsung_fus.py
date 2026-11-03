@@ -64,3 +64,35 @@ def test_unavailable_archive_is_distinct_from_a_temporary_service_failure():
             return httpx.Response(200,headers={'Content-Type':'text/xml'},text=f'<FUSMsg><FUSBody><Results><Status>{status}</Status></Results></FUSBody></FUSMsg>')
         with httpx.Client(transport=httpx.MockTransport(handler)) as client:
             with pytest.raises(expected):SmartFUS(client).binary_info('SM-S928B','EUX','PDA/CSC/PHONE')
+
+
+def test_vps_requests_the_exact_archived_build_without_looking_up_latest():
+    from fmr_extractor.streaming_probe import samsung_source
+    calls=[]
+    version='ARCHIVE/CSC/PHONE/ARCHIVE'
+    def handler(req):
+        calls.append(req)
+        assert req.method=='POST', 'Exact archived identities must bypass latest-only FOTA'
+        if req.url.path.endswith('GenerateNonce.do'):
+            return httpx.Response(200,headers={'nonce':'abcdefghijklmnop'})
+        if req.url.path.endswith('BinaryInitForMass.do'):
+            return httpx.Response(200)
+        assert version.encode() in req.content
+        return httpx.Response(200,content=('<FUSMsg><FUSBody><Results><Status>S00</Status></Results><Put>'
+          '<BINARY_SW_VERSION><Data>'+version+'</Data></BINARY_SW_VERSION>'
+          '<BINARY_NAME><Data>firmware.zip.enc4</Data></BINARY_NAME><MODEL_PATH><Data>/neofus/1/</Data></MODEL_PATH>'
+          '<DEVICE_MODEL_TYPE><Data>Phone</Data></DEVICE_MODEL_TYPE><LOGIC_VALUE_HOME><Data>abcdef</Data></LOGIC_VALUE_HOME>'
+          '</Put></FUSBody></FUSMsg>').encode())
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        url,headers,key,identity,refresh=samsung_source(client,'SM-A546B','EUX',version)
+    assert identity['version']==version and len(key)==16
+    assert len(calls)==3 and calls[-1].url.path.endswith('BinaryInitForMass.do')
+
+
+def test_vps_rejects_fus_substitution_even_when_full_archived_identity_is_supplied():
+    from fmr_extractor.streaming_probe import samsung_source
+    def handler(req):
+        if req.url.path.endswith('GenerateNonce.do'):return httpx.Response(200,headers={'nonce':'abcdefghijklmnop'})
+        return httpx.Response(200,content=b'<FUSMsg><FUSBody><Results><Status>S00</Status></Results><Put><BINARY_SW_VERSION><Data>OTHER/CSC/PHONE/OTHER</Data></BINARY_SW_VERSION><BINARY_NAME><Data>firmware.zip.enc4</Data></BINARY_NAME><MODEL_PATH><Data>/neofus/1/</Data></MODEL_PATH></Put></FUSBody></FUSMsg>')
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        with pytest.raises(ValueError,match='different version'):samsung_source(client,'SM-A546B','EUX','ARCHIVE/CSC/PHONE/ARCHIVE')

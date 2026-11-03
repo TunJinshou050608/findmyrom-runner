@@ -159,7 +159,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.path == '/v1/capabilities':
-            return self.reply(200, json.dumps({'schema': 4, 'samsung_full_stream': True, 'prepared_downloads': True, 'brands': sorted(BRANDS), 'partitions': ['boot', 'init_boot', 'recovery']}))
+            return self.reply(200, json.dumps({'schema': 4, 'samsung_full_stream': True, 'samsung_exact_builds': True, 'prepared_downloads': True, 'brands': sorted(BRANDS), 'partitions': ['boot', 'init_boot', 'recovery']}))
         self.reply(404, 'Not found')
 
     def do_POST(self):
