@@ -35,10 +35,11 @@ def main(argv=None):
         private_key()
         credentials()
         db = D1Client()
-        if not db.acquire():
-            print('Shared D1 allocation exhausted; extraction queue retained.');return 0
-        from fmr_core.schema_migrations import ensure_schema
-        ensure_schema(db)
+        if db.mode!='sqlite':
+            if not db.acquire():
+                print('Shared D1 allocation exhausted; extraction queue retained.');return 0
+            from fmr_core.schema_migrations import ensure_schema
+            ensure_schema(db)
         vault = VaultClient()
         if repair_skipped:
             print(json.dumps({'queue_repair': requeue_skipped(db, dry_run=args.dry_run)}, sort_keys=True), flush=True)
