@@ -36,7 +36,9 @@ def test_tg_fetch_stays_paused_and_automatically_reads_device_catalogue():
     job = w['jobs']['fetch']
     assert "vars.FMR_TG_FETCH_ENABLED == 'true'" in job['if']
     assert 'FMR_CATALOGUE_STATE_DIR' in job['env']
-    assert 'search_lab --state-dir ../state --mode batch' in str(job['steps'])
+    assert 'from fmr_tg_scanner.search_watch import produce' in str(job['steps'])
+    assert "produce(Path('../state').resolve())" in str(job['steps'])
+    assert 'search_lab' not in str(job['steps'])
     llm = [step for step in job['steps'] if 'LLM_API_KEY' in step.get('env', {})]
     assert len(llm) == 1
     assert llm[0]['env']['LLM_API_KEY'] == '${{ secrets.DEEPSEEK_API_KEY }}'

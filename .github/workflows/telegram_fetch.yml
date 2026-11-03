@@ -39,7 +39,12 @@ jobs:
         LLM_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
         LLM_MODEL_NAME: deepseek-flash
         LLM_REASONING_EFFORT: low
-      run: python -u -m fmr_tg_scanner.search_lab --state-dir ../state --mode batch
+      run: |
+        python -u - <<'PY'
+        from pathlib import Path
+        from fmr_tg_scanner.search_watch import produce
+        produce(Path('../state').resolve())
+        PY
     - name: Save private checkpoints and receipts
       if: always()
       working-directory: runner
