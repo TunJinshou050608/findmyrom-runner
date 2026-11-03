@@ -103,9 +103,15 @@ class PreparedImages:
                     raise TimeoutError('Preparation cancelled')
                 item.update(state='ready', file=output, total=item['bytes'], sha256=digest.hexdigest(), deadline=time.monotonic()+300)
                 output = None
-        except Exception:
+        except Exception as exc:
+            # Only bounded diagnostics are exposed to the holder of this job's signed ticket.
+            reason=type(exc).__name__
+            if isinstance(exc,ValueError) and re.fullmatch(r'[A-Za-z0-9 _;:/.-]{1,160}',str(exc)):
+                reason=str(exc)
+            elif getattr(exc,'response',None) is not None:
+                reason='UpstreamHTTP_'+str(exc.response.status_code)
             with self.lock:
-                item.update(state='failed', sha256=None, deadline=time.monotonic()+30)
+                item.update(state='failed', sha256=None, error_code=reason, deadline=time.monotonic()+30)
                 if not item['released']:
                     item['released'] = True
                     self.server.slot.release()
@@ -124,7 +130,7 @@ class PreparedImages:
                 return None
             item['seen'] = time.monotonic()
             elapsed = max(time.monotonic()-item['started'], 0.001)
-            return dict(state=item['state'], bytes=item['bytes'], total=item['total'],
+            return dict(state=item['state'], bytes=item['bytes'], total=item['total'], error_code=item.get('error_code'),
                         bytes_per_second=int(item['bytes']/elapsed),
                         sha256=item['sha256'] if item['state']=='ready' else None)
 

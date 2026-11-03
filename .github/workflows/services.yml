@@ -118,7 +118,7 @@ jobs:
         printf 'Gateway rejects unsigned extraction requests: HTTP %s\n' "$status"
     - name: Verify real Samsung image delivery through the deployed website and VPS
       if: github.event_name == 'push'
-      run: '"$RUNNER_TEMP/fmr-service-${GITHUB_RUN_ID}/bin/python" -u -m fmr_ingest_stock.samsung_delivery_acceptance --token fw_mf0OHSvjak7G --partition boot'
+      run: '"$RUNNER_TEMP/fmr-service-${GITHUB_RUN_ID}/bin/python" -u -m fmr_ingest_stock.samsung_delivery_acceptance --token fw_9kXJalQRpgfh --partition boot'
     - name: Clean isolated environment
       if: always()
       run: rm -rf -- "$RUNNER_TEMP/fmr-service-${GITHUB_RUN_ID}"
@@ -126,3 +126,5 @@ jobs:
     concurrency:
       group: extractor-service-check
       cancel-in-progress: false
+
+# Test the current S24 Ultra build and bounded complete-package stream.
