@@ -12,7 +12,7 @@
 | 现有独立服务 | 服务 · 维护与检查 | `services.yml` | Sony 按需 ZIP 服务、公共索引同步、手动提取服务检查 |
 
 厂商：ASUS、Google、Honor、Huawei、Motorola、Nothing、OnePlus、OPPO、Realme、Samsung、Sony、小米/Redmi/POCO。
-Huawei/Honor 保留原禁用状态；Samsung 保留原自动运行开关；此次整理不启用任何停用来源。
+Huawei/Honor 按用户要求保持停用；Samsung 正常自动采集，不再受 FMR_SAMSUNG_AUTO_ENABLED 门控。
 
 ## 本地 TG 数据流
 

@@ -26,6 +26,11 @@ run-name: realme · 增量更新 · 第 ${{ inputs.batch || '1' }} 批
       batch:
         description: 自动续跑批次
         default: '1'
+  push:
+    branches:
+    - main
+    paths:
+    - .github/workflows/catalogue_realme.yml
 permissions:
   contents: read
   actions: write
@@ -48,20 +53,28 @@ jobs:
     - uses: actions/checkout@v4
       with:
         persist-credentials: false
+        path: catalogue-code
     - name: Prepare isolated Python environment
       shell: bash
       run: |
         python3 -m venv "$RUNNER_TEMP/fmr-python"
         printf '%s\n' "$RUNNER_TEMP/fmr-python/bin" >> "$GITHUB_PATH"
     - run: python -m pip install -r requirements.txt
+    - name: 清理过期与超预算页面缓存，保留完整采集断点
+      run: python -u -m fmr_ingest_stock.staged_catalogue maintain-cache --vendor realme
     - name: 接续检查点采集（每30秒心跳，D1零请求）
       id: collect
       continue-on-error: true
       env:
         CATALOGUE_OPERATION: ${{ inputs.operation || 'incremental' }}
-      run: python -u -m fmr_ingest_stock.staged_catalogue collect --vendor realme --operation "$CATALOGUE_OPERATION"
+        COLLECT_SECONDS: ${{ github.event_name == 'push' && '90' || '420' }}
+      run: python -u -m fmr_ingest_stock.staged_catalogue collect --vendor realme --operation "$CATALOGUE_OPERATION" --seconds "$COLLECT_SECONDS"
+    - name: 校验备份由本次任务生成且内容完整
+      id: export_check
+      if: always() && (steps.collect.outcome == 'success' || steps.collect.outcome == 'failure')
+      run: python -u -m fmr_ingest_stock.staged_catalogue verify-export --scope realme
     - name: 持久保存加密进度；断开后可续接
-      if: always()
+      if: always() && steps.export_check.outcome == 'success'
       id: snapshot
       uses: actions/upload-artifact@v4
       with:
@@ -79,3 +92,6 @@ jobs:
     - name: 报告本批中断
       if: steps.collect.outcome == 'failure'
       run: exit 1
+    defaults:
+      run:
+        working-directory: catalogue-code

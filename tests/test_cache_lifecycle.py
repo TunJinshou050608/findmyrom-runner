@@ -69,3 +69,18 @@ def test_unexported_local_progress_cannot_be_replaced_by_old_uploaded_artifact(e
     monkeypatch.setattr(artifacts,'list',lambda *a:pytest.fail('Dirty local progress must remain authoritative'))
     try:assert artifacts.restore('xiaomi',path)=='local'
     finally:artifacts.close()
+
+
+def test_export_receipt_rejects_prior_runs_attempts_and_modified_files(env,tmp_path,monkeypatch):
+    _,path=env;root=tmp_path/'exports';root.mkdir();monkeypatch.setattr(staged,'ROOT',root)
+    staged.encrypt_file('xiaomi',path)
+    assert staged.verify_export('xiaomi')
+    monkeypatch.setenv('GITHUB_RUN_ID','new-run')
+    assert not staged.verify_export('xiaomi')
+    monkeypatch.setenv('GITHUB_RUN_ID','123');monkeypatch.setenv('GITHUB_RUN_ATTEMPT','2')
+    assert not staged.verify_export('xiaomi')
+    monkeypatch.setenv('GITHUB_RUN_ATTEMPT','1')
+    target=root/'upload/xiaomi.sqlite.enc';target.write_bytes(target.read_bytes()+b'changed')
+    assert not staged.verify_export('xiaomi')
+    staged.clear_export('xiaomi')
+    assert not target.exists() and not staged.verify_export('xiaomi')

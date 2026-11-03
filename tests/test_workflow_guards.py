@@ -74,3 +74,23 @@ def test_operational_service_cadences_and_locks_are_preserved():
     assert set(w['jobs']) == {'sony_bundle', 'public_index', 'check'}
     assert w['jobs']['sony_bundle']['runs-on'] == 'ubuntu-latest'
     assert w['jobs']['sony_bundle']['concurrency']['group'] == 'sony-complete-bundle-cache'
+
+
+def test_every_vendor_and_stock_publisher_require_a_fresh_snapshot_before_upload():
+    for vendor in VENDORS | {'publish'}:
+        workflow=load('catalogue_'+vendor+'.yml')
+        key='publish' if vendor=='publish' else 'catalogue'
+        job=workflow['jobs'][key];steps=job['steps']
+        checkout=next(s for s in steps if s.get('uses')=='actions/checkout@v4')
+        assert checkout['with']['path']==job['defaults']['run']['working-directory']
+        check=next(i for i,s in enumerate(steps) if s.get('id')=='export_check')
+        upload=next(i for i,s in enumerate(steps) if s.get('id')=='snapshot')
+        assert check<upload
+        assert "steps.export_check.outcome == 'success'" in steps[upload]['if']
+        if vendor!='publish':
+            maintain=next(i for i,s in enumerate(steps) if 'maintain-cache --vendor '+vendor in s.get('run',''))
+            collect=next(i for i,s in enumerate(steps) if s.get('id')=='collect')
+            assert maintain<collect<check
+    assert load('catalogue_samsung.yml')['jobs']['catalogue']['if']=="github.ref == 'refs/heads/main'"
+    for vendor in ('huawei','honor'):
+        assert load('catalogue_'+vendor+'.yml')['jobs']['catalogue']['if']=="github.ref == 'refs/heads/main' && false"

@@ -159,10 +159,32 @@ def open_local(path,initialize=True):
     return db
 
 
+def clear_export(scope):
+    if scope not in (*job.VENDORS,'publisher'):raise ValueError('Invalid export scope')
+    folder=ROOT/'upload'
+    for name in (scope+'.sqlite.enc',scope+'.export.json'):
+        (folder/name).unlink(missing_ok=True)
+
+
+def verify_export(scope):
+    if scope not in (*job.VENDORS,'publisher'):raise ValueError('Invalid export scope')
+    folder=ROOT/'upload';target=folder/(scope+'.sqlite.enc')
+    try:
+        receipt=json.loads((folder/(scope+'.export.json')).read_text())
+        if receipt['scope']!=scope:return False
+        if receipt['run_id']!=os.environ.get('GITHUB_RUN_ID','local') or receipt['attempt']!=os.environ.get('GITHUB_RUN_ATTEMPT','1'):
+            return False
+        with target.open('rb') as handle:
+            size=os.fstat(handle.fileno()).st_size
+            digest=hashlib.file_digest(handle,'sha256').hexdigest()
+        return size==receipt['bytes'] and digest==receipt['sha256']
+    except (OSError,ValueError,KeyError,TypeError):return False
+
+
 def encrypt_file(scope,path):
     target=ROOT/'upload'/(scope+'.sqlite.enc');target.parent.mkdir(parents=True,exist_ok=True)
     # A failed new export must never leave an old file eligible for upload.
-    target.unlink(missing_ok=True)
+    clear_export(scope)
     # Online backup produces a consistent SQLite image while another runner
     # reads/updates the shared database. Never copy live database bytes directly.
     with tempfile.TemporaryDirectory(dir=ROOT) as directory:
@@ -181,6 +203,12 @@ def encrypt_file(scope,path):
         with tempfile.NamedTemporaryFile(dir=target.parent,delete=False) as handle:
             handle.write(payload);temporary=Path(handle.name)
         try:temporary.replace(target)
+        finally:temporary.unlink(missing_ok=True)
+        receipt={'scope':scope,'run_id':os.environ.get('GITHUB_RUN_ID','local'),'attempt':os.environ.get('GITHUB_RUN_ATTEMPT','1'),
+                 'bytes':len(payload),'sha256':hashlib.sha256(payload).hexdigest()}
+        with tempfile.NamedTemporaryFile(mode='w',dir=target.parent,delete=False) as handle:
+            json.dump(receipt,handle);temporary=Path(handle.name)
+        try:temporary.replace(target.parent/(scope+'.export.json'))
         finally:temporary.unlink(missing_ok=True)
         print(json.dumps({'event':'checkpoint_export','scope':scope,'sqlite_bytes':copy.stat().st_size,'encrypted_bytes':len(payload),'page_cache_included':False}),flush=True)
     checkpoint_stamp(path,writer_run_id=os.environ.get('GITHUB_RUN_ID','local'),dirty=False)
@@ -210,7 +238,7 @@ def collect(vendor,operation='incremental',seconds=420):
     if vendor in job.SUPPRESSED_VENDORS:
         print(vendor+': paused by user; no network or D1 requests.',flush=True);return 0
     ROOT.mkdir(parents=True,exist_ok=True,mode=0o700);path=ROOT/(vendor+'.sqlite')
-    (ROOT/'upload'/(vendor+'.sqlite.enc')).unlink(missing_ok=True)
+    clear_export(vendor)
     artifacts=Artifacts()
     try:
         if not artifacts.restore(vendor,path):
@@ -307,12 +335,18 @@ def prepare():
 
 def main(argv=None):
     parser=argparse.ArgumentParser()
-    parser.add_argument('command',choices=['prepare','baseline','collect','next','prune','maintain-cache'])
+    parser.add_argument('command',choices=['prepare','baseline','collect','next','prune','maintain-cache','verify-export'])
+    parser.add_argument('--scope',choices=(*job.VENDORS,'publisher'))
     parser.add_argument('--vendor',choices=job.VENDORS)
     parser.add_argument('--operation',default='incremental',choices=['incremental','retry_failed','refresh_sources'])
     parser.add_argument('--seconds',type=int,default=420)
     args=parser.parse_args(argv)
     if not 10<=args.seconds<=600:parser.error('--seconds must be 10..600')
+    if args.command=='verify-export':
+        if not args.scope:parser.error('--scope required')
+        valid=verify_export(args.scope)
+        print(json.dumps({'event':'checkpoint_freshness_verified','scope':args.scope,'valid':valid}),flush=True)
+        return 0 if valid else 1
     if args.command=='prepare':prepare();return 0
     if args.command=='baseline':baseline();return 0
     if not args.vendor:parser.error('--vendor required')
