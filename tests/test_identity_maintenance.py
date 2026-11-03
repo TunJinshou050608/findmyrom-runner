@@ -181,3 +181,11 @@ def test_native_d1_fixture_matches_the_python_transaction_plan():
     from export_identity_batches import export
     expected=json.loads((ROOT/'tests/fixtures/d1_identity_batches.json').read_text())
     assert export()==expected
+
+
+def test_empty_tables_retain_deleted_record_sequence_high_watermarks(seeded):
+    db,_,_=seeded
+    db.execute('DELETE FROM extracted_boot_images');db.execute('DELETE FROM stock_firmwares')
+    assert migration.migrate(db,now=day())=='complete'
+    assert all(r['seq']==1000 for r in db.query("SELECT seq FROM sqlite_sequence WHERE name IN ('stock_firmwares','extracted_boot_images')"))
+    assert not db.query('PRAGMA foreign_key_check')
