@@ -12,7 +12,7 @@ Migrations live in `fmr_core/migrations/`. The Web mirror for guarded upgrades l
 python -m fmr_core.schema_migrations --apply --through 5
 ```
 
-Version 5 adds required resource metadata columns when absent, indexes version-prefix search and pending extraction ordering, and removes the obsolete voting limiter table. Existing signatures, tokens and resource columns remain compatible. Read requests no longer run ALTER TABLE.
+Version 5 adds required resource metadata columns when absent, maintains compact version-substring search and pending extraction ordering, and removes the obsolete voting limiter table. Existing signatures, tokens and resource columns remain compatible. Read requests no longer run ALTER TABLE.
 
 ## Model identity: version 6 is a reviewed maintenance operation
 

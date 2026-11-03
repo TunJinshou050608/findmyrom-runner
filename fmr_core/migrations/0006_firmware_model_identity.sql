@@ -1,3 +1,6 @@
+DROP TRIGGER search_fw_insert;
+DROP TRIGGER search_fw_delete;
+DROP TRIGGER search_fw_update;
 -- Capacity-reviewed atomic parent/child rebuild. Copy both tables so SQLite
 -- never drops a referenced parent and leaves a deferred-FK violation counter.
 -- IDs, public tokens, signatures, metrics and extraction state are unchanged.
@@ -66,7 +69,6 @@ DROP TABLE _fmr_identity_sequence;
 CREATE UNIQUE INDEX idx_fw_identity ON stock_firmwares(device_codename,COALESCE(NULLIF(model_code,''),device_codename),region_code,version_str,package_type);
 CREATE INDEX idx_fw_device_ver ON stock_firmwares(device_codename,published_date DESC);
 CREATE INDEX idx_fw_queue ON stock_firmwares(extract_status,extract_retries);
-CREATE INDEX idx_fw_version_lookup ON stock_firmwares(version_str COLLATE NOCASE,device_codename);
 CREATE INDEX idx_fw_pending_order ON stock_firmwares(COALESCE(published_date,'') DESC,id DESC) WHERE extract_status='pending' AND extract_retries<3;
 CREATE INDEX idx_boot_search ON extracted_boot_images(device_codename,version_str,partition_name);
 CREATE TRIGGER coverage_device_insert AFTER INSERT ON devices
@@ -119,4 +121,26 @@ CREATE TRIGGER coverage_custom_update AFTER UPDATE OF device_codename,zone_type,
 WHEN (OLD.device_codename IS NOT NEW.device_codename OR OLD.zone_type IS NOT NEW.zone_type OR OLD.maintainer_opted_out IS NOT NEW.maintainer_opted_out)
 BEGIN
  UPDATE catalogue_coverage SET custom=custom-CASE WHEN (OLD.maintainer_opted_out=0 AND OLD.zone_type='free_rom' AND EXISTS(SELECT 1 FROM devices d WHERE d.codename=OLD.device_codename AND (d.codename!='__global__' AND d.brand_id NOT IN ('huawei','honor') AND d.codename NOT LIKE 'huawei-%' AND d.codename NOT LIKE 'honor-%' AND d.marketing_name NOT LIKE '%Chromebook%') AND d.phase2_roms_enabled=1)) THEN 1 ELSE 0 END+CASE WHEN (NEW.maintainer_opted_out=0 AND NEW.zone_type='free_rom' AND EXISTS(SELECT 1 FROM devices d WHERE d.codename=NEW.device_codename AND (d.codename!='__global__' AND d.brand_id NOT IN ('huawei','honor') AND d.codename NOT LIKE 'huawei-%' AND d.codename NOT LIKE 'honor-%' AND d.marketing_name NOT LIKE '%Chromebook%') AND d.phase2_roms_enabled=1)) THEN 1 ELSE 0 END WHERE id=1;
+END;
+CREATE TRIGGER search_fw_insert AFTER INSERT ON stock_firmwares BEGIN
+ INSERT INTO firmware_search(device_codename,region_code,versions) VALUES (NEW.device_codename,NEW.region_code,CHAR(31)||NEW.version_str||CHAR(31))
+ ON CONFLICT(device_codename,region_code) DO UPDATE SET versions=versions||NEW.version_str||CHAR(31)
+ WHERE INSTR(versions,CHAR(31)||NEW.version_str||CHAR(31))=0;
+END;
+CREATE TRIGGER search_fw_delete AFTER DELETE ON stock_firmwares BEGIN
+ UPDATE firmware_search SET versions=COALESCE((SELECT CHAR(31)||GROUP_CONCAT(version_str,CHAR(31))||CHAR(31) FROM (SELECT DISTINCT version_str FROM stock_firmwares WHERE device_codename=OLD.device_codename AND region_code=OLD.region_code)),CHAR(31))
+ WHERE device_codename=OLD.device_codename AND region_code=OLD.region_code
+ AND NOT EXISTS(SELECT 1 FROM stock_firmwares f WHERE f.device_codename=OLD.device_codename AND f.region_code=OLD.region_code AND f.version_str=OLD.version_str);
+ DELETE FROM firmware_search WHERE device_codename=OLD.device_codename AND region_code=OLD.region_code AND versions=CHAR(31);
+END;
+CREATE TRIGGER search_fw_update AFTER UPDATE OF device_codename,region_code,version_str ON stock_firmwares
+WHEN OLD.device_codename IS NOT NEW.device_codename OR OLD.region_code IS NOT NEW.region_code OR OLD.version_str IS NOT NEW.version_str
+BEGIN
+ UPDATE firmware_search SET versions=COALESCE((SELECT CHAR(31)||GROUP_CONCAT(version_str,CHAR(31))||CHAR(31) FROM (SELECT DISTINCT version_str FROM stock_firmwares WHERE device_codename=OLD.device_codename AND region_code=OLD.region_code)),CHAR(31))
+ WHERE device_codename=OLD.device_codename AND region_code=OLD.region_code
+ AND NOT EXISTS(SELECT 1 FROM stock_firmwares f WHERE f.device_codename=OLD.device_codename AND f.region_code=OLD.region_code AND f.version_str=OLD.version_str);
+ DELETE FROM firmware_search WHERE device_codename=OLD.device_codename AND region_code=OLD.region_code AND versions=CHAR(31);
+ INSERT INTO firmware_search(device_codename,region_code,versions) VALUES (NEW.device_codename,NEW.region_code,CHAR(31)||NEW.version_str||CHAR(31))
+ ON CONFLICT(device_codename,region_code) DO UPDATE SET versions=versions||NEW.version_str||CHAR(31)
+ WHERE INSTR(versions,CHAR(31)||NEW.version_str||CHAR(31))=0;
 END;

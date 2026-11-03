@@ -114,3 +114,18 @@ def test_workflow_orders_schema_before_all_d1_publishers():
  # The collection/cleaning contracts remain local and independent of D1 schemas.
  assert 'local_runtime clean' in (ROOT/'.github/workflows/telegram_clean.yml').read_text()
  assert workflow['jobs']['telegram']['steps'][-1]['run'].startswith('python -u -m fmr_tg_scanner.local_runtime publish')
+
+
+def test_compact_search_preserves_mid_version_matching_and_tracks_rekeys_deletes(db):
+ x,_,_=db
+ first=publish_release(x,item(),release());ensure_schema(x,allow_migration=True,through=6)
+ query=lambda term:x.query('SELECT device_codename FROM firmware_search WHERE versions LIKE ?',('%'+term+'%',))
+ assert query('ILD.12')==[{'device_codename':'oneplus-shared'}]
+ publish_release(x,item(),{**release(),'download_url':'https://ota.oneplus.net/sample.tgz'})
+ assert len(x.query('SELECT * FROM firmware_search'))==1
+ x.execute("UPDATE stock_firmwares SET version_str='OTHER.123'")
+ assert not query('BUILD') and query('HER.12')
+ x.execute('DELETE FROM stock_firmwares WHERE public_token=?',(first['public_token'],))
+ assert query('OTHER')
+ x.execute('DELETE FROM stock_firmwares')
+ assert not x.query('SELECT * FROM firmware_search')

@@ -51,12 +51,12 @@ def ensure_schema(db, *, allow_migration=False, through=5):
                 raise RuntimeError('Unexpected firmware columns; refuse lossy table rebuild')
             if {r['name'] for r in db.query('PRAGMA table_info(extracted_boot_images)')}!={'public_token', 'id', 'gh_asset_id', 'gh_private_repo', 'file_size_bytes', 'sha256_hash', 'working_votes', 'version_str', 'patch_tool_ver', 'partition_name', 'file_name', 'ed25519_signature', 'download_count', 'firmware_id', 'broken_votes', 'device_codename', 'gh_release_tag', 'created_at', 'variant_type'}:
                 raise RuntimeError('Unexpected image columns; refuse lossy table rebuild')
-            expected_indices={'stock_firmwares':{'idx_fw_device_ver','idx_fw_queue','idx_fw_version_lookup','idx_fw_pending_order'},'extracted_boot_images':{'idx_boot_search'}}
+            expected_indices={'stock_firmwares':{'idx_fw_device_ver','idx_fw_queue','idx_fw_pending_order'},'extracted_boot_images':{'idx_boot_search'}}
             for table,names in expected_indices.items():
                 actual={r['name'] for r in db.query('PRAGMA index_list('+table+')') if not r['name'].startswith('sqlite_autoindex_')}
                 if actual!=names:raise RuntimeError('Unexpected source indices; refuse lossy table rebuild')
             triggers={r['name'] for r in db.query("SELECT name FROM sqlite_master WHERE type='trigger' AND tbl_name IN ('stock_firmwares','extracted_boot_images')")}
-            if triggers!={'coverage_fw_insert','coverage_fw_delete','coverage_fw_update'}:
+            if triggers!={'coverage_fw_insert','coverage_fw_delete','coverage_fw_update','search_fw_insert','search_fw_delete','search_fw_update'}:
                 raise RuntimeError('Unexpected source triggers; refuse lossy table rebuild')
             for table in db.query("SELECT name FROM sqlite_master WHERE type='table'"):
                 name=table['name'];quoted='"'+name.replace('"','""')+'"'
