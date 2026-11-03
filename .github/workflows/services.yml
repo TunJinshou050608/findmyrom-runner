@@ -1,8 +1,5 @@
 name: 服务 · 维护与检查
 'on':
-  push:
-    branches: [main]
-    paths: [.github/workflows/services.yml]
   schedule:
   - cron: '*/15 * * * *'
   - cron: 43 */6 * * *
@@ -95,18 +92,31 @@ jobs:
       group: public-jumper-index
       cancel-in-progress: false
   check:
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    runs-on: [self-hosted, Linux, X64, findmyrom-metadata]
-    timeout-minutes: 3
-    concurrency:
-      group: extractor-service-status-once
-      cancel-in-progress: false
+    runs-on:
+    - self-hosted
+    - Linux
+    - X64
+    - findmyrom-metadata
+    timeout-minutes: 10
     steps:
-      - name: Read current VPS version without starting extraction
-        run: |
-          python3 - <<'PY'
-          import urllib.request, json
-          request=urllib.request.Request('https://extract-origin.findmyrom.com/v1/capabilities',headers={'User-Agent':'FindMyROM-service-check'})
-          with urllib.request.urlopen(request,timeout=20) as response:
-              print(json.dumps({'event':'vps_revision',**json.load(response)}),flush=True)
-          PY
+    - uses: actions/checkout@v4
+      with:
+        persist-credentials: false
+    - name: Test service and HTTP delivery without downloading firmware
+      run: |
+        python3 -m venv "$RUNNER_TEMP/fmr-service-${GITHUB_RUN_ID}"
+        "$RUNNER_TEMP/fmr-service-${GITHUB_RUN_ID}/bin/python" -m pip install -r requirements.txt
+        "$RUNNER_TEMP/fmr-service-${GITHUB_RUN_ID}/bin/python" -m pytest -q tests/test_extractor_service.py tests/test_streaming_probe.py
+    - name: Check deployed website without downloading images
+      run: |
+        curl --fail --silent --show-error --max-time 30 https://findmyrom.com/ --output /dev/null
+        status=$(curl --silent --show-error --max-time 30 https://findmyrom.com/api/extract --output /dev/null --write-out '%{http_code}')
+        test "$status" = 403
+        printf 'Gateway rejects unsigned extraction requests: HTTP %s\n' "$status"
+    - name: Clean isolated environment
+      if: always()
+      run: rm -rf -- "$RUNNER_TEMP/fmr-service-${GITHUB_RUN_ID}"
+    if: github.ref == 'refs/heads/main' && ((github.event_name == 'workflow_dispatch' && inputs.service == 'check'))
+    concurrency:
+      group: extractor-service-check
+      cancel-in-progress: false
