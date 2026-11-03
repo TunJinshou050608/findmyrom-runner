@@ -159,11 +159,10 @@ def test_utc_rollover_stops_without_using_next_days_quota(seeded):
     assert not db.query("SELECT utc_day FROM fmr_identity_days WHERE utc_day='2026-11-05'")
 
 
-def test_review_hold_disables_migration_and_keeps_original_pause_settings():
+def test_workflow_three_day_cron_pauses_other_jobs_and_keeps_original_pause_settings():
     import yaml
     w=yaml.safe_load((ROOT/'.github/workflows/d1_identity_migration.yml').read_text())
-    assert 'schedule' not in w['on']
-    assert all(job['if'].startswith('false &&') for job in w['jobs'].values())
+    assert w['on']['schedule']==[{'cron':'0 1 4-6 11 *'}]
     assert w['concurrency']=={'group':'d1-schema-maintenance','cancel-in-progress':False}
     assert w['jobs']['migrate']['runs-on']=='ubuntu-latest'
     assert not any(s.get('continue-on-error') for j in w['jobs'].values() for s in j['steps'])
