@@ -55,7 +55,7 @@ TG：四个本地采集分片 → 本地 SQLite 一致性快照 → 一个独立
 - 继续使用现有 production Secrets、`FMR_CATALOGUE_STATE_DIR`、runner 路由变量及厂商续跑参数。
 - 元数据与发布默认走本地容器；大流量 Sony ZIP 服务仍走云端。
 - 保留厂商 `catalogue-v2-*` 并发锁和 `catalogue-v3-*` 加密产物名称。这些是兼容标识，不是多个生产版本。
-- `FMR_D1_WRITES_PAUSED=true` 同时暂停官包与 TG 目录发布。
+- `FMR_D1_WRITES_PAUSED=true` 暂停官包目录发布；TG 使用独立开关 `FMR_TG_D1_WRITES_PAUSED=true`，默认开启 TG 入库。
 - Sony ZIP 每 15 分钟、公共索引每 6 小时的原定时规则保持；服务入口手动运行可选择具体任务。
 - 部署文件的职责见 [`../deploy/README.md`](../deploy/README.md)。
 - `ops/setup_metadata_runner.sh` 配置本地执行器后启动现有厂商入口与统一发布，复用其加密检查点；不会重跑历史迁移。`ops/resume_catalogue.py` 只恢复统一发布，不启用旧云端批量提取任务。

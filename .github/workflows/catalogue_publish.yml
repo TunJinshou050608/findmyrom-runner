@@ -72,7 +72,7 @@ jobs:
       group: catalogue-d1-publisher
       cancel-in-progress: false
   telegram:
-    if: github.ref == 'refs/heads/main' && vars.FMR_D1_WRITES_PAUSED != 'true'
+    if: github.ref == 'refs/heads/main' && vars.FMR_TG_D1_WRITES_PAUSED != 'true'
     runs-on:
     - self-hosted
     - findmyrom-metadata
@@ -90,6 +90,7 @@ jobs:
     - uses: actions/checkout@v4
       with:
         persist-credentials: false
+        path: tg-code-${{ github.run_id }}
     - name: Confirm local runner and prepare Python
       run: |-
         printf "Runner: %s; host: %s\n" "$RUNNER_NAME" "$(hostname)"
@@ -103,3 +104,6 @@ jobs:
         CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
         SIGN_PRIVATE_KEY_HEX: ${{ secrets.SIGN_PRIVATE_KEY_HEX }}
       run: python -u -m fmr_tg_scanner.local_runtime publish --state-dir "$FMR_TG_STATE_DIR"
+    defaults:
+      run:
+        working-directory: tg-code-${{ github.run_id }}

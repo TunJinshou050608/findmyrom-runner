@@ -57,7 +57,7 @@ def test_cleaning_cannot_access_d1_and_only_unified_publication_imports_resource
     pub=load('catalogue_publish.yml')
     assert 'local_runtime publish' in str(pub['jobs']['telegram']['steps'])
     assert 'scope' in pub['on']['workflow_dispatch']['inputs']
-    assert 'FMR_D1_WRITES_PAUSED' in pub['jobs']['telegram']['if']
+    assert 'FMR_TG_D1_WRITES_PAUSED' in pub['jobs']['telegram']['if']
     for path in WORKFLOWS.glob('*.yml'):
         if path.name!='catalogue_publish.yml':
             assert 'fmr_ingest_stock.catalogue_publish_monitor' not in path.read_text()

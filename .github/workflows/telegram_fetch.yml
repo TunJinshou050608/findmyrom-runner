@@ -30,6 +30,7 @@ jobs:
     - uses: actions/checkout@v4
       with:
         persist-credentials: false
+        path: tg-code-${{ github.run_id }}
     - name: Confirm local runner and prepare Python
       run: |-
         printf "Runner: %s; host: %s\n" "$RUNNER_NAME" "$(hostname)"
@@ -49,7 +50,10 @@ jobs:
         persist-credentials: false
     - name: Migrate and partition existing metadata on container disk
       if: steps.local.outputs.needed == 'true'
-      run: python -u -m fmr_tg_scanner.local_runtime initialize --state-dir "$FMR_TG_STATE_DIR" --source-dir old-state
+      run: python -u -m fmr_tg_scanner.local_runtime initialize --state-dir "$FMR_TG_STATE_DIR" --source-dir ../old-state
+    defaults:
+      run:
+        working-directory: tg-code-${{ github.run_id }}
   fetch:
     if: github.ref == 'refs/heads/main'
     runs-on:
@@ -74,11 +78,12 @@ jobs:
         - 3
     concurrency:
       group: tg-local-worker-${{ matrix.worker }}
-      cancel-in-progress: false
+      cancel-in-progress: ${{ github.event_name == 'push' }}
     steps:
     - uses: actions/checkout@v4
       with:
         persist-credentials: false
+        path: tg-code-${{ github.run_id }}
     - name: Confirm local runner and prepare Python
       run: |-
         printf "Runner: %s; host: %s\n" "$RUNNER_NAME" "$(hostname)"
@@ -94,6 +99,9 @@ jobs:
         LLM_REASONING_EFFORT: low
         WORKER: ${{ matrix.worker }}
       run: python -u -m fmr_tg_scanner.local_runtime fetch --state-dir "$FMR_TG_STATE_DIR" --worker "$WORKER"
+    defaults:
+      run:
+        working-directory: tg-code-${{ github.run_id }}
   handoff:
     if: always() && github.ref == 'refs/heads/main' && needs.fetch.result == 'success'
     needs: fetch

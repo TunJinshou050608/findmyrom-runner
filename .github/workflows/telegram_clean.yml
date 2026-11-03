@@ -31,6 +31,7 @@ jobs:
     - uses: actions/checkout@v4
       with:
         persist-credentials: false
+        path: tg-code-${{ github.run_id }}
     - name: Confirm local runner and prepare Python
       run: |-
         printf "Runner: %s; host: %s\n" "$RUNNER_NAME" "$(hostname)"
@@ -46,3 +47,6 @@ jobs:
         GH_TOKEN: ${{ github.token }}
         GH_REPO: ${{ github.repository }}
       run: gh workflow run telegram_clean.yml --ref main
+    defaults:
+      run:
+        working-directory: tg-code-${{ github.run_id }}

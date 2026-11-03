@@ -23,14 +23,14 @@ def produce(root, *, shard=None, shards=4):
     config.pop('targets',None)
     config['target_source']='local_catalogue'
     names,sources=read_catalogue()
-    if shard is not None:
-        from .local_runtime import partition
-        names={code:labels for code,labels in names.items() if partition(code,shards)==shard}
     atomic_json(config_path,config)
     state_root=root/'search-v3';state_root.mkdir(exist_ok=True)
     store=SearchStore(state_root/'search.sqlite')
     try:
         ordered,order_info=read_order(store,names)
+        if shard is not None:
+            from .local_runtime import partition
+            ordered=[code for code in ordered if partition(code,shards)==shard]
         schedule=store.meta(SCHEDULE_KEY,{})
         targets,reset=select(ordered,schedule,time.time(),config.get('target_batch_size',8))
         if not targets:
