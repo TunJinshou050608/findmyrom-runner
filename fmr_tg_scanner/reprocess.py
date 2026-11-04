@@ -117,8 +117,10 @@ async def extract_one(client, base, key, model, max_tokens, timeout, item, semap
                 ]
 
 
-async def run(input_path, output_path, limit, concurrency):
+async def run(input_path, output_path, limit, concurrency, device=None):
     items = [json.loads(line) for line in Path(input_path).read_text().splitlines() if line.strip()]
+    if device:
+        items = [item for item in items if item.get('device') == device]
     if limit:
         items = items[:limit]
     done = set()
@@ -167,6 +169,7 @@ def main():
     parser.add_argument('--export-d1', action='store_true')
     parser.add_argument('--limit', type=int, default=0)
     parser.add_argument('--concurrency', type=int, default=4)
+    parser.add_argument('--device')
     args = parser.parse_args()
     if args.export_d1:
         count = export_d1(args.output)
@@ -174,7 +177,7 @@ def main():
         return 0
     if not args.input:
         parser.error('--input is required unless --export-d1 is used')
-    return asyncio.run(run(args.input, args.output, args.limit, max(1, min(args.concurrency, 8))))
+    return asyncio.run(run(args.input, args.output, args.limit, max(1, min(args.concurrency, 8)), args.device))
 
 
 if __name__ == '__main__':

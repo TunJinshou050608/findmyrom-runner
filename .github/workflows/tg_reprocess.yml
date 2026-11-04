@@ -8,6 +8,9 @@ name: TG · 原文重处理
       concurrency:
         description: 'Concurrent model calls'
         default: '4'
+      device:
+        description: 'Device codename filter (empty = all)'
+        default: ''
 permissions:
   contents: read
 jobs:
@@ -40,7 +43,7 @@ jobs:
     - name: Export original D1 messages
       run: python -u -m fmr_tg_scanner.reprocess --export-d1 --output "$RUNNER_TEMP/tg_reprocess_inputs.jsonl"
     - name: Re-extract and normalize
-      run: python -u -m fmr_tg_scanner.reprocess --input "$RUNNER_TEMP/tg_reprocess_inputs.jsonl" --output "$RUNNER_TEMP/tg_reprocess_output.jsonl" --limit "${{ inputs.limit || '0' }}" --concurrency "${{ inputs.concurrency || '4' }}"
+      run: python -u -m fmr_tg_scanner.reprocess --input "$RUNNER_TEMP/tg_reprocess_inputs.jsonl" --output "$RUNNER_TEMP/tg_reprocess_output.jsonl" --limit "${{ inputs.limit || '0' }}" --concurrency "${{ inputs.concurrency || '4' }}" --device "${{ inputs.device || '' }}"
     - name: Upload reprocess result
       if: always()
       uses: actions/upload-artifact@v4
