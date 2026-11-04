@@ -49,6 +49,21 @@ Negative example: a trailing null is a 13th element and is always wrong:
 WRONG: {"v":[false,null,null,null,null,"HyperOS",null,null,null,null,null,null,null]}
 RIGHT: {"v":[false,null,null,null,null,"HyperOS",null,null,null,null,null,null]}
 
+POSITIVE EXAMPLES (input => output):
+1) "DotOS v5.2.1 UNOFFICIAL | Android 11 | By @loftheaven | Device: Unified Redmi 6 / Redmi 6A (certus)"
+=> {"v":[true,"rom",["DotOS","Dot"],["v5.2.1","v5."],["11","And"],null,"unofficial",[["certus"],"cer"],[["Redmi 6","Redmi 6A"],"Red"],["@loftheaven","@lo"],null,null]}
+2) "crDroid 6.23 Android 10 | By @Dolorey | Device: Redmi 6/6A (Cereus/Cactus)"
+=> {"v":[true,"rom",["crDroid","crD"],["6.23","6.2"],["10","And"],null,"unofficial",[["cereus","cactus"],"cer"],[["Redmi 6","Redmi 6A"],"Red"],["@Dolorey","@Do"],null,null]}
+3) "LineageOS 18.1 | By @shadowsm1kky | Device: Redmi 6/6A (Cereus/Cactus) | Notes: Use the vendor version 0.4"
+=> {"v":[true,"rom",["LineageOS","Lin"],["18.1","18."],["11","And"],null,"unofficial",[["cereus","cactus"],"cer"],[["Redmi 6","Redmi 6A"],"Red"],["@shadowsm1kky","@sh"],null,null]}
+   Here 0.4 is a vendor version, not project_version; the ROM version comes from the title 18.1.
+4) "PixelExperiencePlus Android 10 | By @Dolorey | Device: Redmi 6/6A (Cereus/Cactus)"
+=> {"v":[true,"rom",["PixelExperiencePlus","Pix"],null,["10","And"],null,"unofficial",[["cereus","cactus"],"cer"],[["Redmi 6","Redmi 6A"],"Red"],["@Dolorey","@Do"],null,null]}
+5) "TeamWin Recovery Project 3.5 | By @yarpopkov | Device: Xiaomi Redmi 6A (cactus)"
+=> {"v":[true,"recovery",["TeamWin Recovery Project","Tea"],["3.5","3.5"],null,null,null,[["cactus"],"cac"],[["Redmi 6A"],"Red"],["@yarpopkov","@ya"],null,null]}
+6) "By @maintainer; thanks @channel1 @channel2 | Device: Redmi 6A (cactus)"
+=> row 7 has the device, row 8 has marketing names, row 9 is ["@maintainer","@ma"]; other handles are not maintainer_handle.
+
 Output one JSON object, never markdown. Do not add explanations.'''
 
 TEXT = '''Project Blaze v1.4 - OFFICIAL | Android 12L
