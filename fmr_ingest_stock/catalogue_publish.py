@@ -1,5 +1,6 @@
 """Single ten-minute D1 writer. Collectors and their caches stay off D1."""
 from datetime import datetime,timezone
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -13,6 +14,9 @@ from .vendor_catalogue import VENDORS,SUPPRESSED_VENDORS
 
 MAX_RECORDS=int(os.getenv('FMR_CATALOGUE_PUBLISH_MAX_RECORDS','180'))
 if MAX_RECORDS!=0 and not 1<=MAX_RECORDS<=5000:raise ValueError('Invalid publication record budget')
+SHARD_INDEX=int(os.getenv('FMR_CATALOGUE_SHARD_INDEX','0'))
+SHARD_COUNT=int(os.getenv('FMR_CATALOGUE_SHARD_COUNT','1'))
+if not 0<=SHARD_INDEX<SHARD_COUNT:raise ValueError('Invalid publication shard')
 
 
 def open_ledger(path):
@@ -26,6 +30,9 @@ def candidates(local,ledger,vendor):
     store=Store(local,vendor)
     for stage in ('release','model'):
         for key,value in store.rows(stage):
+            if SHARD_COUNT>1:
+                bucket=int.from_bytes(hashlib.sha256(key.encode()).digest()[:8],'big')%SHARD_COUNT
+                if bucket!=SHARD_INDEX:continue
             if value.get('status')=='excluded' or value['device'].get('catalogue_scope')=='non_android':continue
             if stage=='release' and (value.get('status')!='resolved' or value.get('published')):continue
             body=value['device'] if stage=='model' else [value['device'],value['release']]

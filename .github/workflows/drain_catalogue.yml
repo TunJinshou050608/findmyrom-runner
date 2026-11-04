@@ -23,6 +23,12 @@ name: D1 · 一次性清空积压
         type: boolean
         default: false
         description: '不覆盖共享 publisher checkpoint（分片用）'
+      shard_index:
+        description: '设备哈希分片序号（从 0 开始）'
+        default: '0'
+      shard_count:
+        description: '设备哈希分片总数'
+        default: '1'
   schedule:
   # 2026-11-04 20:00 UTC = 2026-11-05 04:00 Asia/Shanghai.
   # The Cloudflare free D1 write allowance resets at 08:00 Asia/Shanghai.
@@ -49,6 +55,8 @@ jobs:
       FMR_CATALOGUE_STATE_DIR: ${{ inputs.shard && format('{0}/shards/{1}', vars.FMR_CATALOGUE_STATE_DIR || '/var/lib/findmyrom/catalogue-v3', inputs.shard) || vars.FMR_CATALOGUE_STATE_DIR || '/var/lib/findmyrom/catalogue-v3' }}
       FMR_CATALOGUE_PUBLISH_VENDORS: ${{ inputs.vendors || '' }}
       FMR_CATALOGUE_SKIP_EXPORT: ${{ inputs.skip_export && 'true' || 'false' }}
+      FMR_CATALOGUE_SHARD_INDEX: ${{ inputs.shard_index || '0' }}
+      FMR_CATALOGUE_SHARD_COUNT: ${{ inputs.shard_count || '1' }}
       SIGN_PRIVATE_KEY_HEX: ${{ secrets.SIGN_PRIVATE_KEY_HEX }}
       CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
       CF_D1_DATABASE_ID: ${{ secrets.CF_D1_DATABASE_ID }}
