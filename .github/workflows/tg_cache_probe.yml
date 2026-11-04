@@ -5,6 +5,7 @@ permissions:
   contents: read
 jobs:
   probe:
+    if: github.ref == 'refs/heads/main'
     runs-on:
     - self-hosted
     - findmyrom-metadata
