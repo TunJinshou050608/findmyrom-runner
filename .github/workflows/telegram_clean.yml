@@ -7,13 +7,20 @@ name: TG · 清洗
     - .github/workflows/telegram_clean.yml
   schedule:
   - cron: 13 */2 * * *
-  workflow_dispatch: null
+  workflow_dispatch:
+    inputs:
+      max_calls:
+        description: 'Max LLM calls (canary: 20)'
+        default: '200'
+      duration:
+        description: 'Cleaner duration seconds (canary: 120)'
+        default: '6000'
 permissions:
   contents: read
   actions: write
 jobs:
   clean:
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && github.event_name != 'push'
     runs-on:
     - self-hosted
     - findmyrom-metadata
@@ -24,7 +31,7 @@ jobs:
       FMR_CATALOGUE_STATE_DIR: ${{ vars.FMR_CATALOGUE_STATE_DIR || '/var/lib/findmyrom/catalogue-v3' }}
       FMR_TG_LOCAL_RUNTIME: 'true'
       FMR_TG_GROUNDED_CLEANER: 'true'
-      FMR_TG_CLEAN_MAX_CALLS: '200'
+      FMR_TG_CLEAN_MAX_CALLS: ${{ inputs.max_calls || '200' }}
       LLM_MODEL_NAME: deepseek-flash
       LLM_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
       LLM_MAX_TOKENS: '1500'
@@ -49,7 +56,7 @@ jobs:
     - name: Audit local snapshots; request unified publisher only when a batch changes
       env:
         GH_WORKFLOW_TOKEN: ${{ github.token }}
-      run: python -u -m fmr_tg_scanner.local_runtime clean --state-dir "$FMR_TG_STATE_DIR"
+      run: python -u -m fmr_tg_scanner.local_runtime clean --state-dir "$FMR_TG_STATE_DIR" --duration "${{ inputs.duration || '6000' }}"
     - name: Upload cleaning model usage report
       if: always()
       uses: actions/upload-artifact@v4

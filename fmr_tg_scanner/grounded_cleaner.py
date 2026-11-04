@@ -44,7 +44,7 @@ def normalize_node(node):
     s=str(node).strip() or None
     return {'value':s,'evidence_quote':s}
 
-def verify(out,text):
+def verify(out,text,lenient=False):
     if not isinstance(out,dict) or type(out.get('is_release')) is not bool:raise ValueError('invalid_boolean')
     if not out['is_release']:return out
     kind=out.get('resource_kind')
@@ -71,25 +71,36 @@ def verify(out,text):
         out[field]=node
         val=node.get('value');quote=node.get('evidence_quote')
         if field=='system_base' and val not in {None,'unknown','AOSP','HyperOS','MIUI','One UI','OxygenOS','ColorOS','OriginOS'}:
+            if lenient:
+                out[field]={'value':'unknown','evidence_quote':None};continue
             raise ValueError('invalid_base:'+str(val))
         if field=='release_stage' and val not in {None,'unknown','alpha','beta','stable','official','unofficial'}:
+            if lenient:
+                out[field]={'value':'unknown','evidence_quote':None};continue
             raise ValueError('invalid_stage:'+str(val))
         if val not in (None,'unknown'):
             if field=='system_base':
                 if kind in ('recovery','kernel','boot_image'):
                     out[field]={'value':'unknown','evidence_quote':None}
                 elif val=='AOSP':
-                    if quote and not quote_grounded(quote):raise ValueError('ungrounded_system_base_quote')
+                    if quote and not quote_grounded(quote):
+                        if lenient:out[field]={'value':'unknown','evidence_quote':None}
+                        else:raise ValueError('ungrounded_system_base_quote')
                 elif not is_grounded(val,quote):
-                    raise ValueError('ungrounded_value:'+val)
+                    if lenient:out[field]={'value':'unknown','evidence_quote':None}
+                    else:raise ValueError('ungrounded_value:'+val)
             elif field=='release_stage':
                 if val in ('stable','unknown'):
-                    if quote and not quote_grounded(quote):raise ValueError('ungrounded_stage_quote')
+                    if quote and not quote_grounded(quote):
+                        if lenient:out[field]={'value':'unknown','evidence_quote':None}
+                        else:raise ValueError('ungrounded_stage_quote')
                 elif not is_grounded(val,quote):
-                    raise ValueError('ungrounded_value:'+val)
+                    if lenient:out[field]={'value':'unknown','evidence_quote':None}
+                    else:raise ValueError('ungrounded_value:'+val)
             else:
                 if not is_grounded(val,quote):
-                    raise ValueError('ungrounded_value:'+str(val))
+                    if lenient:out[field]={'value':None,'evidence_quote':None}
+                    else:raise ValueError('ungrounded_value:'+str(val))
 
     # Maintainer
     m_raw=out.get('maintainer')
@@ -98,26 +109,37 @@ def verify(out,text):
     m_quote=m_raw.get('evidence_quote')
     credit=handle or disp
     if credit and not (isinstance(m_quote,str) and m_quote.strip()):
-        raise ValueError('missing_maintainer_quote')
-    m_node={'handle':handle,'display_name':disp,'evidence_quote':m_quote}
-    out['maintainer']=m_node
-
+        if not lenient:raise ValueError('missing_maintainer_quote')
+        handle=disp=None;credit=None
     if handle:
-        if not re.fullmatch(r'@?[A-Za-z][A-Za-z0-9_]{3,31}',handle):raise ValueError('invalid_handle')
-        if not is_grounded(handle,m_quote):raise ValueError('ungrounded_handle:'+handle)
+        if not re.fullmatch(r'@?[A-Za-z][A-Za-z0-9_]{3,31}',handle):
+            if not lenient:raise ValueError('invalid_handle')
+            handle=None
+        elif not is_grounded(handle,m_quote):
+            if not lenient:raise ValueError('ungrounded_handle:'+handle)
+            handle=None
     if disp:
-        if not isinstance(disp,str) or len(disp)>200:raise ValueError('invalid_display_name')
-        if not is_grounded(disp,m_quote):raise ValueError('ungrounded_display_name:'+disp)
+        if not isinstance(disp,str) or len(disp)>200:
+            if not lenient:raise ValueError('invalid_display_name')
+            disp=None
+        elif not is_grounded(disp,m_quote):
+            if not lenient:raise ValueError('ungrounded_display_name:'+disp)
+            disp=None
 
     if credit:
         role_pat=r'(?i)\b(?:by|maintainer|developer|author|builder)\b'
         has_role=bool(m_quote and re.search(role_pat,m_quote))
         if not has_role:
-            cand=handle.lstrip('@') if handle else disp
-            for m in re.finditer(re.escape(cand),text,re.IGNORECASE):
-                w=text[max(0,m.start()-35):min(len(text),m.end()+35)]
-                if re.search(role_pat,w):has_role=True;break
-        if not has_role:raise ValueError('missing_credit_role')
+            cand=(handle or disp or '').lstrip('@')
+            if cand:
+                for m in re.finditer(re.escape(cand),text,re.IGNORECASE):
+                    w=text[max(0,m.start()-35):min(len(text),m.end()+35)]
+                    if re.search(role_pat,w):has_role=True;break
+        if not has_role:
+            if not lenient:raise ValueError('missing_credit_role')
+            handle=disp=None
+    m_node={'handle':handle,'display_name':disp,'evidence_quote':m_quote}
+    out['maintainer']=m_node
 
     # Devices
     dev_raw=out.get('target_devices')
@@ -125,22 +147,41 @@ def verify(out,text):
     d_quote=dev_raw.get('evidence_quote')
     codenames=dev_raw.get('codenames') or [];marketing_names=dev_raw.get('marketing_names') or []
     if (codenames or marketing_names) and not (isinstance(d_quote,str) and d_quote.strip()):
-        raise ValueError('missing_device_quote')
-    if not isinstance(codenames,list) or len(codenames)>30:raise ValueError('invalid_devices:codenames')
-    if not isinstance(marketing_names,list) or len(marketing_names)>30:raise ValueError('invalid_devices:marketing_names')
-    dev_node={'codenames':codenames,'marketing_names':marketing_names,'evidence_quote':d_quote}
+        if not lenient:raise ValueError('missing_device_quote')
+        codenames=[];marketing_names=[]
+    if not isinstance(codenames,list) or len(codenames)>30:
+        if not lenient:raise ValueError('invalid_devices:codenames')
+        codenames=[]
+    if not isinstance(marketing_names,list) or len(marketing_names)>30:
+        if not lenient:raise ValueError('invalid_devices:marketing_names')
+        marketing_names=[]
+    kept_codenames=[]
+    for c in codenames:
+        if not isinstance(c,str) or not c.strip() or len(c)>100 or not is_grounded(c,d_quote):
+            if not lenient:raise ValueError('ungrounded_device:'+str(c))
+            continue
+        kept_codenames.append(c)
+    kept_marketing=[]
+    for m in marketing_names:
+        if not isinstance(m,str) or not m.strip() or len(m)>100 or not is_grounded(m,d_quote):
+            if not lenient:raise ValueError('ungrounded_device:'+str(m))
+            continue
+        kept_marketing.append(m)
+    dev_node={'codenames':kept_codenames,'marketing_names':kept_marketing,'evidence_quote':d_quote}
     out['target_devices']=dev_node
 
-    for c in codenames:
-        if not isinstance(c,str) or not c.strip() or len(c)>100:raise ValueError('invalid_value:codename')
-        if not is_grounded(c,d_quote):raise ValueError('ungrounded_device:'+c)
-    for m in marketing_names:
-        if not isinstance(m,str) or not m.strip() or len(m)>100:raise ValueError('invalid_value:marketing_name')
-        if not is_grounded(m,d_quote):raise ValueError('ungrounded_device:'+m)
-
     variants=out.get('build_variants') or []
-    if not isinstance(variants,list) or any(v not in ('vanilla','gapps','microg') or not re.search(r'(?i)\b'+v+r'\b',text) for v in variants):
-        raise ValueError('invalid_variant')
+    if not isinstance(variants,list):
+        if not lenient:raise ValueError('invalid_variant')
+        variants=[]
+    else:
+        kept_variants=[]
+        for v in variants:
+            if v not in ('vanilla','gapps','microg') or not re.search(r'(?i)\b'+v+r'\b',text):
+                if not lenient:raise ValueError('invalid_variant')
+                continue
+            kept_variants.append(v)
+        variants=kept_variants
     out['build_variants']=variants
 
     return out
@@ -178,6 +219,7 @@ def extract_all(items,names,store):
                 ident,cache,code,msg=item
                 async with semaphore:
                     if auth_failed.is_set():return ident,cache,None,{},'authentication_disabled'
+                    usage={}
                     try:
                         async with client.stream('POST',base+'/chat/completions',headers={'Authorization':'Bearer '+key},json={'model':model,'thinking':{'type':'disabled'},'max_tokens':max_tokens,'response_format':{'type':'json_object'},'messages':[{'role':'system','content':PROMPT},{'role':'user','content':json.dumps({'target':code,'raw_text':msg['text'][:6000]},ensure_ascii=False)}]}) as response:
                             if response.status_code in (401,403):auth_failed.set()
@@ -185,10 +227,11 @@ def extract_all(items,names,store):
                             async for chunk in response.aiter_bytes():
                                 body.extend(chunk)
                                 if len(body)>131072:raise ValueError('Oversized response')
-                        data=json.loads(body);choice=data['choices'][0]
+                        data=json.loads(body);usage=data.get('usage',{}) if isinstance(data,dict) else {}
+                        choice=data['choices'][0]
                         if choice.get('finish_reason')!='stop':raise ValueError('Truncated output')
-                        return ident,cache,verify(json.loads(choice['message']['content']),msg['text']),data.get('usage',{}),None
-                    except Exception as error:return ident,cache,None,{},f"{type(error).__name__}:{error}"
+                        return ident,cache,verify(json.loads(choice['message']['content']),msg['text'],lenient=True),usage,None
+                    except Exception as error:return ident,cache,None,usage,f"{type(error).__name__}:{error}"
             if not pending:return []
             # Warm the shared prefix with one request before the concurrent batch.
             first=await one(pending[0])
@@ -198,17 +241,22 @@ def extract_all(items,names,store):
     if pending:
         for ident,key,out,usage,error in asyncio.run(batch()):
             stats['model_calls']+=1
+            for metric in ('prompt_cache_hit_tokens','prompt_cache_miss_tokens','completion_tokens'):
+                value=usage.get(metric,0)
+                if type(value) is int and value>=0:stats[metric]+=value
             if error:
                 stats['quarantined']+=1
-                stats[f'err_{error.split(":")[0]}']+=1
+                kind=error.split(':',1)[0]
+                stats[f'err_{kind}']+=1
+                if ':' in error:
+                    reason=error.split(':',2)[1]
+                    stats['why_'+reason]+=1
+                print(json.dumps({'event':'grounded_cleaning_error','device':ident[0],'msg_id':ident[2],'error':error[:300]}),flush=True)
                 failed=store.meta('b01fail:'+key) or {}
                 store.set_meta('b01fail:'+key,{'at':time.time(),'error':error,'attempts':int(failed.get('attempts',0))+1})
                 continue
             store.set_meta(key,out);results[ident]=out
             store.set_meta('b01fail:'+key,{'at':0,'error':None,'attempts':0})
-            for metric in ('prompt_cache_hit_tokens','prompt_cache_miss_tokens','completion_tokens'):
-                value=usage.get(metric,0)
-                if type(value) is int and value>=0:stats[metric]+=value
     if stats['quarantined'] or stats['cooldown_skips'] or len(pending)>limit:
         print(json.dumps({'event':'grounded_cleaning_deferred',**stats,'pending':max(0,len(pending)-limit)}),flush=True)
         raise DeferredAudit('Incomplete cohort: cached successes retained; retry before publication')
@@ -220,8 +268,12 @@ def convert(old,msg,code,names,out):
     prior,reason=analyse(msg,code,names[code],names)
     if reason in ('excluded_stock_firmware','excluded_mainstream_official_rom','generic_image_donor_is_not_target','excluded_engineering_firmware','official_rom_scope_unproved','mainstream_release_status_unproved'):return None,reason
     p=deepcopy(old);p.update(device_codename=code,resource_kind=out['resource_kind'])
-    for node,field in [('project_name','project_name'),('project_version','build_version_tag'),('android_version','android_version')]:p[field]=out[node].get('value')
-    p['maintainer_handle']=out['maintainer'].get('handle');p['maintainer_display_name']=out['maintainer'].get('display_name')
+    for node,field in [('project_name','project_name'),('project_version','build_version_tag'),('android_version','android_version')]:
+        value=out[node].get('value')
+        if value is not None:p[field]=value
+    p.setdefault('maintainer_handle',None);p.setdefault('maintainer_display_name',None)
+    if out['maintainer'].get('handle') is not None:p['maintainer_handle']=out['maintainer']['handle']
+    if out['maintainer'].get('display_name') is not None:p['maintainer_display_name']=out['maintainer']['display_name']
     tax=classify(msg,p,device_names=names[code],accepted=True)
     if p.get('project_name') and not tax['project']['id']:
         tax['project']['id']='observed-project:'+hashlib.sha256(json.dumps([msg['channel_username'],msg['msg_id'],p['project_name']]).encode()).hexdigest()[:24]
@@ -230,7 +282,7 @@ def convert(old,msg,code,names,out):
     if credit:
         mid='tg-handle:'+credit.lstrip('@').lower() if maint.get('handle') else 'observed-name:'+hashlib.sha256(json.dumps([msg['channel_username'],norm(credit)]).encode()).hexdigest()[:24]
         tax['maintenance'].update(maintainer_id=mid,branch_id='branch:'+hashlib.sha256(json.dumps([tax['project']['id'],mid,code,tax['maintenance']['branch_name']]).encode()).hexdigest()[:24] if tax['project']['id'] else None)
-    tax['versions']['project_version']=out['project_version'].get('value')
+    if out['project_version'].get('value') is not None:tax['versions']['project_version']=out['project_version']['value']
     for field in ('system_base','release_stage'):
         value=out[field].get('value')
         if value in ('official','unofficial'):tax['project_recognition']=value

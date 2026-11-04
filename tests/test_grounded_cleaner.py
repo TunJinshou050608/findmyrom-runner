@@ -23,6 +23,20 @@ def test_non_boolean_and_non_evidenced_variant_fail():
  with pytest.raises(ValueError):verify(o,TEXT)
  o=output();o['build_variants']=['gapps']
  with pytest.raises(ValueError):verify(o,TEXT)
+def test_lenient_drops_ungrounded_optional_fields():
+ o=output()
+ o['project_name']={'value':'invented','evidence_quote':'alioth'}
+ o['target_devices']['codenames'].append('invented-device')
+ o['maintainer']={'handle':'@fake','display_name':'Fake','evidence_quote':'alioth'}
+ o['build_variants']=['gapps']
+ v=verify(o,TEXT,lenient=True)
+ assert v['project_name']['value'] is None
+ assert 'invented-device' not in v['target_devices']['codenames']
+ assert v['maintainer']['handle'] is None
+ assert v['build_variants']==[]
+ # The sanitized object must still pass the strict verifier used by convert().
+ assert verify(v,TEXT) is not None
+
 def test_kernel_version_and_literal_multi_author_survive():
  msg=message();old=dict(device_codename='alioth',raw_text_hash=hashlib.sha256(TEXT.encode()).hexdigest(),tg_post_url=msg['tg_post_url'],channel_username=msg['channel_username'],msg_id=1)
  r,_=convert(old,msg,'alioth',{'alioth':['POCO F3']},output());p=r['package']
