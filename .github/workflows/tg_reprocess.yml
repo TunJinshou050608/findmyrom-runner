@@ -31,6 +31,7 @@ jobs:
     - uses: actions/checkout@v4
       with:
         persist-credentials: false
+        path: reprocess-code
     - name: Prepare Python
       run: |
         python3 -m venv "$RUNNER_TEMP/fmr-reprocess-${GITHUB_RUN_ID}"
@@ -47,3 +48,6 @@ jobs:
         name: tg-reprocess-output
         path: ${{ runner.temp }}/tg_reprocess_output.jsonl
         if-no-files-found: warn
+    defaults:
+      run:
+        working-directory: reprocess-code
