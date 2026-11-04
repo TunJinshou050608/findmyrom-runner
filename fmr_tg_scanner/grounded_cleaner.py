@@ -198,6 +198,7 @@ def extract_all(items,names,store):
     timeout=int(os.getenv('LLM_TIMEOUT_SECONDS','120'))
     concurrency=max(1,min(int(os.getenv('FMR_TG_CLEAN_CONCURRENCY','4')),8))
     cooldown=int(os.getenv('FMR_TG_CLEAN_FAILURE_COOLDOWN','3600'))
+    debug=os.getenv('FMR_TG_CLEAN_DEBUG_SAMPLE')=='true'
     for code,msg in items:
         ident=(code,msg['channel_username'],msg['msg_id']);text=msg['text']
         signal=msg.get('has_tg_attachment') or msg.get('file_attachment_name') or msg.get('links') or re.search(r'(?i)release|updated?|build|changelog|download|kernel|recovery|发布|更新',text)
@@ -220,8 +221,10 @@ def extract_all(items,names,store):
                 async with semaphore:
                     if auth_failed.is_set():return ident,cache,None,{},'authentication_disabled'
                     usage={}
+                    payload={'model':model,'thinking':{'type':'disabled'},'max_tokens':max_tokens,'response_format':{'type':'json_object'},'messages':[{'role':'system','content':PROMPT},{'role':'user','content':json.dumps({'target':code,'raw_text':msg['text'][:6000]},ensure_ascii=False)}]}
+                    if debug:print(json.dumps({'event':'grounded_cleaning_request','target':code,'msg_id':msg['msg_id'],'request':payload},ensure_ascii=False),flush=True)
                     try:
-                        async with client.stream('POST',base+'/chat/completions',headers={'Authorization':'Bearer '+key},json={'model':model,'thinking':{'type':'disabled'},'max_tokens':max_tokens,'response_format':{'type':'json_object'},'messages':[{'role':'system','content':PROMPT},{'role':'user','content':json.dumps({'target':code,'raw_text':msg['text'][:6000]},ensure_ascii=False)}]}) as response:
+                        async with client.stream('POST',base+'/chat/completions',headers={'Authorization':'Bearer '+key},json=payload) as response:
                             if response.status_code in (401,403):auth_failed.set()
                             response.raise_for_status();body=bytearray()
                             async for chunk in response.aiter_bytes():
@@ -229,6 +232,7 @@ def extract_all(items,names,store):
                                 if len(body)>131072:raise ValueError('Oversized response')
                         data=json.loads(body);usage=data.get('usage',{}) if isinstance(data,dict) else {}
                         choice=data['choices'][0]
+                        if debug:print(json.dumps({'event':'grounded_cleaning_response','target':code,'msg_id':msg['msg_id'],'finish_reason':choice.get('finish_reason'),'content':choice['message'].get('content'),'usage':usage},ensure_ascii=False),flush=True)
                         if choice.get('finish_reason')!='stop':raise ValueError('Truncated output')
                         return ident,cache,verify(json.loads(choice['message']['content']),msg['text'],lenient=True),usage,None
                     except Exception as error:return ident,cache,None,usage,f"{type(error).__name__}:{error}"
@@ -257,7 +261,7 @@ def extract_all(items,names,store):
                 continue
             store.set_meta(key,out);results[ident]=out
             store.set_meta('b01fail:'+key,{'at':0,'error':None,'attempts':0})
-    if stats['quarantined'] or stats['cooldown_skips'] or len(pending)>limit:
+    if len(pending)>limit:
         print(json.dumps({'event':'grounded_cleaning_deferred',**stats,'pending':max(0,len(pending)-limit)}),flush=True)
         raise DeferredAudit('Incomplete cohort: cached successes retained; retry before publication')
     return results,dict(stats)

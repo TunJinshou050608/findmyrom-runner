@@ -15,6 +15,9 @@ name: TG · 清洗
       duration:
         description: 'Cleaner duration seconds (canary: 120)'
         default: '6000'
+      debug_sample:
+        description: 'Print one live request/response (canary)'
+        default: 'false'
 permissions:
   contents: read
   actions: write
@@ -38,6 +41,7 @@ jobs:
       LLM_TIMEOUT_SECONDS: '120'
       LLM_API_BASE_URL: https://api.deepseek.com/v1
       FMR_TG_CLEAN_CONCURRENCY: '4'
+      FMR_TG_CLEAN_DEBUG_SAMPLE: ${{ inputs.debug_sample || 'false' }}
     name: 单独筛选器 · 一致性快照与质量审核
     concurrency:
       group: tg-local-cleaner
