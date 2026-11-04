@@ -110,7 +110,7 @@ async def extract_one(client, base, key, model, max_tokens, timeout, item, semap
                 else:
                     raise ValueError('invalid_envelope')
                 verification = 'not_needed'
-                if cleaned.get('is_release') is True:
+                if cleaned.get('is_release') is True and os.getenv('FMR_TG_FOCUSED_VERSION', 'true') != 'false':
                     try:
                         vcontent, vusage = await call(client, base, key, model, max_tokens, timeout, [
                             {'role': 'system', 'content': FOCUS_PROMPT},
