@@ -95,6 +95,7 @@ jobs:
       env:
         FMR_CATALOGUE_PROCESSES: ${{ inputs.processes || '1' }}
       run: |
+        set -o pipefail
         count="${FMR_CATALOGUE_PROCESSES:-1}"
         if [ "$count" -le 1 ]; then
           python -u -m fmr_ingest_stock.catalogue_publish
@@ -107,15 +108,11 @@ jobs:
           FMR_CATALOGUE_SHARD_INDEX="$i" \
           FMR_CATALOGUE_SHARD_COUNT="$count" \
           FMR_CATALOGUE_SKIP_EXPORT=true \
-          python -u -m fmr_ingest_stock.catalogue_publish > "$RUNNER_TEMP/drain-$i.log" 2>&1 &
+          python -u -m fmr_ingest_stock.catalogue_publish 2>&1 | sed -u "s/^/[shard $i] /" &
           pids="$pids $!"
         done
         status=0
         for p in $pids; do wait "$p" || status=1; done
-        for i in $(seq 0 $((count-1))); do
-          echo "===== shard $i ====="
-          tail -20 "$RUNNER_TEMP/drain-$i.log"
-        done
         exit $status
     - name: Verify publisher checkpoint
       id: export_check

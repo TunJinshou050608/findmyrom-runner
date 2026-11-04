@@ -1,6 +1,5 @@
 """Single ten-minute D1 writer. Collectors and their caches stay off D1."""
 from datetime import datetime,timezone
-import hashlib
 import json
 import os
 from pathlib import Path
@@ -28,17 +27,21 @@ def open_ledger(path):
 
 def candidates(local,ledger,vendor):
     store=Store(local,vendor)
+    position=0
     for stage in ('release','model'):
         for key,value in store.rows(stage):
-            if SHARD_COUNT>1:
-                bucket=int.from_bytes(hashlib.sha256(key.encode()).digest()[:8],'big')%SHARD_COUNT
-                if bucket!=SHARD_INDEX:continue
             if value.get('status')=='excluded' or value['device'].get('catalogue_scope')=='non_android':continue
             if stage=='release' and (value.get('status')!='resolved' or value.get('published')):continue
             body=value['device'] if stage=='model' else [value['device'],value['release']]
             fingerprint=digest(body)
             old=ledger.query('SELECT hash FROM published WHERE vendor=? AND key=?',(vendor,key))
             if old and old[0]['hash']==fingerprint:continue
+            # Split the actual pending work, not the whole snapshot: a skewed
+            # backlog leaves most hash buckets empty.
+            if SHARD_COUNT>1 and position%SHARD_COUNT!=SHARD_INDEX:
+                position+=1
+                continue
+            position+=1
             yield stage,key,value,fingerprint
 
 
@@ -71,7 +74,9 @@ def main():
         if old and int(old[0]['value'])>=slot and os.getenv('FMR_CATALOGUE_PUBLISH_FORCE')!='true':
             print('本 10 分钟窗口已同步，跳过重复触发；D1 请求为 0。',flush=True);return 0
         # Round-robin prevents a large Xiaomi backlog starving every other vendor.
-        offset=slot%len(selected);vendors=selected[offset:]+selected[:offset]
+        # Sharded runs need a deterministic vendor order so every process sees
+        # the same pending-work sequence.
+        offset=slot%len(selected);vendors=selected if SHARD_COUNT>1 else selected[offset:]+selected[:offset]
         work={}
         for vendor in vendors:
             if vendor in SUPPRESSED_VENDORS:continue
