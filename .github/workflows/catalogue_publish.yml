@@ -21,6 +21,13 @@ name: D1 · 统一发布
         - 'true'
         default: 'false'
         description: '只跑一个发布窗口，不交接下一执行器（测试用）'
+      tg_unlimited:
+        type: choice
+        options:
+        - 'false'
+        - 'true'
+        default: 'false'
+        description: '本次 TG 发布不套用预算上限'
   push:
     branches:
     - main
@@ -197,6 +204,7 @@ jobs:
       FMR_TG_STATE_DIR: ${{ vars.FMR_TG_STATE_DIR || format('{0}/tg-v4', vars.FMR_CATALOGUE_STATE_DIR || '/var/lib/findmyrom/catalogue-v3') }}
       FMR_CATALOGUE_STATE_DIR: ${{ vars.FMR_CATALOGUE_STATE_DIR || '/var/lib/findmyrom/catalogue-v3' }}
       FMR_TG_LOCAL_RUNTIME: 'true'
+      FMR_D1_BUDGET_ENFORCE: ${{ inputs.tg_unlimited == 'true' && 'false' || 'true' }}
     name: TG · 本地合格批次增量写入 D1
     concurrency:
       group: tg-local-d1-publication

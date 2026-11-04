@@ -32,7 +32,7 @@ def publish_latest(root, db_factory=None, publisher=publish, verifier=verify_sit
             raise ValueError('Production D1 identity must match the established database')
         if db_factory is None:
             from fmr_ingest_stock.d1_budget import BudgetDB
-            db_factory = lambda: BudgetDB(cf_database_id=DB_ID)
+            db_factory = lambda: BudgetDB(cf_database_id=DB_ID, enforce_limits=os.getenv('FMR_D1_BUDGET_ENFORCE','true')!='false')
         db = db_factory()
         try:
             if hasattr(db,'acquire') and not db.acquire():return {'status':'deferred_budget','audit_run_id':run_id}
