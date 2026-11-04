@@ -10,10 +10,10 @@ name: TG · 清洗
   workflow_dispatch:
     inputs:
       max_calls:
-        description: 'Max LLM calls (test phase default: 50)'
+        description: 'Max LLM calls (production 50; canary 5)'
         default: '50'
       duration:
-        description: 'Cleaner duration seconds (test phase default: 600)'
+        description: 'Cleaner duration seconds (production 600; canary 120)'
         default: '600'
       debug_sample:
         description: 'Print one live request/response (canary)'
@@ -26,7 +26,7 @@ permissions:
   actions: write
 jobs:
   clean:
-    if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
     runs-on:
     - self-hosted
     - findmyrom-metadata
