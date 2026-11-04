@@ -84,8 +84,14 @@ def from_compact(root):
         v = v[0]
     if len(v) != 12:
         raise ValueError('invalid_row_count')
+    if isinstance(v[0], list) and len(v[0]) == 1:
+        v[0] = v[0][0]
+    if isinstance(v[0], str) and v[0].strip().lower() in ('true', 'false'):
+        v[0] = v[0].strip().lower() == 'true'
     if type(v[0]) is not bool:
         raise ValueError('row0_is_release')
+    if isinstance(v[1], str):
+        v[1] = v[1].strip().lower()
     if v[1] not in ('rom', 'recovery', 'kernel', 'boot_image', None):
         raise ValueError('row1_resource_kind')
 
@@ -200,6 +206,7 @@ def one():
     payload = {
         'model': model,
         'thinking': {'type': 'disabled'},
+        'temperature': 0,
         'max_tokens': int(os.getenv('LLM_MAX_TOKENS', '1500')),
         'response_format': {'type': 'json_object'},
         'messages': [
