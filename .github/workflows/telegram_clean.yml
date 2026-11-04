@@ -18,12 +18,15 @@ name: TG · 清洗
       debug_sample:
         description: 'Print one live request/response (canary)'
         default: 'false'
+      self_continue:
+        description: 'Re-dispatch this workflow after the batch (production loop)'
+        default: 'false'
 permissions:
   contents: read
   actions: write
 jobs:
   clean:
-    if: github.ref == 'refs/heads/main' && github.event_name != 'push'
+    if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
     runs-on:
     - self-hosted
     - findmyrom-metadata
@@ -69,6 +72,7 @@ jobs:
         path: ${{ env.FMR_TG_STATE_DIR }}/clean/audits/full-quality-*/report.json
         if-no-files-found: warn
     - name: Continue the independent cleaner
+      if: inputs.self_continue == 'true'
       env:
         GH_TOKEN: ${{ github.token }}
         GH_REPO: ${{ github.repository }}

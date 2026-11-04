@@ -155,7 +155,7 @@ def audit(root):
         grounded=os.getenv('FMR_TG_GROUNDED_CLEANER')=='true'
         extractions={};model_stats={}
         if grounded:
-            from .grounded_cleaner import extract_all,convert
+            from .grounded_cleaner import REVISION as CLEANER_REVISION,extract_all,convert
             items=[]
             for row in rows:
                 old=json.loads(row['payload']);code=normalize_device(old['device_codename'],names)
@@ -196,7 +196,7 @@ def audit(root):
             decisions.append({'key':row['key'],'previously_accepted':bool(row['accepted']),'device':code,'post_url':old['tg_post_url'],
                               'qualified':not errors,'reasons':sorted(set(errors))})
             if index%500==0:print(json.dumps({'event':'full_quality_progress','checked':index,'total':len(rows),'qualified':len(qualified)}),flush=True)
-        report={'cleaner_revision':'b01-grounded-v1' if grounded else 'rules','model_usage':model_stats,'audit_version':AUDIT_VERSION,'audit_run_id':run_id,'all_records_checked':len(rows),'unique_posts_recovered':len(messages),
+        report={'cleaner_revision':CLEANER_REVISION if grounded else 'rules','model_usage':model_stats,'audit_version':AUDIT_VERSION,'audit_run_id':run_id,'all_records_checked':len(rows),'unique_posts_recovered':len(messages),
                 'qualified':len(qualified),'rejected_or_incomplete':sum(not d['qualified'] for d in decisions),
                 'reason_counts':dict(reasons),'previous_counts':dict(counts),'evidence_recovery':recovery,
                 'invalid_channel_tasks_retired':retired,'device_catalogue_count':len(names),'catalogue_sources':sources,
