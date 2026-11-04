@@ -16,6 +16,16 @@ import httpx
 from .cache_probe import PROMPT, from_payload
 from .grounded_cleaner import NAMED_REPAIR_PROMPT, compact_to_nodes
 
+VERIFY_PROMPT = PROMPT + '''
+
+VERIFY MODE: compare raw_text with candidate. Return the same 12-row contract, corrected.
+- project_name must NOT contain a version. If the title says LineageOS 18.1, use project_name LineageOS and project_version 18.1.
+- A vendor/firmware version in Notes (for example "vendor version 0.4") is NOT project_version.
+- project_version is the ROM release/build version from the title or build line, never the Android version.
+- android_version is bare (11, 12L), never "Android 11".
+- Row 7/8 are devices; row 9 is one maintainer handle.
+If candidate already satisfies these rules, return it unchanged. Output only the JSON object.'''
+
 
 def parse_url(url):
     match = re.search(r'(?:https?://)?t\.me/([^/]+)/(\d+)', url or '')
@@ -100,8 +110,27 @@ async def extract_one(client, base, key, model, max_tokens, timeout, item, semap
                     cleaned = compact_to_nodes(parsed, text, item['device'], names)
                 else:
                     raise ValueError('invalid_envelope')
+                verification = 'not_needed'
+                if cleaned.get('is_release') is True:
+                    try:
+                        vcontent, vusage = await call(client, base, key, model, max_tokens, timeout, [
+                            {'role': 'system', 'content': VERIFY_PROMPT},
+                            {'role': 'user', 'content': json.dumps(
+                                {'target': item['device'], 'raw_text': text[:6000],
+                                 'candidate': content[:4000]}, ensure_ascii=False)},
+                        ])
+                        vparsed = json.loads(vcontent)
+                        if isinstance(vparsed, dict) and ('v' in vparsed or 'is_release' in vparsed):
+                            cleaned = compact_to_nodes(vparsed, text, item['device'], names)
+                        for k, v in (vusage or {}).items():
+                            if type(v) is int and v >= 0:
+                                usage[k] = usage.get(k, 0) + v
+                        verification = 'applied'
+                    except Exception:
+                        verification = 'failed'
                 return {**item, 'cleaned': cleaned,
                         'normalization': cleaned.get('_normalization'),
+                        'verification': verification,
                         'usage': usage, 'error': None}
             except Exception as error:
                 if repaired:
