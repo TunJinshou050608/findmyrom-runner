@@ -5,6 +5,10 @@ name: D1 · 一次性清空积压
   # 2026-11-04 20:00 UTC = 2026-11-05 04:00 Asia/Shanghai.
   # The Cloudflare free D1 write allowance resets at 08:00 Asia/Shanghai.
   - cron: '0 20 4 11 *'
+  # Backup slots: GitHub occasionally drops or delays a scheduled event.
+  # The date guard below still limits every attempt to 2026-11-04 UTC.
+  - cron: '10 20 4 11 *'
+  - cron: '30 20 4 11 *'
 permissions:
   contents: read
   actions: write
