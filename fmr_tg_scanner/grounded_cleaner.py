@@ -33,7 +33,7 @@ Every key MUST be present. Use bare null for unknown values.
 Codenames are lowercase device codes only. Never put @handles or marketing names in target_codenames.
 Only emit maintainer_handle if the post literally contains @handle or t.me/handle.
 maintainer_handle is ONE bare string, never a list; if several @handles appear, choose the maintainer credited by By/Maintainer/Credit and ignore update/news channels.
-project_name is the project name only; do not include a version. project_version is the ROM build version, never an Android version and never a vendor/firmware version from Notes.
+project_name is the project name only; do not include a version. project_version is the ROM build version from the title or build line; focus only on the version that is the main topic, and never put an Android version there.
 anchor is the first 3-4 characters of the raw mention, not the normalized value.
 Reject stock firmware, mainstream centralized official ROM releases, questions, chat, tutorials,
 APKs and Magisk/KSU modules. Output one JSON object, never markdown.'''

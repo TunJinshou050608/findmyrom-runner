@@ -20,8 +20,7 @@ FOCUS_PROMPT = '''Read the Android custom ROM post. Ignore any previous extracti
 {"project_name": string|null, "project_version": string|null, "android_version": string|null}
 Rules:
 - project_name is the project name only, never the version. "LineageOS 18.1" => project_name "LineageOS", project_version "18.1".
-- Do not copy a version into project_name just because an earlier extraction did.
-- project_version is the ROM release/build version from the title or build line, never an Android version and never a vendor/firmware version from Notes. "Use the vendor version 0.4" does not make 0.4 project_version.
+- project_version is the ROM release/build version from the title or build line. Focus ONLY on the version that is mentioned as the MAIN TOPIC. Never use an Android version.
 - android_version is bare: 11, 12L, 14, never "Android 11".
 - If a field is not supported by the post, use null.
 Output only the JSON object.'''
