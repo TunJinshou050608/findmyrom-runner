@@ -29,6 +29,9 @@ name: D1 · 一次性清空积压
       shard_count:
         description: '设备哈希分片总数'
         default: '1'
+      processes:
+        description: '同一 runner 上的并行发布进程数'
+        default: '1'
   schedule:
   # 2026-11-04 20:00 UTC = 2026-11-05 04:00 Asia/Shanghai.
   # The Cloudflare free D1 write allowance resets at 08:00 Asia/Shanghai.
@@ -89,7 +92,31 @@ jobs:
       run: python -m pip install -r requirements.txt
     - name: Drain until Cloudflare reports an error
       if: github.event_name == 'workflow_dispatch' || steps.guard.outputs.run == 'true'
-      run: python -u -m fmr_ingest_stock.catalogue_publish
+      env:
+        FMR_CATALOGUE_PROCESSES: ${{ inputs.processes || '1' }}
+      run: |
+        count="${FMR_CATALOGUE_PROCESSES:-1}"
+        if [ "$count" -le 1 ]; then
+          python -u -m fmr_ingest_stock.catalogue_publish
+          exit $?
+        fi
+        pids=""
+        for i in $(seq 0 $((count-1))); do
+          FMR_CATALOGUE_LOCAL_STATE=false \
+          FMR_CATALOGUE_STATE_DIR="$FMR_CATALOGUE_STATE_DIR/parallel-$i" \
+          FMR_CATALOGUE_SHARD_INDEX="$i" \
+          FMR_CATALOGUE_SHARD_COUNT="$count" \
+          FMR_CATALOGUE_SKIP_EXPORT=true \
+          python -u -m fmr_ingest_stock.catalogue_publish > "$RUNNER_TEMP/drain-$i.log" 2>&1 &
+          pids="$pids $!"
+        done
+        status=0
+        for p in $pids; do wait "$p" || status=1; done
+        for i in $(seq 0 $((count-1))); do
+          echo "===== shard $i ====="
+          tail -20 "$RUNNER_TEMP/drain-$i.log"
+        done
+        exit $status
     - name: Verify publisher checkpoint
       id: export_check
       if: always() && !inputs.dry_run && !inputs.skip_export && (github.event_name == 'workflow_dispatch' || steps.guard.outputs.run == 'true')
