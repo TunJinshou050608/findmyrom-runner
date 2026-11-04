@@ -65,7 +65,7 @@ jobs:
       run: python -u -m fmr_ingest_stock.catalogue_publish
     - name: Verify publisher checkpoint
       id: export_check
-      if: always() && (github.event_name == 'workflow_dispatch' || steps.guard.outputs.run == 'true')
+      if: always() && inputs.dry_run != 'true' && (github.event_name == 'workflow_dispatch' || steps.guard.outputs.run == 'true')
       run: python -u -m fmr_ingest_stock.staged_catalogue verify-export --scope publisher
     - name: Save publisher checkpoint
       if: always() && steps.export_check.outcome == 'success'
