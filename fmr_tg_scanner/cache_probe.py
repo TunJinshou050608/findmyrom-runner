@@ -38,7 +38,8 @@ ROW MAP (fixed; never shift):
 - Row 9 is the only maintainer row. maintainer_handle is ONE bare handle string, never a list and never [[...]]. If several @handles appear, choose the maintainer credited by By/Maintainer/Credit; ignore update/news channel handles. If none is identifiable, use null.
 - Rows 2,3,4,9,10 hold ONE value plus anchor. Never put alternatives in one scalar row.
 - project_name is the project name only; do not include a version in it. Put the ROM release/build version in row 3.
-- project_version is the ROM release/build version from the title or build line. Never put an Android version here, and never use a vendor/firmware version from Notes.
+- If the title contains a version after the project name (LineageOS 18.1, Havoc-OS 4.9, crDroid 6.23), project_name MUST omit it and project_version MUST contain it. Never leave project_version null when the title contains such a version.
+- project_version is the ROM release/build version from the title or build line. Never put an Android version here, and never use a vendor/firmware version from Notes (for example "Use the vendor version 0.4" does not make 0.4 the ROM version).
 - android_version is a bare version such as 11, 12L, 14; never write "Android 11". If the post only says A12, output 12.
 - If is_release is true, project_name MUST be non-null; use the release title, never invent a project.
 
@@ -57,6 +58,8 @@ POSITIVE EXAMPLES (input => output):
 3) "LineageOS 18.1 | By @shadowsm1kky | Device: Redmi 6/6A (Cereus/Cactus) | Notes: Use the vendor version 0.4"
 => {"v":[true,"rom",["LineageOS","Lin"],["18.1","18."],["11","And"],null,"unofficial",[["cereus","cactus"],"cer"],[["Redmi 6","Redmi 6A"],"Red"],["@shadowsm1kky","@sh"],null,null]}
    Here 0.4 is a vendor version, not project_version; the ROM version comes from the title 18.1.
+   WRONG: project_name "LineageOS 18.1" with project_version null or "0.4".
+   RIGHT: project_name "LineageOS" with project_version "18.1".
 4) "PixelExperiencePlus Android 10 | By @Dolorey | Device: Redmi 6/6A (Cereus/Cactus)"
 => {"v":[true,"rom",["PixelExperiencePlus","Pix"],null,["10","And"],null,"unofficial",[["cereus","cactus"],"cer"],[["Redmi 6","Redmi 6A"],"Red"],["@Dolorey","@Do"],null,null]}
 5) "TeamWin Recovery Project 3.5 | By @yarpopkov | Device: Xiaomi Redmi 6A (cactus)"
