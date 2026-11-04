@@ -1,6 +1,11 @@
 name: D1 · 一次性清空积压
 'on':
   workflow_dispatch:
+    inputs:
+      dry_run:
+        type: boolean
+        default: false
+        description: '只验证 runner 和 checkpoint，不写 D1'
   schedule:
   # 2026-11-04 20:00 UTC = 2026-11-05 04:00 Asia/Shanghai.
   # The Cloudflare free D1 write allowance resets at 08:00 Asia/Shanghai.
@@ -29,7 +34,7 @@ jobs:
       CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
       CF_D1_DATABASE_ID: ${{ secrets.CF_D1_DATABASE_ID }}
       CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
-      FMR_D1_WRITES_PAUSED: 'false'
+      FMR_D1_WRITES_PAUSED: ${{ inputs.dry_run && 'true' || 'false' }}
       FMR_D1_BUDGET_ENFORCE: 'false'
       FMR_CATALOGUE_PUBLISH_MAX_RECORDS: '0'
       FMR_CATALOGUE_PUBLISH_FORCE: 'true'
