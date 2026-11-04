@@ -75,6 +75,44 @@ def grounded(value, text):
     return norm(value) in norm(text) or alpha(value) in alpha(text)
 
 
+def scalar_pair(row):
+    if row is None:
+        return None, None
+    if isinstance(row, list):
+        if not row:
+            return None, None
+        if len(row) == 1:
+            return row[0], None
+        if len(row) == 2:
+            return row[0], row[1]
+        raise ValueError('invalid_scalar_row')
+    return row, None
+
+
+def list_pair(row):
+    if row is None:
+        return [], None
+    if isinstance(row, list) and len(row) == 1 and isinstance(row[0], list):
+        return row[0], None
+    if isinstance(row, list) and len(row) == 2 and isinstance(row[0], list):
+        return row[0], row[1]
+    if isinstance(row, list) and len(row) == 2 and isinstance(row[1], str) and len(row[1]) <= 4:
+        return [row[0]], row[1]
+    if isinstance(row, list):
+        return row, None
+    return [row], None
+
+
+def booleanish(value):
+    if isinstance(value, str) and value.strip().lower() in ('true', 'false'):
+        return value.strip().lower() == 'true'
+    return value
+
+
+def kindish(value):
+    return value.strip().lower() if isinstance(value, str) else value
+
+
 def from_compact(root):
     if not isinstance(root, dict) or not isinstance(root.get('v'), list):
         raise ValueError('invalid_envelope')
@@ -86,40 +124,12 @@ def from_compact(root):
         raise ValueError('invalid_row_count')
     if isinstance(v[0], list) and len(v[0]) == 1:
         v[0] = v[0][0]
-    if isinstance(v[0], str) and v[0].strip().lower() in ('true', 'false'):
-        v[0] = v[0].strip().lower() == 'true'
+    v[0] = booleanish(v[0])
     if type(v[0]) is not bool:
         raise ValueError('row0_is_release')
-    if isinstance(v[1], str):
-        v[1] = v[1].strip().lower()
+    v[1] = kindish(v[1])
     if v[1] not in ('rom', 'recovery', 'kernel', 'boot_image', None):
         raise ValueError('row1_resource_kind')
-
-    def scalar_pair(row):
-        if row is None:
-            return None, None
-        if isinstance(row, list):
-            if not row:
-                return None, None
-            if len(row) == 1:
-                return row[0], None
-            if len(row) == 2:
-                return row[0], row[1]
-            raise ValueError('invalid_scalar_row')
-        return row, None
-
-    def list_pair(row):
-        if row is None:
-            return [], None
-        if isinstance(row, list) and len(row) == 1 and isinstance(row[0], list):
-            return row[0], None
-        if isinstance(row, list) and len(row) == 2 and isinstance(row[0], list):
-            return row[0], row[1]
-        if isinstance(row, list) and len(row) == 2 and isinstance(row[1], str) and len(row[1]) <= 4:
-            return [row[0]], row[1]
-        if isinstance(row, list):
-            return row, None
-        return [row], None
 
     project_name, a_name = scalar_pair(v[2])
     project_version, a_version = scalar_pair(v[3])
@@ -153,6 +163,55 @@ def from_compact(root):
     }
 
 
+def from_named(root):
+    if not isinstance(root, dict):
+        raise ValueError('invalid_envelope')
+    is_release = booleanish(root.get('is_release'))
+    if type(is_release) is not bool:
+        raise ValueError('row0_is_release')
+    kind = kindish(root.get('resource_kind'))
+    if kind not in ('rom', 'recovery', 'kernel', 'boot_image', None):
+        raise ValueError('row1_resource_kind')
+    project_name, a_name = scalar_pair(root.get('project_name'))
+    project_version, a_version = scalar_pair(root.get('project_version'))
+    android_version, a_android = scalar_pair(root.get('android_version'))
+    codenames, a_devices = list_pair(root.get('target_codenames', root.get('codenames')))
+    marketing_names, a_marketing = list_pair(root.get('target_marketing_names', root.get('marketing_names')))
+    handle, a_handle = scalar_pair(root.get('maintainer_handle', root.get('handle')))
+    display_name, a_display = scalar_pair(root.get('maintainer_display_name', root.get('display_name')))
+    build_variants, a_variants = list_pair(root.get('build_variants'))
+    return {
+        'is_release': is_release,
+        'resource_kind': kind,
+        'project_name': project_name,
+        'project_version': project_version,
+        'android_version': android_version,
+        'system_base': root.get('system_base'),
+        'release_stage': root.get('release_stage'),
+        'codenames': codenames or [],
+        'marketing_names': marketing_names or [],
+        'handle': handle,
+        'display_name': display_name,
+        'build_variants': build_variants or [],
+        '_anchors': {
+            'project_name': a_name,
+            'project_version': a_version,
+            'android_version': a_android,
+            'target_devices': a_devices or a_marketing,
+            'maintainer': a_handle or a_display,
+            'build_variants': a_variants,
+        },
+    }
+
+
+def from_payload(root):
+    if isinstance(root, dict) and isinstance(root.get('v'), list):
+        return from_compact(root)
+    if isinstance(root, dict):
+        return from_named(root)
+    raise ValueError('invalid_envelope')
+
+
 def verify_compact(out, text, target, names):
     if not out['is_release']:
         return out, []
@@ -173,6 +232,8 @@ def verify_compact(out, text, target, names):
         errors.append('release_stage_ungrounded');out['release_stage'] = None
     kept_codes=[]
     for code in out['codenames']:
+        if not isinstance(code, str) or code.startswith('@') or ' ' in code.strip():
+            errors.append('codename_shape:' + str(code));continue
         if code != target and code not in names.get(target, []) and not grounded(code, text):
             errors.append('codename:' + str(code));continue
         kept_codes.append(code)
