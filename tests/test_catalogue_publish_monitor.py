@@ -1,6 +1,13 @@
 from fmr_ingest_stock.catalogue_publish_monitor import run
 
 
+def test_once_mode_runs_one_publish_window(monkeypatch):
+    monkeypatch.setenv('FMR_CATALOGUE_PUBLISH_ONCE','true')
+    calls=[]
+    assert run(duration=3000, clock=lambda:0, sleep=lambda seconds:None, publish=lambda:calls.append(1))==0
+    assert calls==[1]
+
+
 def test_ten_minute_windows_never_busy_retry_and_continue_after_network_failure():
     clock=[605.0];calls=[];sleeps=[]
     def sleep(seconds):

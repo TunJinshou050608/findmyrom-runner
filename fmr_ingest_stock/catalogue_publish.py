@@ -11,7 +11,8 @@ from .d1_budget import BudgetDB,D1BudgetReached
 from .staged_catalogue import Artifacts,ROOT,encrypt_file,open_local
 from .vendor_catalogue import VENDORS,SUPPRESSED_VENDORS
 
-MAX_RECORDS=180
+MAX_RECORDS=int(os.getenv('FMR_CATALOGUE_PUBLISH_MAX_RECORDS','180'))
+if not 1<=MAX_RECORDS<=5000:raise ValueError('Invalid publication record budget')
 
 
 def open_ledger(path):

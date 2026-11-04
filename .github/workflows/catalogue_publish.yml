@@ -11,6 +11,16 @@ name: D1 · 统一发布
         - tg
         default: all
         description: 官包与TG，或仅TG
+      max_records:
+        description: '单批最多发布记录数（默认 180，测试可用 1000）'
+        default: '180'
+      once:
+        type: choice
+        options:
+        - 'false'
+        - 'true'
+        default: 'false'
+        description: '只跑一个发布窗口，不交接下一执行器（测试用）'
   push:
     branches:
     - main
@@ -62,6 +72,8 @@ jobs:
       FMR_CATALOGUE_STATE_DIR: ${{ vars.FMR_CATALOGUE_STATE_DIR || '/var/lib/findmyrom/catalogue-v3' }}
       SIGN_PRIVATE_KEY_HEX: ${{ secrets.SIGN_PRIVATE_KEY_HEX }}
       FMR_D1_WRITES_PAUSED: ${{ vars.FMR_D1_WRITES_PAUSED }}
+      FMR_CATALOGUE_PUBLISH_MAX_RECORDS: ${{ inputs.max_records || '180' }}
+      FMR_CATALOGUE_PUBLISH_ONCE: ${{ inputs.once || 'false' }}
     steps:
     - uses: actions/checkout@v4
       with:
@@ -99,7 +111,7 @@ jobs:
       run: |
         python -c 'from fmr_ingest_stock.staged_catalogue import Artifacts; a=Artifacts(); a.prune("publisher"); a.close()'
     - name: 交接下一驻留执行器；cron保留作故障恢复
-      if: success() && steps.snapshot.outcome == 'success'
+      if: success() && steps.snapshot.outcome == 'success' && inputs.once != 'true'
       env:
         GH_TOKEN: ${{ github.token }}
         GH_REPO: ${{ github.repository }}

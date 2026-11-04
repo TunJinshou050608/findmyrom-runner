@@ -8,6 +8,10 @@ def run(duration=105*60, clock=time.time, sleep=time.sleep, publish=main):
     if os.environ.get('FMR_D1_WRITES_PAUSED')=='true':
         print('D1 发布已暂停；不进入驻留发布循环。',flush=True)
         return 0
+    if os.environ.get('FMR_CATALOGUE_PUBLISH_ONCE')=='true':
+        print('单批发布模式：只执行一个窗口，不驻留。',flush=True)
+        publish()
+        return 0
     deadline=clock()+duration
     last_slot=None
     while clock()<deadline:
