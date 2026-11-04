@@ -54,13 +54,17 @@ jobs:
     - name: Drain until Cloudflare reports an error
       if: github.event_name == 'workflow_dispatch' || steps.guard.outputs.run == 'true'
       run: python -u -m fmr_ingest_stock.catalogue_publish
-    - name: Save publisher checkpoint
+    - name: Verify publisher checkpoint
+      id: export_check
       if: always() && (github.event_name == 'workflow_dispatch' || steps.guard.outputs.run == 'true')
+      run: python -u -m fmr_ingest_stock.staged_catalogue verify-export --scope publisher
+    - name: Save publisher checkpoint
+      if: always() && steps.export_check.outcome == 'success'
       uses: actions/upload-artifact@v4
       with:
         name: catalogue-v3-publisher
         path: ${{ env.FMR_CATALOGUE_STATE_DIR }}/upload/publisher.sqlite.enc
-        if-no-files-found: warn
+        if-no-files-found: error
     defaults:
       run:
         working-directory: drain-code
