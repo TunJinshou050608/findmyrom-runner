@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import re
+import time
 import httpx
 from .taxonomy import classify
 from .search_policy import target_evidence, analyse
@@ -148,9 +149,14 @@ class DeferredAudit(RuntimeError):pass
 
 def extract_all(items,names,store):
     stats=Counter();results={};pending=[]
-    model=os.getenv('LLM_MODEL_NAME','deepseek-flash');base='https://api.deepseek.com/v1'
+    model=os.getenv('LLM_MODEL_NAME','deepseek-flash')
+    base=os.getenv('LLM_API_BASE_URL','https://api.deepseek.com/v1').rstrip('/')
     limit=int(os.getenv('FMR_TG_CLEAN_MAX_CALLS','200'))
     if not 1<=limit<=2000:raise ValueError('Invalid call budget')
+    max_tokens=int(os.getenv('LLM_MAX_TOKENS','1500'))
+    timeout=int(os.getenv('LLM_TIMEOUT_SECONDS','120'))
+    concurrency=max(1,min(int(os.getenv('FMR_TG_CLEAN_CONCURRENCY','4')),8))
+    cooldown=int(os.getenv('FMR_TG_CLEAN_FAILURE_COOLDOWN','3600'))
     for code,msg in items:
         ident=(code,msg['channel_username'],msg['msg_id']);text=msg['text']
         signal=msg.get('has_tg_attachment') or msg.get('file_attachment_name') or msg.get('links') or re.search(r'(?i)release|updated?|build|changelog|download|kernel|recovery|发布|更新',text)
@@ -160,17 +166,20 @@ def extract_all(items,names,store):
         if cached is not None:
             try:results[ident]=verify(cached,text);stats['local_cache_hits']+=1;continue
             except ValueError:pass
+        failed=store.meta('b01fail:'+key)
+        if failed and time.time()-float(failed.get('at',0))<cooldown:
+            results[ident]=None;stats['cooldown_skips']+=1;continue
         pending.append((ident,key,code,msg))
     async def batch():
-        auth_failed=asyncio.Event();semaphore=asyncio.Semaphore(4);key=os.getenv('LLM_API_KEY','').strip()
+        auth_failed=asyncio.Event();semaphore=asyncio.Semaphore(concurrency);key=os.getenv('LLM_API_KEY','').strip()
         if not key:raise DeferredAudit('Missing cleaning API key; no new cohort published')
-        async with httpx.AsyncClient(timeout=30,trust_env=False,follow_redirects=False) as client:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(connect=10,read=timeout,write=30,pool=10),trust_env=False,follow_redirects=False) as client:
             async def one(item):
                 ident,cache,code,msg=item
                 async with semaphore:
                     if auth_failed.is_set():return ident,cache,None,{},'authentication_disabled'
                     try:
-                        async with client.stream('POST',base+'/chat/completions',headers={'Authorization':'Bearer '+key},json={'model':model,'thinking':{'type':'disabled'},'max_tokens':1500,'response_format':{'type':'json_object'},'messages':[{'role':'system','content':PROMPT},{'role':'user','content':json.dumps({'target':code,'raw_text':msg['text']},ensure_ascii=False)}]}) as response:
+                        async with client.stream('POST',base+'/chat/completions',headers={'Authorization':'Bearer '+key},json={'model':model,'thinking':{'type':'disabled'},'max_tokens':max_tokens,'response_format':{'type':'json_object'},'messages':[{'role':'system','content':PROMPT},{'role':'user','content':json.dumps({'target':code,'raw_text':msg['text'][:6000]},ensure_ascii=False)}]}) as response:
                             if response.status_code in (401,403):auth_failed.set()
                             response.raise_for_status();body=bytearray()
                             async for chunk in response.aiter_bytes():
@@ -180,21 +189,29 @@ def extract_all(items,names,store):
                         if choice.get('finish_reason')!='stop':raise ValueError('Truncated output')
                         return ident,cache,verify(json.loads(choice['message']['content']),msg['text']),data.get('usage',{}),None
                     except Exception as error:return ident,cache,None,{},f"{type(error).__name__}:{error}"
-            return await asyncio.gather(*(one(item) for item in pending[:limit]))
+            if not pending:return []
+            # Warm the shared prefix with one request before the concurrent batch.
+            first=await one(pending[0])
+            rest=pending[1:limit]
+            if not rest:return [first]
+            return [first,*await asyncio.gather(*(one(item) for item in rest))]
     if pending:
         for ident,key,out,usage,error in asyncio.run(batch()):
             stats['model_calls']+=1
             if error:
                 stats['quarantined']+=1
                 stats[f'err_{error.split(":")[0]}']+=1
+                failed=store.meta('b01fail:'+key) or {}
+                store.set_meta('b01fail:'+key,{'at':time.time(),'error':error,'attempts':int(failed.get('attempts',0))+1})
                 continue
             store.set_meta(key,out);results[ident]=out
+            store.set_meta('b01fail:'+key,{'at':0,'error':None,'attempts':0})
             for metric in ('prompt_cache_hit_tokens','prompt_cache_miss_tokens','completion_tokens'):
                 value=usage.get(metric,0)
                 if type(value) is int and value>=0:stats[metric]+=value
-        if stats['quarantined'] or len(pending)>limit:
-            print(json.dumps({'event':'grounded_cleaning_deferred',**stats,'pending':max(0,len(pending)-limit)}),flush=True)
-            raise DeferredAudit('Incomplete cohort: cached successes retained; retry before publication')
+    if stats['quarantined'] or stats['cooldown_skips'] or len(pending)>limit:
+        print(json.dumps({'event':'grounded_cleaning_deferred',**stats,'pending':max(0,len(pending)-limit)}),flush=True)
+        raise DeferredAudit('Incomplete cohort: cached successes retained; retry before publication')
     return results,dict(stats)
 
 def convert(old,msg,code,names,out):

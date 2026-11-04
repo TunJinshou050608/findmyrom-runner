@@ -27,6 +27,10 @@ jobs:
       FMR_TG_CLEAN_MAX_CALLS: '200'
       LLM_MODEL_NAME: deepseek-flash
       LLM_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+      LLM_MAX_TOKENS: '1500'
+      LLM_TIMEOUT_SECONDS: '120'
+      LLM_API_BASE_URL: https://api.deepseek.com/v1
+      FMR_TG_CLEAN_CONCURRENCY: '4'
     name: 单独筛选器 · 一致性快照与质量审核
     concurrency:
       group: tg-local-cleaner
@@ -46,6 +50,13 @@ jobs:
       env:
         GH_WORKFLOW_TOKEN: ${{ github.token }}
       run: python -u -m fmr_tg_scanner.local_runtime clean --state-dir "$FMR_TG_STATE_DIR"
+    - name: Upload cleaning model usage report
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: tg-clean-report-${{ github.run_id }}
+        path: ${{ env.FMR_TG_STATE_DIR }}/clean/audits/full-quality-*/report.json
+        if-no-files-found: warn
     - name: Continue the independent cleaner
       env:
         GH_TOKEN: ${{ github.token }}

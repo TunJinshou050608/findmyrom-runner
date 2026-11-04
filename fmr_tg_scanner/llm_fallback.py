@@ -95,8 +95,8 @@ def completion(text, target=None, rule_reason=None):
     if not safe_url(base):
         raise ValueError('Invalid LLM API origin')
     model = os.environ.get('LLM_MODEL_NAME', 'deepseek-flash')
-    effort = os.environ.get('LLM_REASONING_EFFORT', 'low')
-    max_tokens = int(os.environ.get('LLM_MAX_TOKENS', '1024'))
+    max_tokens = int(os.environ.get('LLM_MAX_TOKENS', '800'))
+    timeout = int(os.environ.get('LLM_TIMEOUT_SECONDS', '90'))
 
     user_content = f"Target device: {target}\nRule reason: {rule_reason}\n\nPost text:\n{text[:12000]}" if (target or rule_reason) else text[:12000]
 
@@ -104,16 +104,15 @@ def completion(text, target=None, rule_reason=None):
         'model': model,
         'temperature': 0,
         'max_tokens': max_tokens,
+        'thinking': {'type': 'disabled'},
         'messages': [
             {'role': 'system', 'content': SYSTEM_PROMPT},
             {'role': 'user', 'content': user_content}
         ],
         'response_format': {'type': 'json_object'}
     }
-    if 'flash' in model or 'reasoner' in model or os.environ.get('LLM_REASONING_EFFORT'):
-        payload['reasoning_effort'] = effort
 
-    with httpx.Client(timeout=25, follow_redirects=False) as client:
+    with httpx.Client(timeout=httpx.Timeout(connect=10, read=timeout, write=30, pool=10), follow_redirects=False) as client:
         with client.stream('POST', base + '/chat/completions', json=payload, headers={'Authorization': 'Bearer ' + os.environ['LLM_API_KEY'].strip()}) as response:
             response.raise_for_status()
             body = bytearray()
@@ -122,7 +121,20 @@ def completion(text, target=None, rule_reason=None):
                 if len(body) > 131072:
                     raise ValueError('LLM response exceeds limit')
     res_obj = json.loads(body)
-    raw_content = res_obj['choices'][0]['message']['content'].strip()
+    choice = res_obj['choices'][0]
+    if choice.get('finish_reason') not in (None, 'stop'):
+        raise ValueError('LLM output truncated')
+    usage = res_obj.get('usage', {})
+    print(json.dumps({
+        'event': 'llm_usage',
+        'path': 'llm_fallback',
+        'model': model,
+        'prompt_cache_hit_tokens': usage.get('prompt_cache_hit_tokens', 0),
+        'prompt_cache_miss_tokens': usage.get('prompt_cache_miss_tokens', 0),
+        'completion_tokens': usage.get('completion_tokens', 0),
+        'reasoning_tokens': (usage.get('completion_tokens_details') or {}).get('reasoning_tokens', 0),
+    }), flush=True)
+    raw_content = choice['message']['content'].strip()
     if raw_content.startswith('```'):
         raw_content = re.sub(r'^```(?:json)?\s*', '', raw_content)
         raw_content = re.sub(r'\s*```$', '', raw_content)

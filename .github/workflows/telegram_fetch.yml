@@ -94,9 +94,9 @@ jobs:
       env:
         GH_WORKFLOW_TOKEN: ${{ github.token }}
         GITHUB_TOKEN: ${{ github.token }}
-        LLM_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
-        LLM_MODEL_NAME: deepseek-flash
-        LLM_REASONING_EFFORT: low
+        # Fetch is deterministic by default. To re-enable the optional
+        # classifier, set this to 'true' and restore LLM_API_KEY / LLM_MODEL_NAME.
+        FMR_TG_FETCH_LLM: 'false'
         WORKER: ${{ matrix.worker }}
       run: python -u -m fmr_tg_scanner.local_runtime fetch --state-dir "$FMR_TG_STATE_DIR" --worker "$WORKER"
     defaults:

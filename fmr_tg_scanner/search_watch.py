@@ -56,8 +56,10 @@ def produce(root, *, shard=None, shards=4):
             store.set_meta('prior_lab_source_evidence',imported)
             store.set_meta('prior_lab_import_complete',True)
     finally:store.close()
+    fetch_llm=os.environ.get('FMR_TG_FETCH_LLM','false').lower()=='true'
     report=run(root/'search-v3',targets,max_requests=config.get('max_requests',100),max_seconds=config.get('max_seconds',360),
-               max_tasks_per_device=config.get('max_tasks_per_device',24),catalogue_names=names)
+               max_tasks_per_device=config.get('max_tasks_per_device',24),catalogue_names=names,
+               enable_llm=fetch_llm,max_llm_calls=50 if fetch_llm else 0)
     # Only advance after a completed batch has committed its frontier/report.
     store=SearchStore(state_root/'search.sqlite')
     try:
