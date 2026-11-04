@@ -16,10 +16,11 @@ import httpx
 from .cache_probe import PROMPT, from_payload
 from .grounded_cleaner import NAMED_REPAIR_PROMPT, compact_to_nodes
 
-FOCUS_PROMPT = '''Read the Android custom ROM post and its candidate extraction. Return only this JSON object:
+FOCUS_PROMPT = '''Read the Android custom ROM post. Ignore any previous extraction; use only raw_text. Return only this JSON object:
 {"project_name": string|null, "project_version": string|null, "android_version": string|null}
 Rules:
 - project_name is the project name only, never the version. "LineageOS 18.1" => project_name "LineageOS", project_version "18.1".
+- Do not copy a version into project_name just because an earlier extraction did.
 - project_version is the ROM release/build version from the title or build line, never an Android version and never a vendor/firmware version from Notes. "Use the vendor version 0.4" does not make 0.4 project_version.
 - android_version is bare: 11, 12L, 14, never "Android 11".
 - If a field is not supported by the post, use null.
@@ -115,8 +116,8 @@ async def extract_one(client, base, key, model, max_tokens, timeout, item, semap
                         vcontent, vusage = await call(client, base, key, model, max_tokens, timeout, [
                             {'role': 'system', 'content': FOCUS_PROMPT},
                             {'role': 'user', 'content': json.dumps(
-                                {'target': item['device'], 'raw_text': text[:6000],
-                                 'candidate': content[:4000]}, ensure_ascii=False)},
+                                {'target': item['device'], 'raw_text': text[:6000]},
+                                ensure_ascii=False)},
                         ])
                         vparsed = json.loads(vcontent)
                         if isinstance(vparsed, dict):
