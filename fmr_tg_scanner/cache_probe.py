@@ -138,30 +138,39 @@ def verify_compact(out, text, target, names):
         return out, []
     errors = []
     if out['project_name'] and not grounded(out['project_name'], text) and out['project_name'] not in names.get(target, []):
-        errors.append('project_name')
+        errors.append('project_name');out['project_name'] = None
     if out['project_version'] and canon_version(out['project_version']) not in canon_version(text):
-        errors.append('project_version')
+        errors.append('project_version');out['project_version'] = None
     if out['android_version'] and canon_android(out['android_version']) not in canon_android(text):
-        errors.append('android_version')
+        errors.append('android_version');out['android_version'] = None
     if out['system_base'] not in (None, 'unknown', 'AOSP', 'HyperOS', 'MIUI', 'One UI', 'OxygenOS', 'ColorOS', 'OriginOS'):
-        errors.append('system_base')
+        errors.append('system_base');out['system_base'] = None
     if out['release_stage'] not in (None, 'unknown', 'alpha', 'beta', 'stable', 'official', 'unofficial'):
-        errors.append('release_stage')
+        errors.append('release_stage');out['release_stage'] = None
+    kept_codes=[]
     for code in out['codenames']:
         if code != target and code not in names.get(target, []) and not grounded(code, text):
-            errors.append('codename:' + str(code))
+            errors.append('codename:' + str(code));continue
+        kept_codes.append(code)
+    out['codenames']=kept_codes
+    kept_marketing=[]
     for name in out['marketing_names']:
         if name not in names.get(target, []) and not grounded(name, text):
-            errors.append('marketing:' + str(name))
+            errors.append('marketing:' + str(name));continue
+        kept_marketing.append(name)
+    out['marketing_names']=kept_marketing
     if out['handle']:
         handle = out['handle'].lstrip('@')
         if not re.search(r'@' + re.escape(handle), text, re.I) and ('t.me/' + handle) not in text:
-            errors.append('handle')
+            errors.append('handle');out['handle'] = None
     if out['display_name'] and not grounded(out['display_name'], text):
-        errors.append('display_name')
+        errors.append('display_name');out['display_name'] = None
+    kept_variants=[]
     for variant in out['build_variants']:
         if variant not in ('vanilla', 'gapps', 'microg') or not re.search(r'(?i)\b' + variant + r'\b', text):
-            errors.append('variant:' + str(variant))
+            errors.append('variant:' + str(variant));continue
+        kept_variants.append(variant)
+    out['build_variants']=kept_variants
     return out, errors
 
 
