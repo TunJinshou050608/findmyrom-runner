@@ -59,17 +59,17 @@ def _grounded(value, text):
 
 
 def split_project_name(value):
-    """Return (canonical project name, version embedded in the name)."""
+    """Return the model's project name with only a fixed alias-table lookup.
+
+    Version separation is a semantic extraction task and belongs to the model;
+    regex must not guess whether a trailing number is a version or part of the
+    product name.
+    """
     name = _text(value)
     if not name:
         return None, None
-    match = _TRAILING_VERSION.search(name)
-    version = None
-    if match:
-        version = match.group(1)
-        name = name[:match.start()].strip()
     key = re.sub(r'[^a-z0-9]', '', name.casefold())
-    return _ALIASES.get(key, name) or None, version
+    return _ALIASES.get(key, name) or None, None
 
 
 def canonical_android(value, text):
@@ -95,23 +95,10 @@ def canonical_android(value, text):
     return value
 
 
-def canonical_project_version(value, embedded, android, text):
+def canonical_project_version(value):
+    """Keep the model's project_version; no regex inference from title or notes."""
     value = _text(value)
-    if embedded:
-        return embedded
-    if not value:
-        return None
-    if value.casefold() in ('unknown', 'null', 'none'):
-        return None
-    if re.match(r'^android\b', value, re.I):
-        return None
-    if android and value.casefold() == android.casefold():
-        return None
-    lines = text.splitlines()
-    title = '\n'.join(lines[:3])
-    build = '\n'.join(line for line in lines if re.search(r'build|version|release', line, re.I))
-    notes = '\n'.join(line for line in lines if re.search(r'notes?|vendor|firmware', line, re.I))
-    if value not in title and value not in build and value in notes:
+    if not value or value.casefold() in ('unknown', 'null', 'none'):
         return None
     return value
 
@@ -168,9 +155,7 @@ def normalize_legacy(out, text, target, names):
     original_android = _value(out.get('android_version'))
     project_name, embedded_version = split_project_name(_value(out.get('project_name')))
     android = canonical_android(original_android, text)
-    project_version = canonical_project_version(
-        original_version, embedded_version, android, text
-    )
+    project_version = canonical_project_version(original_version)
 
     devices = out.get('target_devices') or {}
     codenames, marketing = canonical_devices(
@@ -198,20 +183,9 @@ def normalize_legacy(out, text, target, names):
         'evidence_quote': maintainer.get('evidence_quote') or handle or display,
     }
     previous = out.get('_normalization') or {}
-    original_version_text = _text(original_version)
-    clear_project_version = bool(previous.get('clear_project_version')) or (
-        project_version is None
-        and bool(original_version_text)
-        and bool(re.match(r'^android\b', original_version_text, re.I))
-    )
-    clear_android = bool(previous.get('clear_android')) or (
-        android is None
-        and bool(_text(original_android))
-        and bool(_BRAND_WORDS.search(_text(original_android)))
-    )
     out['_normalization'] = {
         'project_name': project_name,
-        'embedded_version': embedded_version,
+        'embedded_version': None,
         'project_version': project_version,
         'android_version': android,
         'target_codenames': codenames,
@@ -219,7 +193,7 @@ def normalize_legacy(out, text, target, names):
         'maintainer_handle': handle,
         'target_in_codenames': target in codenames,
         'target_in_marketing': any(_grounded(alias, text) for alias in names.get(target, [])),
-        'clear_project_version': clear_project_version,
-        'clear_android': clear_android,
+        'clear_project_version': False,
+        'clear_android': False,
     }
     return out

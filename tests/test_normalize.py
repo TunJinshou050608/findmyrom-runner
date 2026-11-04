@@ -40,29 +40,36 @@ def test_android_version_is_not_a_build_version():
         project_name=node('PixelExperiencePlus', 'PixelExperiencePlus'),
         project_version=node('Android 10', 'Android 10'),
     ), text, 'cactus', {'cactus': ['Redmi 6A']})
-    assert out['project_version']['value'] is None
-    assert out['_normalization']['clear_project_version'] is True
+    assert out['project_version']['value'] == 'Android 10'
     assert out['android_version']['value'] == '10'
 
 
-def test_embedded_project_version_beats_android_version():
+def test_normalization_does_not_infer_version_from_title():
     text = 'crDroid 6.23 Android 10 [UNOFFICIAL]\nDevice: Redmi 6/6A (cereus/cactus)'
     out = normalize_legacy(extraction(
         project_name=node('crDroid 6.23', 'crDroid 6.23'),
         project_version=node('Android 10', 'Android 10'),
     ), text, 'cactus', {'cactus': ['Redmi 6A']})
-    assert out['project_name']['value'] == 'crDroid'
-    assert out['project_version']['value'] == '6.23'
-    assert out['_normalization']['clear_project_version'] is False
+    assert out['project_name']['value'] == 'crDroid 6.23'
+    assert out['project_version']['value'] == 'Android 10'
 
 
-def test_vendor_version_in_notes_is_not_project_version():
+def test_vendor_version_in_notes_is_left_to_the_model():
     text = 'LineageOS 18.1 [UNOFFICIAL]\nDevice: Redmi 6/6A (cereus/cactus)\nNotes: Use the vendor version 0.4'
     out = normalize_legacy(extraction(
         project_name=node('LineageOS 18.1', 'LineageOS 18.1'),
         project_version=node('0.4', '0.4'),
     ), text, 'cactus', {'cactus': ['Redmi 6A']})
-    assert out['project_name']['value'] == 'LineageOS'
+    assert out['project_name']['value'] == 'LineageOS 18.1'
+    assert out['project_version']['value'] == '0.4'
+
+
+def test_prompt_selected_title_version_is_kept():
+    text = 'LineageOS 18.1 [UNOFFICIAL]\nDevice: Redmi 6/6A (cereus/cactus)\nNotes: Use the vendor version 0.4'
+    out = normalize_legacy(extraction(
+        project_name=node('LineageOS 18.1', 'LineageOS 18.1'),
+        project_version=node('18.1', '18.1'),
+    ), text, 'cactus', {'cactus': ['Redmi 6A']})
     assert out['project_version']['value'] == '18.1'
 
 
@@ -75,7 +82,6 @@ def test_brand_name_never_becomes_android_version():
         target_devices={'codenames': ['cactus'], 'marketing_names': [], 'evidence_quote': 'cactus'},
     ), text, 'cactus', {'cactus': ['Redmi 6A']})
     assert out['android_version']['value'] is None
-    assert out['_normalization']['clear_android'] is True
 
 
 def test_codenames_are_removed_from_marketing_names():
