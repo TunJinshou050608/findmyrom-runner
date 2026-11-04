@@ -23,4 +23,5 @@ jobs:
         python3 -m venv "$RUNNER_TEMP/fmr-cache-probe"
         "$RUNNER_TEMP/fmr-cache-probe/bin/python" -m pip install -r requirements.txt
     - name: Run fixed-post two-pass cache probe
-      run: "$RUNNER_TEMP/fmr-cache-probe/bin/python" -u -m fmr_tg_scanner.cache_probe
+      run: |
+        "$RUNNER_TEMP/fmr-cache-probe/bin/python" -u -m fmr_tg_scanner.cache_probe
