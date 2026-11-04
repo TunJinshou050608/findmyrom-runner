@@ -130,6 +130,14 @@ def quality_errors(package,accepted):
     if not package.get('build_version_tag'):errors.append('missing_release_version')
     if not isinstance(package.get('published_timestamp'),(int,float)) or package['published_timestamp']<=0:errors.append('missing_observed_publication_time')
     if t['resource_type']=='rom' and not t['versions'].get('android'):errors.append('missing_android_version')
+    normalization=(t.get('evidence') or {}).get('normalization') or {}
+    if normalization.get('target_in_codenames') is False and not normalization.get('target_in_marketing'):
+        errors.append('target_not_in_codenames')
+    version=str(package.get('build_version_tag') or '')
+    android=str(package.get('android_version') or '')
+    if version and re.match(r'^android\b',version,re.I):errors.append('android_version_in_build_field')
+    if android and re.search(r'\b(?:redmi|xiaomi|poco|samsung|oneplus|oppo|vivo|realme|motorola|sony|google|honor|huawei)\b',android,re.I):
+        errors.append('invalid_android_version')
     for key in ('android','project_version','build_id','build_date'):
         if key not in t['versions']:errors.append('missing_version_field:'+key)
     for key in ('device_id','codename','applicable_models','excluded_models','compatibility_conditions'):

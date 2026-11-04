@@ -28,8 +28,26 @@ HARD OUTPUT CONTRACT — every rule is mandatory:
 - Before returning, count the elements of "v". If it is not exactly 12, rewrite the entire object.
 - Reject stock firmware, mainstream centralized official ROM releases, questions, chat, tutorials, APKs and Magisk/KSU modules.
 
+ROW MAP (fixed; never shift):
+0 is_release, 1 resource_kind, 2 project_name, 3 project_version, 4 android_version,
+5 system_base, 6 release_stage, 7 target_codenames, 8 target_marketing_names,
+9 maintainer_handle, 10 maintainer_display_name, 11 build_variants.
+- 12 elements means indices 0 through 11; there is no row 12. Even is_release=false uses exactly 12 rows; never append an extra null.
+- Rows 5 and 6 are adjacent bare values. Never insert a null between row 4 and row 5.
+- Rows 7 and 8 are device rows only. Never put @handles or maintainer names in row 7.
+- Row 9 is the only maintainer row. maintainer_handle is ONE bare handle string, never a list and never [[...]]. If several @handles appear, choose the maintainer credited by By/Maintainer/Credit; ignore update/news channel handles. If none is identifiable, use null.
+- Rows 2,3,4,9,10 hold ONE value plus anchor. Never put alternatives in one scalar row.
+- project_name is the project name only; do not include a version in it. Put the ROM release/build version in row 3.
+- project_version is the ROM release/build version from the title or build line. Never put an Android version here, and never use a vendor/firmware version from Notes.
+- android_version is a bare version such as 11, 12L, 14; never write "Android 11". If the post only says A12, output 12.
+- If is_release is true, project_name MUST be non-null; use the release title, never invent a project.
+
 Exact shape example (values are illustrative, not the current post):
-{"v":[true,"rom",["Project Blaze","Pro"],["v1.4","v1."],["Android 12L","And"],null,"official",[["alioth"],"Poc"],[["Poco F3","Mi 11x","Redmi K40"],"Poc"],["@AbrarNoob","@Ab"],null,null]}
+{"v":[true,"rom",["Project Blaze","Pro"],["v1.4","v1."],["12L","And"],null,"official",[["alioth"],"Poc"],[["Poco F3","Mi 11x","Redmi K40"],"Poc"],["@AbrarNoob","@Ab"],null,null]}
+
+Negative example: a trailing null is a 13th element and is always wrong:
+WRONG: {"v":[false,null,null,null,null,"HyperOS",null,null,null,null,null,null,null]}
+RIGHT: {"v":[false,null,null,null,null,"HyperOS",null,null,null,null,null,null]}
 
 Output one JSON object, never markdown. Do not add explanations.'''
 

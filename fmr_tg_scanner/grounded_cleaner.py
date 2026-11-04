@@ -11,6 +11,7 @@ import httpx
 from .taxonomy import classify
 from .search_policy import target_evidence, analyse
 from .cache_probe import PROMPT as COMPACT_PROMPT, from_payload, verify_compact
+from .normalize import normalize_legacy
 REVISION='b01-compact-v2'
 LEGACY_REVISION='b01-grounded-v1'
 PROMPT=COMPACT_PROMPT
@@ -31,6 +32,8 @@ build_variants: null or [[variants], anchor]
 Every key MUST be present. Use bare null for unknown values.
 Codenames are lowercase device codes only. Never put @handles or marketing names in target_codenames.
 Only emit maintainer_handle if the post literally contains @handle or t.me/handle.
+maintainer_handle is ONE bare string, never a list; if several @handles appear, choose the maintainer credited by By/Maintainer/Credit and ignore update/news channels.
+project_name is the project name only; do not include a version. project_version is the ROM build version, never an Android version and never a vendor/firmware version from Notes.
 anchor is the first 3-4 characters of the raw mention, not the normalized value.
 Reject stock firmware, mainstream centralized official ROM releases, questions, chat, tutorials,
 APKs and Magisk/KSU modules. Output one JSON object, never markdown.'''
@@ -223,6 +226,7 @@ def compact_to_nodes(parsed,text,code,names):
         'build_variants':out['build_variants'],
     }
     if not out['is_release']:return legacy
+    legacy=normalize_legacy(legacy,text,code,names)
     try:return verify(legacy,text)
     except ValueError as error:
         errors.append(type(error).__name__+':'+str(error))
@@ -253,7 +257,10 @@ def extract_all(items,names,store):
             if cached is not None:
                 store.set_meta(key,cached);stats['legacy_cache_migrated']+=1
         if cached is not None:
-            try:results[ident]=verify(cached,text);stats['local_cache_hits']+=1;continue
+            try:
+                cached=normalize_legacy(verify(cached,text),text,code,names)
+                store.set_meta(key,cached)
+                results[ident]=cached;stats['local_cache_hits']+=1;continue
             except ValueError:pass
         failed=store.meta('b01fail:'+key)
         if failed and time.time()-float(failed.get('at',0))<cooldown:
@@ -295,7 +302,7 @@ def extract_all(items,names,store):
                                 if isinstance(parsed,dict) and ('v' in parsed or 'is_release' in parsed):
                                     out=compact_to_nodes(parsed,msg['text'],code,names)
                                 else:
-                                    out=verify(parsed,msg['text'],lenient=True)
+                                    out=normalize_legacy(verify(parsed,msg['text'],lenient=True),msg['text'],code,names)
                                 return ident,cache,out,usage,None
                             except Exception as error:
                                 if repaired:raise
@@ -346,6 +353,7 @@ def extract_all(items,names,store):
 
 def convert(old,msg,code,names,out):
     if out is None or not out['is_release']:return None,'not_a_release'
+    out=normalize_legacy(out,msg['text'],code,names)
     if out.get('_compact'):
         out,verify_errors=verify_compact(out,msg['text'],code,names)
     else:
@@ -353,9 +361,12 @@ def convert(old,msg,code,names,out):
     prior,reason=analyse(msg,code,names[code],names)
     if reason in ('excluded_stock_firmware','excluded_mainstream_official_rom','generic_image_donor_is_not_target','excluded_engineering_firmware','official_rom_scope_unproved','mainstream_release_status_unproved'):return None,reason
     p=deepcopy(old);p.update(device_codename=code,resource_kind=out['resource_kind'])
+    normalization=out.get('_normalization') or {}
     for node,field in [('project_name','project_name'),('project_version','build_version_tag'),('android_version','android_version')]:
         value=out[node].get('value')
         if value is not None:p[field]=value
+        elif field=='build_version_tag' and normalization.get('clear_project_version'):p[field]=None
+        elif field=='android_version' and normalization.get('clear_android'):p[field]=None
     p.setdefault('maintainer_handle',None);p.setdefault('maintainer_display_name',None)
     if out['maintainer'].get('handle') is not None:p['maintainer_handle']=out['maintainer']['handle']
     if out['maintainer'].get('display_name') is not None:p['maintainer_display_name']=out['maintainer']['display_name']
@@ -373,5 +384,7 @@ def convert(old,msg,code,names,out):
         if value in ('official','unofficial'):tax['project_recognition']=value
         elif value not in (None,'unknown'):tax[field]=value
     tax['evidence']['grounded_extraction']={'source':REVISION,'value':out,'evidence':msg['text']}
+    if out.get('_normalization') is not None:
+        tax['evidence']['normalization']=out['_normalization']
     p['taxonomy']=tax
     return {'package':p,'accepted':True,'classification':'custom_or_port','evidence':{'observed_text':msg['text'],'grounded_extraction':out}},'accepted'

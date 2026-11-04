@@ -14,7 +14,7 @@ def load(name):
 
 def test_only_supported_entry_points_are_active():
     expected = {f'catalogue_{v}.yml' for v in VENDORS} | {
-        'catalogue_publish.yml', 'drain_catalogue.yml', 'telegram_fetch.yml', 'telegram_clean.yml', 'tg_cache_probe.yml', 'ci.yml', 'services.yml'}
+        'catalogue_publish.yml', 'drain_catalogue.yml', 'telegram_fetch.yml', 'telegram_clean.yml', 'tg_cache_probe.yml', 'tg_reprocess.yml', 'ci.yml', 'services.yml'}
     assert {p.name for p in WORKFLOWS.glob('*.yml')} == expected
     names = [load(name)['name'] for name in expected]
     assert len(names) == len(set(names))
