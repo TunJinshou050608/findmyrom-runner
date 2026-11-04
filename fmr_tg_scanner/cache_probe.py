@@ -117,13 +117,44 @@ def from_compact(root):
     if not isinstance(root, dict) or not isinstance(root.get('v'), list):
         raise ValueError('invalid_envelope')
     v = root['v']
-    # The model sometimes wraps the 12 rows in a single outer array.
-    if len(v) == 1 and isinstance(v[0], list) and len(v[0]) == 12:
+    # The model sometimes wraps the rows in a single outer array.
+    if len(v) == 1 and isinstance(v[0], list):
         v = v[0]
-    if len(v) != 12:
+    if not v:
         raise ValueError('invalid_row_count')
     if isinstance(v[0], list) and len(v[0]) == 1:
         v[0] = v[0][0]
+    # A false answer is not a release. Its fact rows are irrelevant, so accept
+    # it before enforcing the 12-row shape; otherwise a harmless trailing null
+    # turns a correct rejection into a paid repair call.
+    if booleanish(v[0]) is False:
+        kind = kindish(v[1]) if len(v) > 1 else None
+        if kind not in ('rom', 'recovery', 'kernel', 'boot_image'):
+            kind = None
+        return {
+            'is_release': False,
+            'resource_kind': kind,
+            'project_name': None,
+            'project_version': None,
+            'android_version': None,
+            'system_base': None,
+            'release_stage': None,
+            'codenames': [],
+            'marketing_names': [],
+            'handle': None,
+            'display_name': None,
+            'build_variants': [],
+            '_anchors': {
+                'project_name': None,
+                'project_version': None,
+                'android_version': None,
+                'target_devices': None,
+                'maintainer': None,
+                'build_variants': None,
+            },
+        }
+    if len(v) != 12:
+        raise ValueError('invalid_row_count')
     v[0] = booleanish(v[0])
     if type(v[0]) is not bool:
         raise ValueError('row0_is_release')

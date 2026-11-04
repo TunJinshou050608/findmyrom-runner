@@ -23,6 +23,26 @@ def test_compact_rejects_wrong_row_count():
         from_compact({'v': ROWS[:-1]})
 
 
+def test_false_answer_is_accepted_before_row_count():
+    for rows in (
+        [False, 'rom'] + [None] * 11,
+        [False, None] + [None] * 9,
+        ['false', 'rom'] + [None] * 11,
+        [False, 'rom', ['Invented', 'Inv'], ['1', '1'], ['Android 14', 'And'],
+         None, 'stable', [['alioth'], 'ali'], None, None, None, None, None],
+    ):
+        out = from_compact({'v': rows})
+        assert out['is_release'] is False
+        assert out['project_name'] is None
+        assert out['codenames'] == []
+
+
+def test_false_nodes_stay_non_release():
+    nodes = compact_to_nodes({'v': [False, 'rom'] + [None] * 11}, TEXT, TARGET, NAMES)
+    assert nodes['is_release'] is False
+    assert nodes['resource_kind'] == 'rom'
+
+
 def test_named_repair_defaults_missing_keys_to_null():
     out = from_named({
         'is_release': True,
