@@ -12,7 +12,7 @@ from .staged_catalogue import Artifacts,ROOT,encrypt_file,open_local
 from .vendor_catalogue import VENDORS,SUPPRESSED_VENDORS
 
 MAX_RECORDS=int(os.getenv('FMR_CATALOGUE_PUBLISH_MAX_RECORDS','180'))
-if not 1<=MAX_RECORDS<=5000:raise ValueError('Invalid publication record budget')
+if MAX_RECORDS!=0 and not 1<=MAX_RECORDS<=5000:raise ValueError('Invalid publication record budget')
 
 
 def open_ledger(path):
@@ -61,7 +61,7 @@ def main():
         ledger=open_ledger(path)
         slot=int(time.time())//600
         old=ledger.query("SELECT value FROM control WHERE key=?",(slot_key,))
-        if old and int(old[0]['value'])>=slot:
+        if old and int(old[0]['value'])>=slot and os.getenv('FMR_CATALOGUE_PUBLISH_FORCE')!='true':
             print('本 10 分钟窗口已同步，跳过重复触发；D1 请求为 0。',flush=True);return 0
         # Round-robin prevents a large Xiaomi backlog starving every other vendor.
         offset=slot%len(selected);vendors=selected[offset:]+selected[:offset]
@@ -83,7 +83,7 @@ def main():
         if not active:
             print('没有新增或变化记录；D1 请求为 0。',flush=True)
         else:
-            db=BudgetDB(cf_account_id=os.environ['CF_ACCOUNT_ID'],cf_api_token=os.environ['CF_API_TOKEN'],cf_database_id=os.environ['CF_D1_DATABASE_ID'])
+            db=BudgetDB(cf_account_id=os.environ['CF_ACCOUNT_ID'],cf_api_token=os.environ['CF_API_TOKEN'],cf_database_id=os.environ['CF_D1_DATABASE_ID'],enforce_limits=os.getenv('FMR_D1_BUDGET_ENFORCE','true')!='false')
             if not db.acquire():
                 print('今日发布预算已满；采集继续，未发布队列保留，下一 UTC 日恢复。',flush=True);return 0
             from fmr_core.schema_migrations import ensure_schema
@@ -91,7 +91,7 @@ def main():
             # Existing production brands are already bootstrapped. Never rewrite
             # brand names/anchor and cache counters on every sync.
             attempted=0;consecutive_errors=0
-            while active and attempted<MAX_RECORDS:
+            while active and (MAX_RECORDS==0 or attempted<MAX_RECORDS):
                 for vendor in list(active):
                     item=next(active[vendor],None)
                     if item is None:del active[vendor];continue
@@ -107,7 +107,7 @@ def main():
                         consecutive_errors+=1
                         if consecutive_errors>=3:raise RuntimeError('PublicationCircuitOpen') from exc
                     if attempted%20==0:print(f'已同步 {completed} 条；失败待重试 {failed}；D1 读 {db.rows_read} 行 / 写 {db.rows_written} 行。',flush=True)
-                    if attempted>=MAX_RECORDS:break
+                    if MAX_RECORDS and attempted>=MAX_RECORDS:break
         ledger.execute("INSERT INTO control(key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",(slot_key,str(slot)))
         summary=f'本次新增/确认 {completed} 条，失败待重试 {failed} 条。D1 读 {db.rows_read if db else 0} 行，写 {db.rows_written if db else 0} 行。采集检查点/页面缓存不写 D1。'
         print(summary,flush=True)

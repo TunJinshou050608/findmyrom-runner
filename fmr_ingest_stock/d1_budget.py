@@ -16,14 +16,15 @@ class D1BudgetReached(CatalogueDeadline):pass
 
 
 class BudgetDB(D1Client):
-    def __init__(self,*args,**kwargs):
+    def __init__(self,*args,enforce_limits=True,**kwargs):
         super().__init__(*args,**kwargs)
+        self.enforce_limits=enforce_limits
         self.rows_read=0;self.rows_written=0;self.metering=False;self.checkpointing=False
 
     def _request_cf_with_retry(self,payload,is_safe_to_retry):
         items=payload.get('batch',[payload])
         estimated_writes=sum(32*(max(1,len(item.get('params',[]))) if ' IN (' in str(item.get('sql','')).upper() else 1) for item in items if str(item.get('sql','')).lstrip().upper().startswith(('INSERT','UPDATE','DELETE')))
-        if self.metering and not self.checkpointing and (self.rows_read>=90_000 or self.rows_written>=1_800 or self.rows_written+estimated_writes>JOB_WRITE_RESERVATION or getattr(self,'reservation_day',datetime.now(timezone.utc).strftime('%Y-%m-%d'))!=datetime.now(timezone.utc).strftime('%Y-%m-%d')):
+        if self.enforce_limits and self.metering and not self.checkpointing and (self.rows_read>=90_000 or self.rows_written>=1_800 or self.rows_written+estimated_writes>JOB_WRITE_RESERVATION or getattr(self,'reservation_day',datetime.now(timezone.utc).strftime('%Y-%m-%d'))!=datetime.now(timezone.utc).strftime('%Y-%m-%d')):
             raise D1BudgetReached('Per-job D1 allocation reached')
         result=super()._request_cf_with_retry(payload,is_safe_to_retry)
         if self.metering:
@@ -33,10 +34,13 @@ class BudgetDB(D1Client):
         return result
 
     def acquire(self):
-        self.execute('''CREATE TABLE IF NOT EXISTS fmr_catalogue_budget(
-            utc_day TEXT PRIMARY KEY,reads_reserved INTEGER NOT NULL,writes_reserved INTEGER NOT NULL)''')
         day=datetime.now(timezone.utc).strftime('%Y-%m-%d')
         self.reservation_day=day
+        if not self.enforce_limits:
+            self.metering=True
+            return True
+        self.execute('''CREATE TABLE IF NOT EXISTS fmr_catalogue_budget(
+            utc_day TEXT PRIMARY KEY,reads_reserved INTEGER NOT NULL,writes_reserved INTEGER NOT NULL)''')
         row=self.execute('''INSERT INTO fmr_catalogue_budget(utc_day,reads_reserved,writes_reserved) VALUES (?,?,?)
             ON CONFLICT(utc_day) DO UPDATE SET reads_reserved=reads_reserved+excluded.reads_reserved,
             writes_reserved=writes_reserved+excluded.writes_reserved
@@ -59,6 +63,7 @@ class BudgetDB(D1Client):
         """
         if not self.metering:return
         self.metering=False
+        if not self.enforce_limits:return
         day=getattr(self,'reservation_day',datetime.now(timezone.utc).strftime('%Y-%m-%d'))
         unused_reads=JOB_READ_RESERVATION-self.rows_read-100
         unused_writes=JOB_WRITE_RESERVATION-self.rows_written-20

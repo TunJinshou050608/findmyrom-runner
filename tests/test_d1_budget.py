@@ -31,6 +31,18 @@ def test_response_metadata_meter_stops_next_request_and_allows_final_checkpoint(
  finally:db.close()
 
 
+def test_unlimited_mode_meters_without_blocking(monkeypatch):
+ db=BudgetDB(cf_account_id='a',cf_api_token='test',cf_database_id='d',enforce_limits=False)
+ response=Mock();response.json.return_value={'success':True,'result':[{'success':True,'results':[], 'meta':{'rows_read':90000,'rows_written':1800}}]}
+ post=Mock(return_value=response);monkeypatch.setattr(db.session,'post',post)
+ db.metering=True
+ try:
+  assert db.query('SELECT 1')==[]
+  assert db.query('SELECT 1')==[]
+  assert post.call_count==2
+ finally:db.close()
+
+
 def test_persistent_counts_do_not_scan_history_on_every_batch_and_are_atomic(tmp_path):
  db=D1Client(local_sqlite_path=str(tmp_path/'counts.sqlite'))
  from fmr_ingest_stock.device_sync import ensure_base_brands_and_anchor

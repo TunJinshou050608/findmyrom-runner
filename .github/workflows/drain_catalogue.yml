@@ -1,0 +1,66 @@
+name: D1 · 一次性清空积压
+'on':
+  workflow_dispatch:
+  schedule:
+  # 2026-11-05 00:00 UTC = 08:00 Asia/Shanghai, when the Cloudflare free D1
+  # daily write allowance resets. Change to '0 16 4 11 *' for Beijing midnight.
+  - cron: '0 0 5 11 *'
+permissions:
+  contents: read
+  actions: write
+jobs:
+  drain:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ${{ fromJSON(vars.FMR_PUBLISH_RUNNER || vars.FMR_CATALOGUE_RUNNER || '["self-hosted","findmyrom-publisher"]') }}
+    timeout-minutes: 350
+    environment: production
+    concurrency:
+      group: catalogue-d1-publisher
+      cancel-in-progress: false
+    env:
+      GH_WORKFLOW_TOKEN: ${{ github.token }}
+      FMR_CATALOGUE_LOCAL_STATE: 'true'
+      FMR_CATALOGUE_STATE_DIR: ${{ vars.FMR_CATALOGUE_STATE_DIR || '/var/lib/findmyrom/catalogue-v3' }}
+      SIGN_PRIVATE_KEY_HEX: ${{ secrets.SIGN_PRIVATE_KEY_HEX }}
+      CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+      CF_D1_DATABASE_ID: ${{ secrets.CF_D1_DATABASE_ID }}
+      CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+      FMR_D1_WRITES_PAUSED: 'false'
+      FMR_D1_BUDGET_ENFORCE: 'false'
+      FMR_CATALOGUE_PUBLISH_MAX_RECORDS: '0'
+      FMR_CATALOGUE_PUBLISH_FORCE: 'true'
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        persist-credentials: false
+        path: drain-code
+    - name: One-time schedule guard
+      id: guard
+      if: github.event_name == 'schedule'
+      run: |
+        if [ "$(date -u +%F)" = "2026-11-05" ]; then
+          echo "run=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "run=false" >> "$GITHUB_OUTPUT"
+        fi
+    - name: Prepare Python
+      if: github.event_name == 'workflow_dispatch' || steps.guard.outputs.run == 'true'
+      run: |
+        python3 -m venv "$RUNNER_TEMP/fmr-drain-${GITHUB_RUN_ID}"
+        printf '%s\n' "$RUNNER_TEMP/fmr-drain-${GITHUB_RUN_ID}/bin" >> "$GITHUB_PATH"
+    - name: Install dependencies
+      if: github.event_name == 'workflow_dispatch' || steps.guard.outputs.run == 'true'
+      run: python -m pip install -r requirements.txt
+    - name: Drain until Cloudflare reports an error
+      if: github.event_name == 'workflow_dispatch' || steps.guard.outputs.run == 'true'
+      run: python -u -m fmr_ingest_stock.catalogue_publish
+    - name: Save publisher checkpoint
+      if: always() && (github.event_name == 'workflow_dispatch' || steps.guard.outputs.run == 'true')
+      uses: actions/upload-artifact@v4
+      with:
+        name: catalogue-v3-publisher
+        path: ${{ env.FMR_CATALOGUE_STATE_DIR }}/upload/publisher.sqlite.enc
+        if-no-files-found: warn
+    defaults:
+      run:
+        working-directory: drain-code
