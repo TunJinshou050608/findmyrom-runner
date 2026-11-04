@@ -1,6 +1,6 @@
 name: TG cache probe
 'on':
-  workflow_dispatch: null
+  workflow_dispatch: {}
 permissions:
   contents: read
 jobs:
