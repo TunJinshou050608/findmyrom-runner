@@ -126,7 +126,9 @@ def main():
             try:
                 if ledger:
                     try:ledger.close()
-                    finally:encrypt_file('publisher',path)
+                    finally:
+                        if os.getenv('FMR_CATALOGUE_SKIP_EXPORT')!='true':
+                            encrypt_file('publisher',path)
             finally:artifacts.close()
 
 
