@@ -16,15 +16,14 @@ import httpx
 from .cache_probe import PROMPT, from_payload
 from .grounded_cleaner import NAMED_REPAIR_PROMPT, compact_to_nodes
 
-VERIFY_PROMPT = PROMPT + '''
-
-VERIFY MODE: compare raw_text with candidate. Return the same 12-row contract, corrected.
-- project_name must NOT contain a version. If the title says LineageOS 18.1, use project_name LineageOS and project_version 18.1.
-- A vendor/firmware version in Notes (for example "vendor version 0.4") is NOT project_version.
-- project_version is the ROM release/build version from the title or build line, never the Android version.
-- android_version is bare (11, 12L), never "Android 11".
-- Row 7/8 are devices; row 9 is one maintainer handle.
-If candidate already satisfies these rules, return it unchanged. Output only the JSON object.'''
+FOCUS_PROMPT = '''Read the Android custom ROM post and its candidate extraction. Return only this JSON object:
+{"project_name": string|null, "project_version": string|null, "android_version": string|null}
+Rules:
+- project_name is the project name only, never the version. "LineageOS 18.1" => project_name "LineageOS", project_version "18.1".
+- project_version is the ROM release/build version from the title or build line, never an Android version and never a vendor/firmware version from Notes. "Use the vendor version 0.4" does not make 0.4 project_version.
+- android_version is bare: 11, 12L, 14, never "Android 11".
+- If a field is not supported by the post, use null.
+Output only the JSON object.'''
 
 
 def parse_url(url):
@@ -114,14 +113,22 @@ async def extract_one(client, base, key, model, max_tokens, timeout, item, semap
                 if cleaned.get('is_release') is True:
                     try:
                         vcontent, vusage = await call(client, base, key, model, max_tokens, timeout, [
-                            {'role': 'system', 'content': VERIFY_PROMPT},
+                            {'role': 'system', 'content': FOCUS_PROMPT},
                             {'role': 'user', 'content': json.dumps(
                                 {'target': item['device'], 'raw_text': text[:6000],
                                  'candidate': content[:4000]}, ensure_ascii=False)},
                         ])
                         vparsed = json.loads(vcontent)
-                        if isinstance(vparsed, dict) and ('v' in vparsed or 'is_release' in vparsed):
-                            cleaned = compact_to_nodes(vparsed, text, item['device'], names)
+                        if isinstance(vparsed, dict):
+                            for field, keyname in (('project_name', 'project_name'),
+                                                   ('project_version', 'project_version'),
+                                                   ('android_version', 'android_version')):
+                                value = vparsed.get(keyname)
+                                if isinstance(value, str) and value.strip():
+                                    cleaned[field] = {'value': value.strip(),
+                                                      'evidence_quote': value.strip()}
+                            from .grounded_cleaner import verify
+                            cleaned = verify(cleaned, text, lenient=True)
                         for k, v in (vusage or {}).items():
                             if type(v) is int and v >= 0:
                                 usage[k] = usage.get(k, 0) + v
