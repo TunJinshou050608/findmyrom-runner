@@ -46,7 +46,7 @@ jobs:
     env:
       GH_WORKFLOW_TOKEN: ${{ github.token }}
       FMR_CATALOGUE_LOCAL_STATE: ${{ inputs.runner == 'metadata' && 'false' || 'true' }}
-      FMR_CATALOGUE_STATE_DIR: ${{ inputs.shard && format('{0}/catalogue-v3-shard-{1}', runner.temp, inputs.shard) || vars.FMR_CATALOGUE_STATE_DIR || '/var/lib/findmyrom/catalogue-v3' }}
+      FMR_CATALOGUE_STATE_DIR: ${{ inputs.shard && format('{0}/shards/{1}', vars.FMR_CATALOGUE_STATE_DIR || '/var/lib/findmyrom/catalogue-v3', inputs.shard) || vars.FMR_CATALOGUE_STATE_DIR || '/var/lib/findmyrom/catalogue-v3' }}
       FMR_CATALOGUE_PUBLISH_VENDORS: ${{ inputs.vendors || '' }}
       FMR_CATALOGUE_SKIP_EXPORT: ${{ inputs.skip_export && 'true' || 'false' }}
       SIGN_PRIVATE_KEY_HEX: ${{ secrets.SIGN_PRIVATE_KEY_HEX }}
