@@ -90,6 +90,22 @@ Magisk Module: Play Integrity Fix v15.9 for HyperOS | By @chiteroman
 Output:
 {"v":[false,null,null,null,null,"HyperOS",null,null,null,null,null,null]}
 
+Example 6 (LineageOS branch in title; vendor versions in Notes are ignored):
+Input:
+🆕 LineageOS 18.1 [UNOFFICIAL]
+👤 By @shadowsm1kky
+📱 Xiaomi Redmi 6/6A (Cereus/Cactus)
+📝 Notes: Use the vendor version 0.4
+#lineage #R
+Output:
+{"v":[true,"rom",["LineageOS","Lin"],["18.1","18."],["11","#R"],null,"unofficial",[["cereus","cactus"],"Cer"],[["Redmi 6","Redmi 6A"],"Red"],["@shadowsm1kky","@sh"],null,null]}
+
+Example 7 (Project name with trailing numeric version; Android version follows):
+Input:
+crDroid 6.23 Android 10 [Unofficial] | By @Dolorey | Device: Redmi 6/6A (Cereus/Cactus)
+Output:
+{"v":[true,"rom",["crDroid","crD"],["6.23","6.2"],["10","And"],null,"unofficial",[["cereus","cactus"],"Cer"],[["Redmi 6","Redmi 6A"],"Red"],["@Dolorey","@Do"],null,null]}
+
 Output one JSON object only, never markdown. Remember: split any trailing number from project_name (row 2) into project_version (row 3), and ignore all versions inside Notes/Bugs.'''
 
 TEXT = '''Project Blaze v1.4 - OFFICIAL | Android 12L

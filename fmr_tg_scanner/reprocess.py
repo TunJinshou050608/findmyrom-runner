@@ -109,6 +109,7 @@ async def extract_one(client, base, key, model, max_tokens, timeout, item, semap
                     cleaned = compact_to_nodes(parsed, text, item['device'], names)
                 else:
                     raise ValueError('invalid_envelope')
+                raw_focus = None
                 verification = 'not_needed'
                 if cleaned.get('is_release') is True and os.getenv('FMR_TG_FOCUSED_VERSION', 'true') != 'false':
                     try:
@@ -118,6 +119,7 @@ async def extract_one(client, base, key, model, max_tokens, timeout, item, semap
                                 {'target': item['device'], 'raw_text': text[:6000]},
                                 ensure_ascii=False)},
                         ])
+                        raw_focus = vcontent
                         vparsed = json.loads(vcontent)
                         if isinstance(vparsed, dict):
                             for field, keyname in (('project_name', 'project_name'),
@@ -137,6 +139,7 @@ async def extract_one(client, base, key, model, max_tokens, timeout, item, semap
                         verification = 'failed'
                 return {**item, 'cleaned': cleaned,
                         'normalization': cleaned.get('_normalization'),
+                        'raw': content, 'raw_focus': raw_focus,
                         'verification': verification,
                         'usage': usage, 'error': None}
             except Exception as error:
