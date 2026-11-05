@@ -32,6 +32,10 @@ name: D1 · 一次性清空积压
       processes:
         description: '同一 runner 上的并行发布进程数'
         default: '1'
+      count_only:
+        type: boolean
+        default: false
+        description: '只统计本地未发布数量，不写 D1'
   schedule:
   # 2026-11-04 20:00 UTC = 2026-11-05 04:00 Asia/Shanghai.
   # The Cloudflare free D1 write allowance resets at 08:00 Asia/Shanghai.
@@ -90,8 +94,11 @@ jobs:
     - name: Install dependencies
       if: github.event_name == 'workflow_dispatch' || steps.guard.outputs.run == 'true'
       run: python -m pip install -r requirements.txt
+    - name: Count pending local records
+      if: inputs.count_only
+      run: python -u -m fmr_ingest_stock.count_pending
     - name: Drain until Cloudflare reports an error
-      if: github.event_name == 'workflow_dispatch' || steps.guard.outputs.run == 'true'
+      if: (github.event_name == 'workflow_dispatch' || steps.guard.outputs.run == 'true') && !inputs.count_only
       env:
         FMR_CATALOGUE_PROCESSES: ${{ inputs.processes || '1' }}
       run: |
@@ -116,10 +123,10 @@ jobs:
         exit $status
     - name: Verify publisher checkpoint
       id: export_check
-      if: always() && !inputs.dry_run && !inputs.skip_export && (github.event_name == 'workflow_dispatch' || steps.guard.outputs.run == 'true')
+      if: always() && !inputs.dry_run && !inputs.skip_export && !inputs.count_only && (github.event_name == 'workflow_dispatch' || steps.guard.outputs.run == 'true')
       run: python -u -m fmr_ingest_stock.staged_catalogue verify-export --scope publisher
     - name: Save publisher checkpoint
-      if: always() && !inputs.skip_export && steps.export_check.outcome == 'success'
+      if: always() && !inputs.skip_export && !inputs.count_only && steps.export_check.outcome == 'success'
       uses: actions/upload-artifact@v4
       with:
         name: catalogue-v3-publisher
