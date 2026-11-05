@@ -78,6 +78,29 @@ def tg_status():
     }
 
 
+def tg_key_diff():
+    tg = Path(os.getenv('FMR_TG_STATE_DIR', str(Path(ROOT) / 'tg-v4')))
+    latest_path = tg / 'clean/audits/full-quality-latest.json'
+    clean_path = tg / 'clean/search-v3/search.sqlite'
+    if not latest_path.exists() or not clean_path.exists():
+        return {'status': 'missing_state'}
+    latest = json.loads(latest_path.read_text())
+    run_id = str(latest.get('audit_run_id'))
+    decisions_path = tg / 'clean/audits' / ('full-quality-' + run_id) / 'decisions.json'
+    old_keys = set()
+    if decisions_path.exists():
+        old_keys = {item['key'] for item in json.loads(decisions_path.read_text()).get('decisions', [])}
+    with sqlite3.connect(clean_path) as db:
+        new_keys = {row[0] for row in db.execute('SELECT key FROM tg_search_records')}
+    return {
+        'previous_audit_run_id': run_id,
+        'previous_decision_keys': len(old_keys),
+        'current_clean_keys': len(new_keys),
+        'added_keys_since_previous_audit': len(new_keys - old_keys),
+        'removed_keys_since_previous_audit': len(old_keys - new_keys),
+    }
+
+
 def main():
     main = Path(ROOT) / 'publisher.sqlite'
     if not main.exists():
@@ -112,6 +135,7 @@ def main():
         'model': total['model'],
         'total': total['release'] + total['model'],
         'tg': tg_status(),
+        'tg_key_diff': tg_key_diff(),
     }, ensure_ascii=False, sort_keys=True), flush=True)
     return 0
 
