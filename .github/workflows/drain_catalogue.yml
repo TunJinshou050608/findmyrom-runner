@@ -115,7 +115,7 @@ jobs:
         pids=""
         for i in $(seq 0 $((count-1))); do
           FMR_CATALOGUE_LOCAL_STATE=false \
-          FMR_CATALOGUE_STATE_DIR="$FMR_CATALOGUE_STATE_DIR/parallel-$i" \
+          FMR_CATALOGUE_STATE_DIR="$FMR_CATALOGUE_STATE_DIR/parallel-$i-${GITHUB_RUN_ID}" \
           FMR_CATALOGUE_SHARD_INDEX="$i" \
           FMR_CATALOGUE_SHARD_COUNT="$count" \
           FMR_CATALOGUE_SKIP_EXPORT=true \
