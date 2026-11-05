@@ -8,6 +8,7 @@ import json
 import os
 import sqlite3
 from collections import Counter
+from datetime import datetime
 from pathlib import Path
 
 from .catalogue_publish import candidates, open_ledger
@@ -44,6 +45,24 @@ def tg_status():
     publication = None
     if (out / 'publication_result.json').exists():
         publication = json.loads((out / 'publication_result.json').read_text())
+    completed = None
+    if report.get('completed_at'):
+        completed = datetime.fromisoformat(report['completed_at'].replace('Z', '+00:00')).timestamp()
+    workers = []
+    for index in range(4):
+        path = tg / 'workers' / str(index) / 'search-v3/search.sqlite'
+        if not path.exists():
+            continue
+        with sqlite3.connect(path) as db:
+            total = db.execute('SELECT count(*) FROM tg_search_records').fetchone()[0]
+            new = db.execute('SELECT count(*) FROM tg_search_records WHERE updated>?', (completed,)).fetchone()[0] if completed else None
+            new_accepted = db.execute('SELECT count(*) FROM tg_search_records WHERE updated>? AND accepted=1', (completed,)).fetchone()[0] if completed else None
+        workers.append({'worker': index, 'total': total, 'new_since_audit': new, 'new_accepted_since_audit': new_accepted})
+    clean_total = None
+    clean_path = tg / 'clean/search-v3/search.sqlite'
+    if clean_path.exists():
+        with sqlite3.connect(clean_path) as db:
+            clean_total = db.execute('SELECT count(*) FROM tg_search_records').fetchone()[0]
     return {
         'audit_run_id': run_id,
         'qualified': report.get('qualified'),
@@ -52,6 +71,10 @@ def tg_status():
         'published_and_verified': (publication or {}).get('published_and_verified'),
         'd1_rows_upserted': (publication or {}).get('D1_rows_upserted'),
         'excluded_missing_device_or_quality': (publication or {}).get('excluded_missing_production_device_or_quality'),
+        'clean_total': clean_total,
+        'workers': workers,
+        'new_since_audit': sum(w['new_since_audit'] or 0 for w in workers),
+        'new_accepted_since_audit': sum(w['new_accepted_since_audit'] or 0 for w in workers),
     }
 
 
