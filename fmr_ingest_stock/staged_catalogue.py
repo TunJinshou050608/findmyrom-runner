@@ -87,6 +87,28 @@ class Artifacts:
         r=self.client.get(self.base+'/actions/artifacts',params={'name':name,'per_page':100});r.raise_for_status()
         return sorted([a for a in r.json()['artifacts'] if not a['expired']],key=lambda a:a['id'],reverse=True)
 
+    def _download(self,artifact):
+        """Download one artifact with retries for transient TLS/transport errors."""
+        last=None
+        for attempt in range(1,4):
+            try:
+                response=self.client.get(self.base+'/actions/artifacts/'+str(artifact['id'])+'/zip')
+                if response.status_code in (301,302,303,307,308):
+                    # Artifact object storage receives no GitHub bearer token.
+                    with httpx.Client(timeout=120,follow_redirects=True) as download:
+                        response=download.get(response.headers['Location'])
+                        response.raise_for_status()
+                response.raise_for_status()
+                return response.content
+            except httpx.HTTPStatusError as error:
+                last=error
+                if error.response.status_code not in (429,500,502,503,504):raise
+            except httpx.TransportError as error:
+                last=error
+            print(json.dumps({'event':'artifact_download_retry','artifact':artifact['id'],'attempt':attempt,'error':type(last).__name__}),flush=True)
+            if attempt<3:time.sleep(2**attempt)
+        raise last
+
     def restore(self,scope,path,baseline=True):
         with state_lock(path,'.restore.lock'):
             return self._restore(scope,path,baseline)
@@ -126,12 +148,7 @@ class Artifacts:
             payload=cached[1]
         else:
             # Never silently fall back after authentication/corruption errors.
-            response=self.client.get(self.base+'/actions/artifacts/'+str(items[0]['id'])+'/zip')
-            if response.status_code in (301,302,303,307,308):
-                # Artifact object storage receives no GitHub bearer token.
-                with httpx.Client(timeout=120,follow_redirects=True) as download:
-                    response=download.get(response.headers['Location']);response.raise_for_status()
-            response.raise_for_status();payload=response.content
+            payload=self._download(items[0])
             if using_baseline:self._baseline_archive=(items[0]['id'],payload)
         with zipfile.ZipFile(io.BytesIO(payload)) as archive:
             name=scope+'.sqlite.enc'

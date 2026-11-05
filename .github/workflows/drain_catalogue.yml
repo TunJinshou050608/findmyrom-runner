@@ -36,6 +36,10 @@ name: D1 · 一次性清空积压
         type: boolean
         default: false
         description: '只统计本地未发布数量，不写 D1'
+      merge_shards:
+        type: boolean
+        default: false
+        description: '并行跑完后合并 shard 账本并导出 publisher checkpoint'
   schedule:
   # 2026-11-04 20:00 UTC = 2026-11-05 04:00 Asia/Shanghai.
   # The Cloudflare free D1 write allowance resets at 08:00 Asia/Shanghai.
@@ -59,7 +63,7 @@ jobs:
     env:
       GH_WORKFLOW_TOKEN: ${{ github.token }}
       FMR_CATALOGUE_LOCAL_STATE: ${{ inputs.runner == 'metadata' && 'false' || 'true' }}
-      FMR_CATALOGUE_STATE_DIR: ${{ inputs.shard && format('{0}/shards/{1}', vars.FMR_CATALOGUE_STATE_DIR || '/var/lib/findmyrom/catalogue-v3', inputs.shard) || vars.FMR_CATALOGUE_STATE_DIR || '/var/lib/findmyrom/catalogue-v3' }}
+      FMR_CATALOGUE_STATE_DIR: ${{ vars.FMR_CATALOGUE_STATE_DIR || '/var/lib/findmyrom/catalogue-v3' }}
       FMR_CATALOGUE_PUBLISH_VENDORS: ${{ inputs.vendors || '' }}
       FMR_CATALOGUE_SKIP_EXPORT: ${{ inputs.skip_export && 'true' || 'false' }}
       FMR_CATALOGUE_SHARD_INDEX: ${{ inputs.shard_index || '0' }}
@@ -121,12 +125,15 @@ jobs:
         status=0
         for p in $pids; do wait "$p" || status=1; done
         exit $status
+    - name: Merge parallel shard checkpoints
+      if: always() && inputs.merge_shards && !inputs.dry_run
+      run: python -u -m fmr_ingest_stock.merge_shards
     - name: Verify publisher checkpoint
       id: export_check
-      if: always() && !inputs.dry_run && !inputs.skip_export && !inputs.count_only && (github.event_name == 'workflow_dispatch' || steps.guard.outputs.run == 'true')
+      if: always() && !inputs.dry_run && (!inputs.skip_export || inputs.merge_shards) && !inputs.count_only && (github.event_name == 'workflow_dispatch' || steps.guard.outputs.run == 'true')
       run: python -u -m fmr_ingest_stock.staged_catalogue verify-export --scope publisher
     - name: Save publisher checkpoint
-      if: always() && !inputs.skip_export && !inputs.count_only && steps.export_check.outcome == 'success'
+      if: always() && (!inputs.skip_export || inputs.merge_shards) && !inputs.count_only && steps.export_check.outcome == 'success'
       uses: actions/upload-artifact@v4
       with:
         name: catalogue-v3-publisher
