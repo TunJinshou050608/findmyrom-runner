@@ -40,6 +40,10 @@ name: D1 · 一次性清空积压
         type: boolean
         default: false
         description: '并行跑完后合并 shard 账本并导出 publisher checkpoint'
+      merge_only:
+        type: boolean
+        default: false
+        description: '只合并已有 shard 账本并导出 checkpoint，不跑发布'
   schedule:
   # 2026-11-04 20:00 UTC = 2026-11-05 04:00 Asia/Shanghai.
   # The Cloudflare free D1 write allowance resets at 08:00 Asia/Shanghai.
@@ -99,10 +103,10 @@ jobs:
       if: github.event_name == 'workflow_dispatch' || steps.guard.outputs.run == 'true'
       run: python -m pip install -r requirements.txt
     - name: Count pending local records
-      if: inputs.count_only
+      if: inputs.count_only && !inputs.merge_only
       run: python -u -m fmr_ingest_stock.count_pending
     - name: Drain until Cloudflare reports an error
-      if: (github.event_name == 'workflow_dispatch' || steps.guard.outputs.run == 'true') && !inputs.count_only
+      if: (github.event_name == 'workflow_dispatch' || steps.guard.outputs.run == 'true') && !inputs.count_only && !inputs.merge_only
       env:
         FMR_CATALOGUE_PROCESSES: ${{ inputs.processes || '1' }}
       run: |
@@ -126,14 +130,14 @@ jobs:
         for p in $pids; do wait "$p" || status=1; done
         exit $status
     - name: Merge parallel shard checkpoints
-      if: always() && inputs.merge_shards && !inputs.dry_run
+      if: always() && (inputs.merge_shards || inputs.merge_only) && !inputs.dry_run
       run: python -u -m fmr_ingest_stock.merge_shards
     - name: Verify publisher checkpoint
       id: export_check
-      if: always() && !inputs.dry_run && (!inputs.skip_export || inputs.merge_shards) && !inputs.count_only && (github.event_name == 'workflow_dispatch' || steps.guard.outputs.run == 'true')
+      if: always() && !inputs.dry_run && (!inputs.skip_export || inputs.merge_shards || inputs.merge_only) && !inputs.count_only && (github.event_name == 'workflow_dispatch' || steps.guard.outputs.run == 'true')
       run: python -u -m fmr_ingest_stock.staged_catalogue verify-export --scope publisher
     - name: Save publisher checkpoint
-      if: always() && (!inputs.skip_export || inputs.merge_shards) && !inputs.count_only && steps.export_check.outcome == 'success'
+      if: always() && (!inputs.skip_export || inputs.merge_shards || inputs.merge_only) && !inputs.count_only && steps.export_check.outcome == 'success'
       uses: actions/upload-artifact@v4
       with:
         name: catalogue-v3-publisher

@@ -7,33 +7,46 @@ exports a fresh encrypted checkpoint for the next run to resume from.
 """
 import json
 import sqlite3
+import time
 from pathlib import Path
 
-from .catalogue_publish import open_ledger
 from .staged_catalogue import ROOT, encrypt_file
 
 
 def merge(root):
     root = Path(root)
     main = root / 'publisher.sqlite'
-    ledger = open_ledger(main)
-    ledger.close()
+    with sqlite3.connect(main, timeout=30) as conn:
+        conn.execute('PRAGMA busy_timeout=30000')
+        conn.execute('CREATE TABLE IF NOT EXISTS published(vendor TEXT,key TEXT,hash TEXT,PRIMARY KEY(vendor,key))')
     shards = sorted(set(root.glob('parallel-*/publisher.sqlite')) | set(root.glob('shards/*/parallel-*/publisher.sqlite')))
     merged = 0
     used = 0
-    for shard in shards:
-        try:
-            with sqlite3.connect(main) as conn:
-                conn.execute('ATTACH DATABASE ? AS shard', (str(shard),))
-                before = conn.total_changes
-                conn.execute('INSERT OR REPLACE INTO published SELECT vendor,key,hash FROM shard.published')
-                merged += conn.total_changes - before
-                conn.execute('DETACH DATABASE shard')
-                conn.commit()
-            used += 1
-        except sqlite3.Error as error:
-            print(json.dumps({'event': 'shard_merge_skipped', 'path': str(shard), 'error': type(error).__name__}), flush=True)
-    with sqlite3.connect(main) as conn:
+    with sqlite3.connect(main, timeout=30) as main_conn:
+        main_conn.execute('PRAGMA busy_timeout=30000')
+        for shard in shards:
+            for attempt in range(1, 6):
+                try:
+                    with sqlite3.connect('file:' + str(shard) + '?mode=ro', uri=True, timeout=30) as source:
+                        source.execute('PRAGMA busy_timeout=30000')
+                        rows = source.execute('SELECT vendor,key,hash FROM published').fetchall()
+                    before = main_conn.total_changes
+                    main_conn.executemany('INSERT OR REPLACE INTO published(vendor,key,hash) VALUES (?,?,?)', rows)
+                    main_conn.commit()
+                    merged += main_conn.total_changes - before
+                    used += 1
+                    break
+                except sqlite3.OperationalError as error:
+                    if 'locked' in str(error).lower() and attempt < 5:
+                        print(json.dumps({'event': 'shard_merge_retry', 'path': str(shard), 'attempt': attempt}), flush=True)
+                        time.sleep(2 * attempt)
+                        continue
+                    print(json.dumps({'event': 'shard_merge_skipped', 'path': str(shard), 'error': str(error)[:120]}), flush=True)
+                    break
+                except sqlite3.Error as error:
+                    print(json.dumps({'event': 'shard_merge_skipped', 'path': str(shard), 'error': type(error).__name__}), flush=True)
+                    break
+    with sqlite3.connect(main, timeout=30) as conn:
         total = conn.execute('SELECT count(*) FROM published').fetchone()[0]
     encrypt_file('publisher', main)
     return {'status': 'merged', 'shards_seen': len(shards), 'shards_merged': used, 'rows_merged': merged, 'published_rows': total}
