@@ -1,0 +1,42 @@
+name: TG · 链接去重报告
+'on':
+  workflow_dispatch:
+    inputs:
+      apply:
+        type: boolean
+        default: false
+        description: '执行去重（默认只出报告）'
+permissions:
+  contents: read
+  actions: write
+jobs:
+  dedup:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ${{ fromJSON(vars.FMR_PUBLISH_RUNNER || '["self-hosted","findmyrom-publisher"]') }}
+    timeout-minutes: 30
+    environment: production
+    env:
+      FMR_CATALOGUE_STATE_DIR: ${{ vars.FMR_CATALOGUE_STATE_DIR || '/var/lib/findmyrom/catalogue-v3' }}
+      FMR_TG_STATE_DIR: ${{ vars.FMR_TG_STATE_DIR || format('{0}/tg-v4', vars.FMR_CATALOGUE_STATE_DIR || '/var/lib/findmyrom/catalogue-v3') }}
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        persist-credentials: false
+        path: dedup-code
+    - name: Prepare Python
+      run: |
+        python3 -m venv "$RUNNER_TEMP/fmr-dedup-${GITHUB_RUN_ID}"
+        printf '%s\n' "$RUNNER_TEMP/fmr-dedup-${GITHUB_RUN_ID}/bin" >> "$GITHUB_PATH"
+        python -m pip install -r requirements.txt
+    - name: Report link duplicates
+      run: python -u -m fmr_ingest_stock.dedup_tg_links --output "$RUNNER_TEMP/tg_link_dedup.tsv" ${{ inputs.apply && '--apply' || '' }}
+    - name: Upload dedup report
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: tg-link-dedup
+        path: ${{ runner.temp }}/tg_link_dedup.tsv
+        if-no-files-found: warn
+    defaults:
+      run:
+        working-directory: dedup-code
