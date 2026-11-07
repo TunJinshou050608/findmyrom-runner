@@ -58,9 +58,9 @@ def package_fields(package):
     }
 
 
-def record(source, key, package, observed_text=None, accepted=None):
+def record(source, key, package, observed_text=None, accepted=None, links=None):
     fields = package_fields(package)
-    links = link_set(package)
+    links = links or link_set(package)
     return {
         'source': source,
         'key': key,
@@ -69,6 +69,26 @@ def record(source, key, package, observed_text=None, accepted=None):
         'text_hash': text_hash(package, observed_text),
         **fields,
     }
+
+
+def load_links(tg):
+    links = {}
+    paths = [tg / 'legacy/search-v3/search.sqlite'] + [tg / 'workers' / str(index) / 'search-v3/search.sqlite' for index in range(4)] + [tg / 'clean/search-v3/search.sqlite']
+    for path in paths:
+        if not path.exists():
+            continue
+        with sqlite3.connect(path) as db:
+            for key, payload in db.execute('SELECT key,payload FROM tg_search_records'):
+                if key in links:
+                    continue
+                try:
+                    package = json.loads(payload)
+                except ValueError:
+                    continue
+                value = link_set(package)
+                if value:
+                    links[key] = value
+    return links
 
 
 def load_state(tg):
@@ -82,10 +102,12 @@ def load_state(tg):
     products = json.loads((audit_dir / 'qualified.json').read_text()).get('products', [])
     audited_keys = {item['key'] for item in decisions}
     logged = {item.get('key') for item in decisions if item.get('qualified')}
+    links_by_key = load_links(tg)
     qualified = []
     for product in products:
         package = product.get('package') or {}
-        qualified.append(record('qualified', product.get('previous_key'), package, product.get('observed_text')))
+        key = product.get('previous_key')
+        qualified.append(record('qualified', key, package, product.get('observed_text'), links=links_by_key.get(key)))
     pending = []
     db_path = tg / 'clean/search-v3/search.sqlite'
     with sqlite3.connect(db_path) as db:
@@ -98,7 +120,7 @@ def load_state(tg):
             package = json.loads(row['payload'])
         except ValueError:
             continue
-        pending.append(record('pending', row['key'], package, accepted=bool(row['accepted'])))
+        pending.append(record('pending', row['key'], package, accepted=bool(row['accepted']), links=links_by_key.get(row['key'])))
     return latest, run_id, qualified, pending
 
 
