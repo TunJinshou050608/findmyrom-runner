@@ -162,6 +162,11 @@ def main(argv=None):
     latest, run_id, qualified, pending = load_state(tg)
     records = qualified + pending
     groups, missing, exact, same_build, shared_link = classify(records)
+    text_groups = defaultdict(list)
+    for item in records:
+        if item['text_hash']:
+            text_groups[(item['device'], item['project'], item['version'], item['maintainer'], item['text_hash'])].append(item)
+    text_duplicates = {key: items for key, items in text_groups.items() if len(items) > 1}
     exact_qualified = sum(1 for _, items in exact for item in items if item['source'] == 'qualified')
     exact_pending = sum(1 for _, items in exact for item in items if item['source'] == 'pending')
     same_build_extra = sum(len(items) - 1 for _, items in same_build)
@@ -182,17 +187,23 @@ def main(argv=None):
         'same_build_extra_records': same_build_extra,
         'shared_link_groups': len(shared_link),
         'shared_link_extra_records': shared_extra,
+        'text_duplicate_groups': len(text_duplicates),
+        'text_extra_records': sum(len(items) - 1 for items in text_duplicates.values()),
+        'text_qualified_records': sum(1 for items in text_duplicates.values() for item in items if item['source'] == 'qualified'),
+        'text_pending_records': sum(1 for items in text_duplicates.values() for item in items if item['source'] == 'pending'),
     }
     out = Path(args.output)
     with out.open('w') as handle:
         handle.write('type\tsource\tkey\taccepted\tdevice\tproject\tversion\tmaintainer\ttext_hash\tpost_url\tlinks\n')
-        for kind, collection in (('exact', exact), ('same_build', same_build), ('shared_link', shared_link)):
+        text_rows = [(key, items) for key, items in text_duplicates.items()]
+        for kind, collection in (('text_hash', text_rows), ('exact', exact), ('same_build', same_build), ('shared_link', shared_link)):
             for links, items in collection:
+                links = links if isinstance(links, tuple) else links
                 for item in items:
                     handle.write('\t'.join(str(value or '') for value in (
                         kind, item['source'], item['key'], item['accepted'], item['device'], item['project'],
                         item['version'], item['maintainer'], item['text_hash'], item['post_url'],
-                        ' '.join(links),
+                        ' '.join(str(value or '') for value in links),
                     )) + '\n')
     print(json.dumps({'event': 'tg_link_dedup', **summary, 'output': str(out)}, ensure_ascii=False, sort_keys=True), flush=True)
     if args.apply:
