@@ -157,9 +157,22 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output', required=True)
     parser.add_argument('--apply', action='store_true')
+    parser.add_argument('--all', action='store_true', help='export every qualified and accepted pending post URL')
     args = parser.parse_args(argv)
     tg = Path(os.getenv('FMR_TG_STATE_DIR', '/var/lib/findmyrom/catalogue-v3/tg-v4'))
     latest, run_id, qualified, pending = load_state(tg)
+    if args.all:
+        records = qualified + [item for item in pending if item['accepted']]
+        out = Path(args.output)
+        with out.open('w') as handle:
+            handle.write('source\tkey\taccepted\tdevice\tproject\tversion\tmaintainer\ttext_hash\tpost_url\n')
+            for item in records:
+                handle.write('\t'.join(str(value or '') for value in (
+                    item['source'], item['key'], item['accepted'], item['device'], item['project'],
+                    item['version'], item['maintainer'], item['text_hash'], item['post_url'],
+                )) + '\n')
+        print(json.dumps({'event': 'tg_records_export', 'qualified': len(qualified), 'pending_accepted': sum(1 for item in pending if item['accepted']), 'total': len(records), 'output': str(out)}, ensure_ascii=False, sort_keys=True), flush=True)
+        return 0
     records = qualified + pending
     groups, missing, exact, same_build, shared_link = classify(records)
     text_groups = defaultdict(list)
