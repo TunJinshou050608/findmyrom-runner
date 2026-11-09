@@ -15,6 +15,9 @@ from .device_sync import ensure_base_brands_and_anchor
 from .cdn_rewriter import rewrite_to_fast_cdn
 from .oem_sources import canonical_code,download_origin
 
+class FirmwareIdentityPending(RuntimeError):pass
+
+
 DIRECT_BRANDS={'xiaomi','google','samsung','oneplus','motorola','sony','oppo','vivo','realme','asus','nothing'}
 
 
@@ -85,6 +88,8 @@ def publish_release(db,device,release):
     from .download_refresh import expiring
     if expiring(url):
         return {'status':'requires_download_refresh'}
+    from fmr_core.firmware_metadata_schema import ensure as ensure_metadata_schema
+    ensure_metadata_schema(db,apply=getattr(db,'mode',None)=='sqlite')
     code=publish_device(db,device)
     vendor=device['vendor']
     raw_version=str(release['version'])
@@ -105,8 +110,9 @@ def publish_release(db,device,release):
     fast=rewrite_to_fast_cdn(vendor,url)
     digest=release.get('sha256') or release.get('md5')
     if digest and not re.fullmatch('[0-9a-fA-F]{32}|[0-9a-fA-F]{64}',digest):raise ValueError('Invalid source checksum')
-    existing=db.query('SELECT public_token,extract_status,original_official_url,fast_cdn_url FROM stock_firmwares WHERE device_codename=? AND region_code=? AND version_str=? AND package_type=?',
-                 (code,region,version,kind))
+    model=str(device.get('codename') or device['upstream_id'])
+    existing=db.query("SELECT public_token,extract_status,original_official_url,fast_cdn_url FROM stock_firmwares WHERE device_codename=? AND region_code=? AND version_str=? AND package_type=? AND COALESCE(NULLIF(model_code,''),device_codename)=?",
+                 (code,region,version,kind,model))
     token=None
     if not existing:
         token=generate_public_token('fw')
@@ -118,9 +124,9 @@ def publish_release(db,device,release):
             (token,code,region,str(device.get('codename') or device['upstream_id']),version,
              (re.match(r'^\d+(?:\.\d+)*',str(release.get('android_version') or ''))[0] if re.match(r'^\d+(?:\.\d+)*',str(release.get('android_version') or '')) else str(release.get('android_version') or 'unknown')),kind,release.get('size'),digest.lower() if digest else None,
              url,fast,release.get('date'),signature,status))
-    row=db.query('SELECT public_token,extract_status,original_official_url,fast_cdn_url FROM stock_firmwares WHERE device_codename=? AND region_code=? AND version_str=? AND package_type=?',
-                 (code,region,version,kind)) if not existing else existing
-    if not row:raise RuntimeError('Firmware insert did not persist')
+    row=db.query("SELECT public_token,extract_status,original_official_url,fast_cdn_url FROM stock_firmwares WHERE device_codename=? AND region_code=? AND version_str=? AND package_type=? AND COALESCE(NULLIF(model_code,''),device_codename)=?",
+                 (code,region,version,kind,model)) if not existing else existing
+    if not row:raise FirmwareIdentityPending('Model identity conflict; retain pending metadata without modifying another model')
     row=row[0]
     # Repair only a proven expiring URL for the same build/region/type. Keep the
     # public token and extraction status; re-sign the new stable destination.
@@ -137,6 +143,8 @@ def publish_release(db,device,release):
     if device['vendor']=='sony' and release.get('kind')=='sony_bundle':
         db.execute('''INSERT OR IGNORE INTO crawler_sources(device_codename,source_kind,source_target,last_cursor_val,last_checked_at)
             VALUES ('__global__','sony_bundle',?,?,strftime('%s','now'))''',(bundle_hash,json.dumps({'manifest':release['bundle'],'public_token':row['public_token']},sort_keys=True,separators=(',',':'))))
-    return {'status':'published_new' if row['public_token']==token else 'preserved_existing',
+    from .metadata_publish import publish as publish_metadata
+    metadata_changed=publish_metadata(db,row['public_token'],device,release)
+    return {'metadata_changed':metadata_changed,'status':'published_new' if row['public_token']==token else 'preserved_existing',
             'public_token':row['public_token'],'codename':code,'package_type':kind,
             'origin_kind':origin,'image_status':'not_verified'}

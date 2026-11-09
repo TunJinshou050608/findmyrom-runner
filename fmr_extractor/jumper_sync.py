@@ -12,6 +12,7 @@ import sys
 import tempfile
 from urllib.parse import quote, urlsplit
 
+from fmr_ingest_stock.release_metadata import package_label
 from fmr_ingest_stock.d1_budget import BudgetDB as D1Client
 
 MAX_BYTES = 512_000
@@ -48,10 +49,11 @@ def generate_jumper_markdown_tree(db_client, output_dir: Path, base_site_url: st
         WHERE codename!='__global__' ORDER BY brand_id ASC,codename ASC""")
     # One ranked union chooses the newest 50 *versions*, shared by both tables.
     versions = """WITH versions AS (
-        SELECT device_codename,version_str FROM stock_firmwares
-        UNION SELECT device_codename,version_str FROM extracted_boot_images),
+        SELECT device_codename,version_str,MAX(COALESCE(published_date,'')) AS release_date FROM stock_firmwares GROUP BY device_codename,version_str
+        UNION ALL SELECT i.device_codename,i.version_str,MAX(COALESCE(f.published_date,'')) FROM extracted_boot_images i LEFT JOIN stock_firmwares f ON f.id=i.firmware_id GROUP BY i.device_codename,i.version_str),
+        combined AS (SELECT device_codename,version_str,MAX(release_date) AS release_date FROM versions GROUP BY device_codename,version_str),
         ranked AS (SELECT device_codename,version_str,ROW_NUMBER() OVER
-          (PARTITION BY device_codename ORDER BY version_str DESC) AS rn FROM versions)
+          (PARTITION BY device_codename ORDER BY release_date DESC,version_str DESC) AS rn FROM combined)
     """
     images = db_client.query(versions + """SELECT i.device_codename,i.version_str,i.partition_name,
         i.variant_type,i.file_size_bytes,i.sha256_hash,i.public_token FROM extracted_boot_images i
@@ -61,6 +63,22 @@ def generate_jumper_markdown_tree(db_client, output_dir: Path, base_site_url: st
         f.model_code,f.package_type,f.public_token FROM stock_firmwares f
         JOIN ranked r USING(device_codename,version_str) WHERE r.rn<=50 AND f.device_codename!='__global__'
         ORDER BY f.device_codename,f.version_str DESC,f.region_code,f.package_type,f.public_token""")
+    # Public projection consumes the same stored display metadata as the website.
+    labels={}
+    for offset in range(0,len(firmwares),60):
+        chunk=firmwares[offset:offset+60];tokens=[r['public_token'] for r in chunk]
+        if not tokens:continue
+        try:
+            metadata=db_client.query('SELECT public_token,metadata_json FROM firmware_metadata WHERE public_token IN ('+','.join('?' for _ in tokens)+')',tokens)
+        except Exception as exc:
+            if 'no such table' in str(exc).lower() and 'firmware_metadata' in str(exc):break
+            raise
+        by_token={r['public_token']:json.loads(r['metadata_json']) for r in metadata}
+        for row in chunk:
+            m=by_token.get(row['public_token'],{})
+            if m.get('schema')==1 and isinstance(m.get('display_version'),str):
+                row['display_version']=m['display_version']
+                labels[(row['device_codename'],row['version_str'])]=m['display_version']
     grouped_images, grouped_fw = {}, {}
     for row in images:
         grouped_images.setdefault(row['device_codename'], []).append(row)
@@ -87,14 +105,14 @@ def generate_jumper_markdown_tree(db_client, output_dir: Path, base_site_url: st
             if not re.fullmatch(r'[a-f0-9]{64}', sha):
                 raise ValueError('Invalid image digest')
             rows.append('| ' + ' | '.join([
-                cell(i['version_str']), cell(partition), cell(i['variant_type']),
+                cell(labels.get((i['device_codename'],i['version_str']),i['version_str'])), cell(partition), cell(i['variant_type']),
                 f"{i['file_size_bytes'] / 1048576:.1f} MB", '`' + sha[:12] + '...`',
                 '[Download](' + token_url(site, i['public_token'], 'bt_') + ')',
             ]) + ' |\n')
         footer = '\n## Official firmware\n\n| Firmware Version | Region / Variant | Package | Download |\n| :--- | :--- | :--- | :--- |\n'
         fw_rows = ['| ' + ' | '.join([
-            cell(f['version_str']), cell(f['region_code']) + ' / ' + cell(f['model_code'] or code),
-            cell(f['package_type']), '[Download](' + token_url(site, f['public_token'], 'fw_') + ')',
+            cell(f.get('display_version') or f['version_str']), cell(f['region_code']) + ' / ' + cell(f['model_code'] or code),
+            cell(package_label(d['brand_id'],f['package_type'])), '[Download](' + token_url(site, f['public_token'], 'fw_') + ')',
         ]) + ' |\n' for f in fws]
         # Bound a pathological device without emitting partial Markdown rows.
         ending = '\n[More versions on FindMyROM](' + device_url + ')\n'

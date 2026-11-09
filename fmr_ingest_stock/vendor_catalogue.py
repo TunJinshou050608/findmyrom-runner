@@ -132,11 +132,30 @@ def identity(device,row=None):
     return [device['upstream_id'],row.get('version'),row.get('region'),row.get('kind')]
 
 
-def input_hash(row):
+def download_input_hash(row):
     # Resolver enrichment (filename/checksum/OEM redirect) is not a new source entry.
     keys=['version','region','kind','detail_page']
     if not row.get('detail_page'):keys+=['download_url','sha256','md5']
     return digest({k:row.get(k) for k in keys})
+
+
+def input_hash(row):
+    return digest([download_input_hash(row),{k:row.get(k) for k in ('android_version','os_raw','os_name','os_version','date','security_patch','size','metadata_source','filename','_official_metadata')}])
+
+
+def upgrade_metadata(store,http,limit=50):
+    from .release_metadata import REVISION,normalize
+    items=store._select('release',"json_extract(last_cursor_val,'$.status')='resolved' AND COALESCE(json_extract(last_cursor_val,'$.metadata_revision'),0)<?",[REVISION],limit,'metadata')
+    for key,value in items:
+        if time.monotonic()>=http.client.deadline:break
+        row=value['release']
+        if store.vendor=='samsung':
+            from .samsung_metadata import attach
+            attach(value['device'],[row],http)
+        row['_metadata']=normalize(value['device'],row)
+        value.update(release=row,metadata_revision=REVISION,metadata_dirty=True)
+        store.put(key,value);store.advance('metadata',key)
+    return len(items)
 
 
 def durable_download(vendor,row):
@@ -180,8 +199,18 @@ def seed_releases(store,device,rows):
         for key,row in zip(keys,chunk):
             signature=input_hash(row)
             if key in old and old[key].get('input_hash')==signature:continue
-            writes[key]={'device':device,'release':row,'input_hash':signature,'status':'pending','next_check':0,
-                'attempts':0,'published':False,'source_changed':key in old}
+            previous=old.get(key)
+            if previous and previous.get('status')=='resolved' and download_input_hash(previous['release'])==download_input_hash(row):
+                merged={**previous['release'],**row}
+                # Keep resolved URLs and refresh descriptors when only catalogue metadata changes.
+                for field in ('download_url','refresh_source','filename','resolution'):
+                    if not row.get(field) and previous['release'].get(field):merged[field]=previous['release'][field]
+                from .release_metadata import REVISION,normalize
+                merged['_metadata']=normalize(device,merged)
+                writes[key]={**previous,'device':device,'release':merged,'input_hash':signature,'metadata_revision':REVISION,'metadata_dirty':True}
+            else:
+                writes[key]={'device':device,'release':row,'input_hash':signature,'status':'pending','next_check':0,
+                    'attempts':0,'published':False,'source_changed':key in old}
         store.put_many(list(writes.items()));new+=len(writes)
     return new
 
@@ -353,6 +382,9 @@ def batch(store,control,http,status):
                 if result['status'] not in ('published_new','preserved_existing'):
                     raise ValueError('PublicationRejected')
                 value['published']=True
+            from .release_metadata import REVISION,normalize
+            row['_metadata']=normalize(value['device'],row)
+            value['metadata_revision']=REVISION;value['metadata_dirty']=True
             value.update(release=row,status='resolved',checked_at=now,next_check=now+RELEASE_TTL,
                          last_cycle=cycle,attempts=0,error=None)
             store.put(key,value);store.advance('release',key);changed+=1;status.update(checkpoint=True)
@@ -417,9 +449,11 @@ def run(db,vendor,mode='audit',operation='incremental',cycle='',sequence=1,clien
             if not migrate(store,status):
                 more=True;counts=store.counts();changed=0
             else:
+                metadata_upgraded=upgrade_metadata(store,http)
                 discover(store,control,http,status)
                 store.put(key,control)
                 more,counts,changed=batch(store,control,http,status)
+                if metadata_upgraded>=50:more=True
             control['cursors']=store.cursors
             control['last_code_sha']=os.environ.get('GITHUB_SHA');control['last_checkpoint']=int(time.time())
             control['batch']+=1

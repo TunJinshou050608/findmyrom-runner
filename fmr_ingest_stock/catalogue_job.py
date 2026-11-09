@@ -123,13 +123,17 @@ def collect_model(device,embedded,http):
         return device,releases,provenance
     device,rows=atlas_releases(device,http)
     if vendor=='samsung':
-        observed={(r['version'].split('/')[0].upper(),r['region']) for r in rows}
+        from .samsung_fus import normalize_version
+        observed=set()
+        for r in rows:
+            try:observed.add((normalize_version(r['version']).upper(),r['region']))
+            except ValueError:pass
         regions=sorted({r['region'] for r in rows if re.fullmatch('[A-Z0-9]{3}',r['region'])})
         full=[];errors=[]
         for region in regions:
             try:
                 for version in samsung_history(device['codename'],region,http):
-                    if (version.split('/')[0].upper(),region) in observed:continue
+                    if (normalize_version(version).upper(),region) in observed:continue
                     full.append({'vendor':vendor,'device_id':device['upstream_id'],'version':version,
                         'region':region,'kind':'samsung_firmware','android_version':'unknown',
                         'resolution':'requires_samsung_fus','source_reference':'https://fota-cloud-dn.ospserver.net/firmware/'+region+'/'+device['codename']+'/version.xml',
@@ -137,7 +141,10 @@ def collect_model(device,embedded,http):
             except Exception as exc:
                 if getattr(exc,'fmr_batch_deadline',False):raise
                 errors.append({'region':region,'error':type(exc).__name__})
-        rows.extend(full);provenance={'provider':'atlas_plus_samsung_fota','fota_errors':errors,
+        rows.extend(full)
+        from .samsung_metadata import attach
+        attach(device,rows,http)
+        provenance={'provider':'atlas_plus_samsung_fota','fota_errors':errors,
                                     'history_limits':'Manufacturer may omit withdrawn builds; encrypted/authenticated packages need a resolver.'}
     return device,rows,provenance
 

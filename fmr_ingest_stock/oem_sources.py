@@ -3,6 +3,7 @@
 Metadata HTTP deliberately refuses firmware bodies. A manufacturer registry
 entry is never treated as successful device/release discovery.
 """
+from .release_metadata import system_fields
 import hashlib
 import re
 import time
@@ -240,7 +241,7 @@ def google_catalogue(http):
                         'name':text(heading),'models':hardware[1] if hardware else '',
                         'page':'https://developers.google.com/android/'+page+'?hl=en','source_kind':'oem'})
                     all_releases.setdefault(code,[]).append({'vendor':'google','device_id':code,'version':version,
-                        'region':'Global','android_version':version.split(',')[0],'kind':role,'download_url':a['href'],
+                        'region':'Global',**system_fields(version.split(',')[0]),'kind':role,'download_url':a['href'],
                         'sha256':digest.lower(),'origin_kind':'oem','metadata_source':'https://developers.google.com/android/'+page})
             if not found:errors.append({'source':page,'error':'NoFirmwareTables'})
         except Exception as exc:
@@ -281,7 +282,7 @@ def atlas_releases(device,http):
             timestamp=tr.find('time')
             row={'vendor':vendor,'device_id':device['upstream_id'],'version':version,'region':region,
                  'kind':tr.get('data-type') or cells.get('type') or 'samsung_firmware',
-                 'android_version':cells.get('os','unknown'),'date':timestamp.get('datetime') if timestamp else None,
+                 **system_fields(cells.get('os','unknown')),'date':timestamp.get('datetime') if timestamp else None,
                  'size':cells.get('size'),'detail_page':detail,'origin_kind':'unresolved',
                  'metadata_source':base}
             rows[(version,region,row['kind'],detail)]=row

@@ -6,7 +6,7 @@ from pathlib import Path
 import time
 from fmr_core.d1_client import D1Client
 from .catalogue_store import Store,digest
-from .catalogue_sync import publish_device,publish_release
+from .catalogue_sync import publish_device,publish_release,FirmwareIdentityPending
 from .d1_budget import BudgetDB,D1BudgetReached
 from .staged_catalogue import Artifacts,ROOT,encrypt_file,open_local
 from .vendor_catalogue import VENDORS,SUPPRESSED_VENDORS
@@ -31,8 +31,9 @@ def candidates(local,ledger,vendor):
     for stage in ('release','model'):
         for key,value in store.rows(stage):
             if value.get('status')=='excluded' or value['device'].get('catalogue_scope')=='non_android':continue
-            if stage=='release' and (value.get('status')!='resolved' or value.get('published')):continue
-            body=value['device'] if stage=='model' else [value['device'],value['release']]
+            if stage=='release' and (value.get('status')!='resolved' or (value.get('published') and not value.get('metadata_dirty'))):continue
+            from .release_metadata import REVISION
+            body=value['device'] if stage=='model' else [value['device'],value['release'],REVISION]
             fingerprint=digest(body)
             old=ledger.query('SELECT hash FROM published WHERE vendor=? AND key=?',(vendor,key))
             if old and old[0]['hash']==fingerprint:continue
@@ -48,7 +49,10 @@ def candidates(local,ledger,vendor):
 def sync_one(db,ledger,vendor,candidate):
     stage,key,value,fingerprint=candidate
     if stage=='model':publish_device(db,value['device']);result={'status':'published_new'}
-    else:result=publish_release(db,value['device'],value['release'])
+    else:
+        try:result=publish_release(db,value['device'],value['release'])
+        except FirmwareIdentityPending:
+            print('Firmware model identity conflict; retained pending, no acknowledgement.',flush=True);return False
     if result['status'] in ('published_new','preserved_existing'):
         # Commit local acknowledgement only after the D1 transaction succeeded.
         ledger.execute('INSERT INTO published(vendor,key,hash) VALUES (?,?,?) ON CONFLICT(vendor,key) DO UPDATE SET hash=excluded.hash',(vendor,key,fingerprint))
@@ -69,6 +73,9 @@ def main():
     try:
         artifacts.restore('publisher',path,baseline=False)
         ledger=open_ledger(path)
+        quota=ledger.query("SELECT value FROM control WHERE key='provider_quota_day'")
+        if quota and quota[0]['value']==datetime.now(timezone.utc).strftime('%Y-%m-%d'):
+            print('D1 provider quota exhausted today; local queue retained, zero remote requests.',flush=True);return 0
         slot=int(time.time())//600
         old=ledger.query("SELECT value FROM control WHERE key=?",(slot_key,))
         if old and int(old[0]['value'])>=slot and os.getenv('FMR_CATALOGUE_PUBLISH_FORCE')!='true':
@@ -126,6 +133,8 @@ def main():
         if os.environ.get('GITHUB_STEP_SUMMARY'):Path(os.environ['GITHUB_STEP_SUMMARY']).write_text('# 统一 D1 增量同步\n\n'+summary+'\n\n每 10 分钟计划执行；GitHub 排队可能延后。未完成队列保留，下一批继续。\n')
         return 0
     except D1BudgetReached:
+        if db and getattr(db,'provider_quota',False) and ledger:
+            ledger.execute("INSERT INTO control(key,value) VALUES ('provider_quota_day',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",(datetime.now(timezone.utc).strftime('%Y-%m-%d'),))
         print('本次 D1 行预算已到；已成功记录保留，剩余下次继续。',flush=True);return 0
     finally:
         # Successful D1 writes must retain their local acknowledgements even if

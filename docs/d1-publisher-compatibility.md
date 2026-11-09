@@ -40,3 +40,8 @@ This rolled-back build deliberately keeps the legacy natural-key publisher. A co
 Tests cover baseline/v5/v6 official publishing, signed refresh descriptors, complete source rows, native D1/DO execution in Web CI, firmware/image foreign keys and signatures, partially committed TG cohorts, retry idempotency, schema checksum guards, and workflow dependency order. No production firmware payload is downloaded for these tests.
 
 Live rollout on 2026-11-03: version 4 applied successfully, and the production coverage SELECT was verified at exactly 1 row read. Version 5 was rejected with D1 error 7500 (daily read allocation); its transaction rolled back, leaving no firmware_search table or new version-5 indices, and only version 4 in the registry. The routine workflow retries version 5 after quota recovery. Version 6 remains explicitly capacity-gated; this build keeps the legacy natural-key publisher, so model conflicts preserve the existing row and are acknowledged instead of staying pending. Worker deployment and the SQLite budget namespace succeeded, with workers.dev and preview URLs disabled.
+
+
+## 固件展示元数据的持续维护
+
+现有厂商采集与统一发布入口现支持独立元数据增量更新、旧记录分批升级、三星官方更新记录及独立元数据表。调用关系、额度行为和兼容边界见 [firmware-metadata.md](firmware-metadata.md)。不会自动执行旧型号表重建。

@@ -15,6 +15,19 @@ JOB_WRITE_RESERVATION=2_000
 class D1BudgetReached(CatalogueDeadline):pass
 
 
+def provider_quota_error(exc):
+    for _ in range(8):
+        if exc is None:return False
+        message=str(exc).lower()
+        response=getattr(exc,'response',None)
+        if response is not None:
+            try:message+=' '+str(response.json()).lower()
+            except (ValueError,TypeError):pass
+        if ('daily' in message or 'free tier' in message) and ('quota' in message or 'row write limit' in message or 'row read limit' in message):return True
+        exc=exc.__cause__ or exc.__context__
+    return False
+
+
 class BudgetDB(D1Client):
     def __init__(self,*args,enforce_limits=True,**kwargs):
         super().__init__(*args,**kwargs)
@@ -26,7 +39,14 @@ class BudgetDB(D1Client):
         estimated_writes=sum(32*(max(1,len(item.get('params',[]))) if ' IN (' in str(item.get('sql','')).upper() else 1) for item in items if str(item.get('sql','')).lstrip().upper().startswith(('INSERT','UPDATE','DELETE')))
         if self.enforce_limits and self.metering and not self.checkpointing and (self.rows_read>=90_000 or self.rows_written>=1_800 or self.rows_written+estimated_writes>JOB_WRITE_RESERVATION or getattr(self,'reservation_day',datetime.now(timezone.utc).strftime('%Y-%m-%d'))!=datetime.now(timezone.utc).strftime('%Y-%m-%d')):
             raise D1BudgetReached('Per-job D1 allocation reached')
-        result=super()._request_cf_with_retry(payload,is_safe_to_retry)
+        if getattr(self,'provider_quota',False):raise D1BudgetReached('Provider daily quota exhausted')
+        try:
+            result=super()._request_cf_with_retry(payload,is_safe_to_retry)
+        except Exception as exc:
+            if provider_quota_error(exc):
+                self.provider_quota=True
+                raise D1BudgetReached('Provider daily quota exhausted') from exc
+            raise
         if self.metering:
             for item in result.get('result',[]):
                 self.rows_read+=int(item.get('meta',{}).get('rows_read',0))
@@ -61,7 +81,7 @@ class BudgetDB(D1Client):
         Include a conservative allowance for budget-control/index writes. A crash
         retains the full reservation, which is safe and resets on the next UTC day.
         """
-        if not self.metering:return
+        if not self.metering or getattr(self,'provider_quota',False):return
         self.metering=False
         if not self.enforce_limits:return
         day=getattr(self,'reservation_day',datetime.now(timezone.utc).strftime('%Y-%m-%d'))

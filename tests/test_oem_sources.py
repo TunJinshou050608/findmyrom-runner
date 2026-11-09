@@ -369,9 +369,9 @@ def test_samsung_fota_versions_never_become_invented_catalogue_urls():
  with httpx.Client(transport=httpx.MockTransport(handler)) as client:
   _,rows,_=collect_model(device,None,MetadataHTTP(client))
  fota=[r for r in rows if r.get('metadata_source')=='samsung_fota_version_xml']
- assert len(fota)==1 and fota[0]['version'].startswith('PDA.OLD/')
+ assert {r['version'] for r in fota}=={'PDA.NEW/CSC.NEW/PHONE.NEW','PDA.OLD/CSC.OLD/PHONE.OLD'}
  assert fota[0]['resolution']=='requires_samsung_fus' and 'detail_page' not in fota[0]
- assert len(seen)==2
+ assert len(seen)==3  # Atlas, FOTA, optional official update notice
 
 
 def test_legacy_controller_does_not_send_fota_only_references_to_web_resolver(database):

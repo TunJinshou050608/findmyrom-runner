@@ -44,28 +44,28 @@ def test_migration_preserves_download_identity_extraction_state_and_foreign_keys
  assert verify_signature(build_boot_payload(image['public_token'],image['sha256_hash'],image['gh_private_repo'],image['gh_asset_id']),image['ed25519_signature'],public)
  assert verify_signature(build_firmware_payload(after['public_token'],after['fast_cdn_url']),after['ed25519_signature'],public)
  assert publish_release(x,item(),release())['public_token']==first['public_token']
- # Legacy publisher identity is still the natural key: a different model
- # under the same build/region/format preserves the existing row.
+ # A model-aware schema keeps a second model separate without rekeying the first.
  other=publish_release(x,item('another-model'),release())
- assert other['public_token']==first['public_token']
+ assert other['public_token']!=first['public_token']
  assert x.query("SELECT seq FROM sqlite_sequence WHERE name='stock_firmwares'")[0]['seq']>=1000
- assert len(x.query('SELECT * FROM stock_firmwares'))==1
- assert x.query('SELECT official FROM catalogue_coverage')[0]['official']==1
+ assert len(x.query('SELECT * FROM stock_firmwares'))==2
+ assert x.query('SELECT official FROM catalogue_coverage')[0]['official']==2
 
 
-def test_legacy_model_collision_preserves_existing_and_acknowledges(db,tmp_path):
+def test_legacy_model_collision_is_pending_until_model_identity_is_supported(db,tmp_path):
  x,_,_=db
  from fmr_ingest_stock.catalogue_publish import sync_one,open_ledger
  first=publish_release(x,item(),release());ledger=open_ledger(tmp_path/'ledger.sqlite')
  try:
-  assert sync_one(x,ledger,'oneplus',('release','new-model',{'device':item('another-model'),'release':release()},'hash'))
-  assert ledger.query('SELECT key FROM published')==[{'key':'new-model'}]
-  assert x.query('SELECT public_token FROM stock_firmwares')==[{'public_token':first['public_token']}]
+  before=x.query('SELECT * FROM stock_firmwares')
+  assert not sync_one(x,ledger,'oneplus',('release','new-model',{'device':item('another-model'),'release':release()},'hash'))
+  assert not ledger.query('SELECT key FROM published')
+  assert x.query('SELECT * FROM stock_firmwares')==before
   ensure_schema(x,allow_migration=True,through=6)
-  ledger.execute('DELETE FROM published')
   assert sync_one(x,ledger,'oneplus',('release','new-model',{'device':item('another-model'),'release':release()},'hash'))
   assert ledger.query('SELECT key FROM published')==[{'key':'new-model'}]
-  assert x.query('SELECT public_token FROM stock_firmwares')==[{'public_token':first['public_token']}]
+  rows=x.query('SELECT public_token,model_code FROM stock_firmwares ORDER BY id')
+  assert len(rows)==2 and rows[0]['public_token']==first['public_token'] and rows[1]['model_code']=='another-model'
  finally:ledger.close()
 
 
