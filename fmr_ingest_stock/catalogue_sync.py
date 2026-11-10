@@ -21,6 +21,29 @@ class FirmwareIdentityPending(RuntimeError):pass
 DIRECT_BRANDS={'xiaomi','google','samsung','oneplus','motorola','sony','oppo','vivo','realme','asus','nothing'}
 
 
+def xiaomi_legacy_rows(db,device,code,region,version,kind,base=None):
+    from .xiaomi_variants import model_key,version_key
+    root=str(device.get('codename') or device['upstream_id'])
+    models=[root]+[root+'_'+suffix for suffix in ('global','eea','in','id','ru','tr','tw','jp','sg')]
+    if base:models=[model_key(model,base) for model in models]
+    return db.query("SELECT public_token,extract_status,original_official_url,fast_cdn_url,md5_or_sha256 FROM stock_firmwares WHERE device_codename=? AND region_code=? AND version_str=? AND package_type=? AND LOWER(COALESCE(NULLIF(model_code,''),device_codename)) IN ("+','.join('?' for _ in models)+") ORDER BY id LIMIT 12",
+                    (code,region,build_version(version_key(version,base)),kind,*[m.lower() for m in models]))
+
+
+def publish_unavailable(db,device,release,reason):
+    from .xiaomi_variants import filename,platform_parts
+    if device['vendor']!='xiaomi':raise ValueError('Unsupported unavailable source')
+    code=device.get('canonical_code') or device['upstream_id']
+    parts=platform_parts(release.get('variant_id'))
+    base=parts[0] if parts else release.get('variant_id')
+    candidates=xiaomi_legacy_rows(db,device,code,release['region'],release.get('source_version') or release['version'],package_kind('xiaomi',release),base)
+    from .metadata_publish import publish
+    for row in candidates:
+        if filename(row['original_official_url'])==filename(release['download_url']):
+            publish(db,row['public_token'],device,{**release,'availability':'unavailable','unavailable_reason':reason})
+    return {'status':'unavailable_recorded'}
+
+
 def build_version(value):
     raw=str(value).strip()
     if not raw:raise ValueError('No build identity')
@@ -109,14 +132,30 @@ def publish_release(db,device,release):
     if vendor=='xiaomi':
         from .history import model_code,official
         from .firmware_sync import region_code
-        from .xiaomi_variants import edition,filename,model_key
+        from .xiaomi_variants import edition,filename,model_key,matches,platform_parts,version_key,canonical_version
         from .xiaomi_devices import physical_code
         expected=region_code(model_code(device['upstream_id'],release['version'],filename(url)),release['version'])
-        if physical_code(device['upstream_id'],filename(url))!=device['upstream_id'] or not official(url) or expected!=region or edition(device['upstream_id'],filename(url))!=release.get('variant_id'):
+        if physical_code(device['upstream_id'],filename(url))!=device['upstream_id'] or not official(url) or expected!=region or not matches(device['upstream_id'],filename(url),release.get('variant_id')):
             raise FirmwareIdentityPending('Xiaomi archive market or edition disagrees with descriptor; retain pending')
         if release.get('variant_id'):model=model_key(model,release['variant_id'])
     existing=db.query("SELECT public_token,extract_status,original_official_url,fast_cdn_url,md5_or_sha256 FROM stock_firmwares WHERE device_codename=? AND region_code=? AND version_str=? AND package_type=? AND COALESCE(NULLIF(model_code,''),device_codename)=?",
                  (code,region,version,kind,model))
+    if vendor=='xiaomi':
+        if canonical_version(release['version'],filename(url))!=release['version']:
+            raise FirmwareIdentityPending('Xiaomi filename has a different patch build')
+        if not existing:
+            parts=platform_parts(release.get('variant_id'))
+            base=parts[0] if parts else release.get('variant_id')
+            candidates=xiaomi_legacy_rows(db,device,code,region,release['version'],kind,base)
+            existing=[r for r in candidates if filename(r['original_official_url'])==filename(url)]
+            if not existing and not release.get('variant_id'):
+                from .xiaomi_delivery import missing
+                collisions=[r for r in candidates if canonical_version(release['version'],filename(r['original_official_url']))!=release['version'] or edition(device['upstream_id'],filename(r['original_official_url'])) or missing({'download_url':r['original_official_url']})]
+                if collisions:
+                    version=build_version(version_key(release['version'],'standard'))
+                    model=model_key(str(device.get('codename') or device['upstream_id']),'standard')
+                    release={**release,'variant_id':'standard','variant_label':'Standard edition'}
+                    existing=db.query("SELECT public_token,extract_status,original_official_url,fast_cdn_url,md5_or_sha256 FROM stock_firmwares WHERE device_codename=? AND region_code=? AND version_str=? AND package_type=? AND COALESCE(NULLIF(model_code,''),device_codename)=?",(code,region,version,kind,model))
     if vendor=='google' and not existing:
         # Match the old caption-derived identity, then require the exact same official file.
         # Never change historical URLs, tokens, region keys or signatures.
@@ -143,10 +182,10 @@ def publish_release(db,device,release):
                 candidate=alternate.get('link','')
                 if not official(candidate) or filename(candidate)!=old_name:continue
                 if conflict_kind({'link':url,'md5':digest},alternate)!=('repacked_archive',False):continue
-                if old.get('md5_or_sha256') and old['md5_or_sha256'].lower()!=alternate['md5'].lower():continue
-                release={**release,'download_url':candidate,'md5':alternate['md5'],'size':alternate.get('size') or release.get('size')}
+                if old.get('md5_or_sha256') and alternate.get('md5') and old['md5_or_sha256'].lower()!=alternate['md5'].lower():continue
+                release={**release,'download_url':candidate,'md5':alternate.get('md5'),'size':alternate.get('size') or release.get('size')}
                 release.pop('_metadata',None)
-                url=candidate;digest=alternate['md5'];same_file=True
+                url=candidate;digest=alternate.get('md5');same_file=True
                 break
         checksum_conflict=bool(digest and old.get('md5_or_sha256') and digest.lower()!=old['md5_or_sha256'].lower())
         if not same_file or checksum_conflict:

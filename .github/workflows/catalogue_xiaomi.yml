@@ -71,7 +71,7 @@ jobs:
       run: python -u -m fmr_ingest_stock.staged_catalogue collect --vendor xiaomi --operation "$CATALOGUE_OPERATION" --seconds "$COLLECT_SECONDS"
     - name: 校验全部本地身份与计数；小范围核对来源响应头
       id: source_audit
-      if: steps.collect.outcome == 'success'
+      if: always() && (steps.collect.outcome == 'success' || steps.collect.outcome == 'failure')
       run: python -m fmr_ingest_stock.xiaomi_source_audit --network
     - name: 校验备份由本次任务生成且内容完整
       id: export_check

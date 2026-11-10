@@ -6,7 +6,7 @@ from pathlib import Path
 import time
 from fmr_core.d1_client import D1Client
 from .catalogue_store import Store,digest
-from .catalogue_sync import publish_device,publish_release,FirmwareIdentityPending
+from .catalogue_sync import publish_device,publish_release,publish_unavailable,FirmwareIdentityPending
 from .d1_budget import BudgetDB,D1BudgetReached
 from .staged_catalogue import Artifacts,ROOT,encrypt_file,open_local
 from .vendor_catalogue import VENDORS,SUPPRESSED_VENDORS
@@ -31,9 +31,11 @@ def candidates(local,ledger,vendor):
     for stage in ('release','model'):
         for key,value in store.rows(stage):
             if value.get('status')=='excluded' or value['device'].get('catalogue_scope')=='non_android':continue
-            if stage=='release' and (value.get('status')!='resolved' or (value.get('published') and not value.get('metadata_dirty'))):continue
+            unavailable=stage=='release' and vendor=='xiaomi' and value.get('status')=='unavailable'
+            if stage=='release' and not unavailable and (value.get('status')!='resolved' or (value.get('published') and not value.get('metadata_dirty'))):continue
             from .release_metadata import NORMALIZATION_REVISION as REVISION
             body=value['device'] if stage=='model' else [value['device'],value['release'],REVISION]
+            if unavailable:body=[body,'unavailable',value.get('error')]
             fingerprint=digest(body)
             old=ledger.query('SELECT hash FROM published WHERE vendor=? AND key=?',(vendor,key))
             if old and old[0]['hash']==fingerprint:continue
@@ -50,10 +52,11 @@ def sync_one(db,ledger,vendor,candidate):
     stage,key,value,fingerprint=candidate
     if stage=='model':publish_device(db,value['device']);result={'status':'published_new'}
     else:
-        try:result=publish_release(db,value['device'],value['release'])
+        try:
+            result=publish_unavailable(db,value['device'],value['release'],value.get('error')) if vendor=='xiaomi' and value.get('status')=='unavailable' else publish_release(db,value['device'],value['release'])
         except FirmwareIdentityPending:
             print('Firmware model identity conflict; retained pending, no acknowledgement.',flush=True);return False
-    if result['status'] in ('published_new','preserved_existing'):
+    if result['status'] in ('published_new','preserved_existing','unavailable_recorded'):
         # Commit local acknowledgement only after the D1 transaction succeeded.
         ledger.execute('INSERT INTO published(vendor,key,hash) VALUES (?,?,?) ON CONFLICT(vendor,key) DO UPDATE SET hash=excluded.hash',(vendor,key,fingerprint))
         return True

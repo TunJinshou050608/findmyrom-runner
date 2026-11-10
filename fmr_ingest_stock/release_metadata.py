@@ -3,7 +3,7 @@ import re
 from urllib.parse import unquote, urlsplit
 
 REVISION = 1
-NORMALIZATION_REVISION = 2
+NORMALIZATION_REVISION = 3
 
 
 def clean(value):
@@ -98,6 +98,8 @@ def normalize(device, release):
               'security_patch': iso_date(official.get('patch') or release.get('security_patch')), 'original_filename': filename,
               'file_size': clean(release.get('size'))[:256] or None,
               'vendor_fields': fields, 'sources': {'catalogue': source, 'official_update': official.get('source')}}
+    if vendor=='xiaomi' and release.get('availability')=='unavailable':
+        result.update(availability='unavailable',unavailable_reason=release.get('unavailable_reason') or 'UpstreamUnavailable')
     return result
 
 def package_label(vendor, kind):

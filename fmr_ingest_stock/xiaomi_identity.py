@@ -5,16 +5,20 @@ from copy import deepcopy
 from .catalogue_store import KIND,digest
 from .history import HISTORY_SEMANTICS_REVISION,model_code,official
 from .firmware_sync import region_code
-from .xiaomi_variants import edition,filename,LABELS
+from .xiaomi_variants import edition,filename,LABELS,platform_parts,label,matches,canonical_version,android_version,annotate_platforms
 from .xiaomi_devices import physical_code,NAMES,archive_route
 
 
 def corrected_release(device,row):
     if not official(row.get('download_url','')):return row
     name=filename(row['download_url']);code=physical_code(device['upstream_id'],name);result=deepcopy(row)
-    result['region']=region_code(model_code(code,row['version'],name),row['version'])
-    variant=edition(code,name)
-    if variant:result.update(variant_id=variant,variant_label=LABELS[variant])
+    version=canonical_version(row['version'],name)
+    if version!=row['version']:result.update(source_version=row['version'],version=version)
+    found=android_version(name)
+    if found:result['android_version']=found
+    result['region']=region_code(model_code(code,version,name),version)
+    variant=row.get('variant_id') if platform_parts(row.get('variant_id')) and matches(code,name,row['variant_id']) else edition(code,name)
+    if variant:result.update(variant_id=variant,variant_label=label(variant))
     else:result.pop('variant_id',None);result.pop('variant_label',None)
     return result
 
@@ -31,7 +35,7 @@ def corrected_device(store,device,row):
 
 def reconcile_conflict(store,key,value):
     """Resolve only evidence-proven aliases/repacked builds; keep every receipt."""
-    from .history import conflict_kind,unavailable_full_rom
+    from .history import conflict_kind,unavailable_full_rom,unavailable_reason
     from .vendor_catalogue import identity,input_hash
     if value.get('status')!='blocked' or value.get('error')!='LegacyIdentityConflict':return False
     refs=value.get('identity_review_sources',[])
@@ -46,7 +50,7 @@ def reconcile_conflict(store,key,value):
     available=[r for r in candidates if not unavailable_full_rom(r)]
     original=deepcopy(value);updated=deepcopy(value)
     if not available:
-        updated.update(status='unavailable',error='UpstreamNotFullROM',next_check=2**40)
+        updated.update(status='unavailable',error=unavailable_reason(candidates[0]) or 'UpstreamNotFullROM',next_check=2**40)
     else:
         from .xiaomi_variants import engineering
         selected=next((r for r in available if not engineering(filename(r['download_url']))),available[0])
@@ -71,7 +75,7 @@ def repair(store,status,limit=500):
     if getattr(store.db,'mode',None)!='sqlite':raise ValueError('Xiaomi identity repair must stay local')
     marker=store.key('history_identity_repair');state=store.get(marker) or {}
     if state.get('revision')==HISTORY_SEMANTICS_REVISION and state.get('done'):return False
-    if state.get('revision')!=HISTORY_SEMANTICS_REVISION:state={'revision':HISTORY_SEMANTICS_REVISION,'cursor':'','repaired':0,'scanned':0}
+    if state.get('revision')!=HISTORY_SEMANTICS_REVISION:state={'revision':HISTORY_SEMANTICS_REVISION,'cursor':'','repaired':0,'scanned':0,'source_conflicts_reconciled':state.get('source_conflicts_reconciled',0)}
     rows=store.db.query("SELECT source_target,last_cursor_val FROM crawler_sources WHERE device_codename='__global__' AND source_kind=? AND source_target GLOB ? AND source_target>? ORDER BY source_target LIMIT ?",(KIND,store.prefix+'release:*',state['cursor'],limit))
     from .vendor_catalogue import identity,input_hash
     repaired=0
@@ -84,6 +88,14 @@ def repair(store,status,limit=500):
         desired=corrected_release(value['device'],value['release'])
         target=store.key('release',identity(corrected_device(store,value['device'],value['release']),desired))
         if key==target:
+            from .history import unavailable_reason
+            reason=unavailable_reason(desired)
+            if reason:
+                value=deepcopy(value);value.update(status='unavailable',error=reason,next_check=2**40)
+                store.put(key,value)
+            if desired!=value['release']:
+                value=deepcopy(value);value.update(release=desired,input_hash=input_hash(desired),metadata_revision=0,metadata_dirty=True)
+                value['release'].pop('_metadata',None);store.put(key,value)
             if reconcile_conflict(store,key,value):state['reconciled_conflicts']=state.get('reconciled_conflicts',0)+1
             state['cursor']=key;continue
         changes={};visiting=set();moves=[0]
@@ -113,6 +125,9 @@ def repair(store,status,limit=500):
                     refs=other.setdefault('identity_review_sources',[])
                     if evidence not in refs:refs.append(evidence)
                     other.update(status='blocked',error='LegacyIdentityConflict',next_check=int(time.time())+86400)
+            from .history import unavailable_reason
+            reason=unavailable_reason(other['release'])
+            if reason:other.update(status='unavailable',error=reason,next_check=2**40)
             v.update(status='superseded',superseded_by=dest,identity_evidence=evidence,error='ArchiveIdentityCorrected',next_check=2**40)
             changes[k]=v;changes[dest]=other;moves[0]+=1;visiting.remove(k)
         move(key)
@@ -125,10 +140,42 @@ def repair(store,status,limit=500):
     return not state['done']
 
 
+def add_platform_retirements(store,changes):
+    """Retire a legacy slot only after its exact file has a platform identity."""
+    from .vendor_catalogue import identity
+    for target,value in list(changes.items()):
+        if not target.startswith(store.prefix+'release:') or 'release' not in value:continue
+        row=value['release'];parts=platform_parts(row.get('variant_id'))
+        if not parts:continue
+        legacy=deepcopy(row);base,_=parts
+        if base:legacy.update(variant_id=base,variant_label=LABELS[base])
+        else:legacy.pop('variant_id',None);legacy.pop('variant_label',None)
+        oldkey=store.key('release',identity(value['device'],legacy))
+        old=deepcopy(changes.get(oldkey) or store.get(oldkey))
+        if not old or old.get('status') in ('superseded','excluded'):continue
+        prior=old['release']
+        if filename(prior.get('download_url',''))!=filename(row['download_url']):continue
+        if prior.get('md5') and row.get('md5') and prior['md5']!=row['md5']:continue
+        evidence=store.key('platform_identity_evidence',[oldkey,digest(old)])
+        changes.setdefault(evidence,{'source_target':oldkey,'record':deepcopy(old)})
+        old.update(status='superseded',superseded_by=target,identity_evidence=evidence,error='ArchivePlatformDistinguished',next_check=2**40)
+        changes[oldkey]=old
+        value=deepcopy(value);value['published']=False;changes[target]=value
+
+def retire_platform_slots(store,device,rows):
+    from .vendor_catalogue import identity
+    for row in rows:
+        if not platform_parts(row.get('variant_id')):continue
+        target=store.key('release',identity(device,row));value=store.get(target)
+        if not value:continue
+        changes={target:value};add_platform_retirements(store,changes)
+        if len(changes)>1:store.put_many(list(changes.items()))
+
+
 def reconcile_cached_sources(store,status,limit=20):
     """Re-evaluate quarantined source rows from durable parsed evidence, no HTTP."""
     if getattr(store.db,'mode',None)!='sqlite':raise ValueError('Cached Xiaomi repair must stay local')
-    from .history import HistoryCheckpoint,history_url,conflict_kind,unavailable_full_rom
+    from .history import HistoryCheckpoint,history_url,conflict_kind,unavailable_full_rom,unavailable_reason
     from .xiaomi_variants import engineering
     from .vendor_catalogue import identity,input_hash
     from .catalogue_job import xiaomi_release
@@ -141,29 +188,32 @@ def reconcile_cached_sources(store,status,limit=20):
     reconciled=0;checkpoint=HistoryCheckpoint(store)
     for record in rows:
         key=record['source_target'];value=json.loads(record['last_cursor_val']);device=value['device'];release=value['release']
-        scope=archive_route(device['upstream_id'],device.get('route_code'))
+        scope=archive_route(device['upstream_id'],device.get('route_code'));source_version=release.get('source_version') or release['version']
         model=store.get(store.key('model',device['upstream_id'])) or {}
         urls={p['url'] for p in model.get('provenance',{}).get('detail_pages',[])
-              if p.get('url') and unquote(urlsplit(p['url']).path).rstrip('/').split('/')[-1]==release['version']}
+              if p.get('url') and unquote(urlsplit(p['url']).path).rstrip('/').split('/')[-1]==source_version}
         for family in ('miui','hyperos'):
             for branch in ('stable','stable beta','weekly','public beta'):
-                urls.add(history_url('https://xmfirmwareupdater.com/'+family+'/'+scope+'/'+branch+'/'+release['version']+'/'))
+                urls.add(history_url('https://xmfirmwareupdater.com/'+family+'/'+scope+'/'+branch+'/'+source_version+'/'))
         if len(urls)>20:continue
         saved=checkpoint.read(scope,urls);parsed=[];proof=[]
         for entry in saved.values():
             if entry.get('error'):continue
             proof.append({'url':entry.get('url'),'sha256':entry.get('sha256')})
             for raw in entry.get('rows',[]):
-                if raw.get('version')!=release['version'] or not official(raw.get('link','')):continue
-                row=deepcopy(raw);owner=physical_code(scope,filename(row['link']))
+                if (raw.get('source_version') or raw.get('version'))!=source_version or not official(raw.get('link','')):continue
+                row=deepcopy(raw);declared=row['version'];row['version']=canonical_version(declared,filename(row['link']))
+                if declared!=row['version']:row['source_version']=declared
+                owner=physical_code(scope,filename(row['link']))
                 row['codename']=model_code(owner,row['version'],filename(row['link']))
                 variant=edition(owner,filename(row['link']))
                 if variant:row.update(variant_id=variant,variant_label=LABELS[variant])
                 else:row.pop('variant_id',None);row.pop('variant_label',None)
                 owner_device=corrected_device(store,device,{'download_url':row['link']})
-                candidate=xiaomi_release(owner_device,row)
-                if candidate['kind']==release['kind']:parsed.append((owner_device,candidate,row))
+                parsed.append((owner_device,None,row))
         if not parsed or len(parsed)>8:continue
+        annotate_platforms([raw for _,_,raw in parsed])
+        parsed=[(d,xiaomi_release(d,raw),raw) for d,_,raw in parsed]
         if not any(filename(r['download_url'])==filename(release['download_url']) for _,r,_ in parsed):continue
         groups={}
         for d,r,raw in parsed:groups.setdefault(store.key('release',identity(d,r)),[]).append((d,r,raw))
@@ -201,10 +251,12 @@ def reconcile_cached_sources(store,status,limit=20):
             updated={'device':d,'release':r,'input_hash':input_hash(r),'status':'pending','error':None,'next_check':0,'attempts':0,'last_cycle':'',
                      'published':bool(previous and previous.get('published') and same)}
             if previous and previous.get('publication'):updated['publication']=deepcopy(previous['publication'])
-            if not available:updated.update(status='unavailable',error='UpstreamNotFullROM',next_check=2**40)
+            if not available:updated.update(status='unavailable',error=unavailable_reason(raw) or 'UpstreamNotFullROM',next_check=2**40)
             changes[target]=updated
-        if ambiguous or len(changes)>24:continue
-        if key not in groups:
+        if ambiguous:continue
+        add_platform_retirements(store,changes)
+        if len(changes)>24:continue
+        if key not in groups and key not in changes:
             original=deepcopy(value);original.update(status='superseded',superseded_by=sorted(groups)[0],identity_evidence=evidence,error='ArchiveIdentityCorrected',next_check=2**40)
             changes[key]=original
         store.put_many(list(changes.items()));reconciled+=1

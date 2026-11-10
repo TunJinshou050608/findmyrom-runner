@@ -104,12 +104,15 @@ def bump(summary,error):
 def xiaomi_release(device,row):
     """Project one validated parsed record identically for collection and replay."""
     from .firmware_sync import normalize
+    from .xiaomi_variants import android_version,filename
+    row={**row,'android':android_version(filename(row['link'])) or row.get('android')}
     n=normalize(row,'xiaomi')
     return {'vendor':'xiaomi','device_id':device['upstream_id'],'version':row['version'],
         'region':n['region_code'],'android_version':n['android_version'],
         'kind':'full_ota' if n['package_type']=='recovery_zip' else 'fastboot',
         'date':n['published_date'],'size':n['file_size_str'],'md5':n['md5_or_sha256'],
         'download_url':n['original_official_url'],'origin_kind':'oem','resolution':'resolved',
+        **({'source_version':row['source_version']} if row.get('source_version') else {}),
         **({k:row[k] for k in ('variant_id','variant_label')} if row.get('variant_id') else {})}
 
 

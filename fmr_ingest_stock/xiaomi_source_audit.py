@@ -59,8 +59,15 @@ def main(argv=None):
                           'repair_revision':marker.get('revision'),'repair_done':marker.get('done'),'reconciled_conflicts':marker.get('reconciled_conflicts',0),'source_conflicts_reconciled':marker.get('source_conflicts_reconciled',0),'code_sha':control.get('last_code_sha'),'states':dict(states) if full_check else counts.get('releases',{}),'last_full_check':receipt.get('checked_at')}),flush=True)
         rows=conn.execute("""SELECT source_target,last_cursor_val FROM crawler_sources
             WHERE device_codename='__global__' AND source_kind=? AND source_target GLOB 'v2:xiaomi:release:*'
-            AND json_extract(last_cursor_val,'$.status') IN ('blocked','failed')
-            ORDER BY source_target LIMIT 20""",(KIND,)).fetchall()
+            AND json_extract(last_cursor_val,'$.status') IN ('blocked','failed','unavailable')
+            AND source_target>? ORDER BY source_target LIMIT 20""",(KIND,receipt.get('review_cursor',''))).fetchall()
+        if not rows and receipt.get('review_cursor'):
+            rows=conn.execute("""SELECT source_target,last_cursor_val FROM crawler_sources
+                WHERE device_codename='__global__' AND source_kind=? AND source_target GLOB 'v2:xiaomi:release:*'
+                AND json_extract(last_cursor_val,'$.status') IN ('blocked','failed','unavailable')
+                ORDER BY source_target LIMIT 20""",(KIND,)).fetchall()
+        receipt['review_cursor']=rows[-1][0] if rows else ''
+        heads=0
         print(json.dumps({'event':'xiaomi_source_review','rows':len(rows),'limit':20}),flush=True)
         with httpx.Client(timeout=8,follow_redirects=False) as client:
             for key,raw in rows:
@@ -84,13 +91,14 @@ def main(argv=None):
                     f={'filename':filename(url),'md5':release.get('md5'),'size':release.get('size')}
                     cache_key=hashlib.sha256(url.encode()).hexdigest()
                     saved=cache.get(cache_key,{})
-                    if args.network and saved.get('checked_at',0)+900>time.time():f['head']=saved['head']
-                    elif args.network:
+                    if args.network and 'original_status' in saved.get('head',{}) and saved.get('checked_at',0)+900>time.time():f['head']=saved['head']
+                    elif args.network and heads<20:
                         try:
-                            response=client.head(url)
+                            heads+=1;response=client.head(url)
                             original_status=response.status_code
                             fast=rewrite_to_fast_cdn('xiaomi',url)
-                            if response.status_code in (403,404) and fast!=url:response=client.head(fast)
+                            if response.status_code in (403,404) and fast!=url and heads<20:
+                                heads+=1;response=client.head(fast)
                             f['head']={'status':response.status_code,'type':response.headers.get('content-type'),'length':response.headers.get('content-length'),'etag':response.headers.get('etag'),'original_status':original_status}
                         except httpx.HTTPError as exc:f['head']={'error':type(exc).__name__}
                         cache[cache_key]={'checked_at':int(time.time()),'head':f['head']};changed=True
@@ -102,9 +110,10 @@ def main(argv=None):
         with tempfile.NamedTemporaryFile(mode='w',dir=path.parent,delete=False) as handle:
             json.dump(cache,handle);temporary=handle.name
         Path(temporary).replace(cache_path)
-    if full_check and not issues:
+    if full_check and not issues:receipt.update(sha=os.environ.get('GITHUB_SHA'),checked_at=int(time.time()))
+    if not issues:
         with tempfile.NamedTemporaryFile(mode='w',dir=path.parent,delete=False) as handle:
-            json.dump({'sha':os.environ.get('GITHUB_SHA'),'checked_at':int(time.time())},handle);temporary=handle.name
+            json.dump(receipt,handle);temporary=handle.name
         Path(temporary).replace(receipt_path)
     return 1 if issues else 0
 

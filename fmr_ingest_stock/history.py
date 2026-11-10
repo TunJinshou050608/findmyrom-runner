@@ -14,6 +14,7 @@ import httpx
 from .firmware_sync import normalize
 from .xiaomi_devices import archive_route,base_code,physical_code
 from .cdn_rewriter import FAST_HOST
+from .xiaomi_variants import android_version,canonical_version,annotate_platforms
 
 INDEX = 'https://xmfirmwareupdater.com'
 LABELS = ['Device', 'Codename', 'Version', 'Branch', 'Type', 'Size',
@@ -99,10 +100,11 @@ def parse_detail(html, code, diagnostics=None):
                 diagnostics.append('MissingTrustedFullROMLink')
             rejected += 1
             continue
-        android = re.search(r'(?:_|-)(\d{1,2}\.0)(?:_|-|\.)', filename)
+        android=android_version(filename)
+        declared_version=version;version=canonical_version(version,filename)
         owner=physical_code(code,filename)
         row = {'codename': model_code(owner, version, filename), 'version': version,
-               'android': android[1] if android else 'unknown', 'link': links[0],
+               'android': android or 'unknown', 'link': links[0],
                'md5': field(text, 'MD5').lower() if field(text,'MD5').lower() not in ('','unknown','none','n/a','-') else None, 'date': field(text, 'Release Date'),
                'size': field(text, 'Size'), 'branch': field(text, 'Branch')}
         try:
@@ -115,6 +117,7 @@ def parse_detail(html, code, diagnostics=None):
             diagnostics.append('InvalidFullROMRecord')
             rejected += 1
             continue
+        if declared_version!=version:row['source_version']=declared_version
         rows.append(row)
     return rows, rejected
 
@@ -142,7 +145,7 @@ def bounded_html(client, url, revalidate=False):
 
 
 HISTORY_REVISION = 2
-HISTORY_SEMANTICS_REVISION = 5
+HISTORY_SEMANTICS_REVISION = 6
 DETAIL_TTL = 30 * 86400
 
 
@@ -176,17 +179,26 @@ def conflict_kind(first,other):
     if first.get('md5') and first.get('md5')==other.get('md5'):return 'payload_alias',False
     # Same Xiaomi build stamp/market/platform; the publisher keeps an already
     # published matching archive instead of replacing its URL or signature.
-    shape=lambda name:re.sub(r'_[0-9a-f]{10}(?=\.tgz$)','_HASH',name,flags=re.I)
-    if a.startswith('umi_images_') and b.startswith('umi_images_') and shape(a)==shape(b) and all(
-        re.fullmatch('[0-9a-f]{32}',r.get('md5') or '') and '_'+r['md5'][:10]+'.tgz' in name
-        for r,name in ((first,a),(other,b))):return 'repacked_archive',False
+    def shape(name):
+        return re.sub(r'[_-][0-9a-f]{10}(?=_(?:\d{1,2}\.\d{1,2})\.zip$|\.(?:zip|tgz|tar\.gz)$)','_HASH',name,flags=re.I)
+    def checksum_consistent(row,name):
+        value=row.get('md5')
+        return not value or bool(re.fullmatch('[0-9a-f]{32}',value) and re.search(r'[_-]'+value[:10]+r'(?=_|\.)',name,re.I))
+    if a!=b and shape(a)==shape(b) and all(checksum_consistent(r,name) for r,name in ((first,a),(other,b))):
+        return 'repacked_archive',False
     return 'package_variant',True
 
 
-def unavailable_full_rom(row):
+def unavailable_reason(row):
+    from .xiaomi_delivery import missing,available
+    if available(row):return None
+    if missing(row):return 'DownloadMirrorUnavailable'
     size=str(row.get('size') or '').strip()
     match=re.fullmatch(r'(\d+(?:\.\d+)?)\s*(?:Bytes|B)',size,re.I)
-    return bool(match and float(match[1])<4096 and not row.get('md5') and row.get('date') in (None,'','None','Unknown'))
+    return 'UpstreamNotFullROM' if match and float(match[1])<4096 and not row.get('md5') and row.get('date') in (None,'','None','Unknown') else None
+
+
+def unavailable_full_rom(row):return bool(unavailable_reason(row))
 
 
 def record_key(row):
@@ -307,12 +319,14 @@ def discover_device(code, client=None, route_code=None, max_workers=4, checkpoin
             manifest['revision']=HISTORY_SEMANTICS_REVISION
         from .xiaomi_variants import edition,filename,engineering,LABELS
         for row in records:
+            declared=row['version'];row['version']=canonical_version(declared,filename(row['link']))
+            if declared!=row['version']:row['source_version']=declared
             owner=physical_code(route,filename(row['link']))
             row['codename']=model_code(owner,row['version'],filename(row['link']))
             variant=edition(code,filename(row['link']))
             if variant:row['variant_id']=variant;row['variant_label']=LABELS[variant]
             else:row.pop('variant_id',None);row.pop('variant_label',None)
-        records=[r for r in records if base_code(r['codename'])==code]
+        records=annotate_platforms([r for r in records if base_code(r['codename'])==code])
         unavailable=[r for r in records if unavailable_full_rom(r)]
         if unavailable:
             manifest['unavailable_records']=unavailable
