@@ -127,6 +127,7 @@ def repair(store,status,limit=500):
 
 def reconcile_cached_sources(store,status,limit=20):
     """Re-evaluate quarantined source rows from durable parsed evidence, no HTTP."""
+    if getattr(store.db,'mode',None)!='sqlite':raise ValueError('Cached Xiaomi repair must stay local')
     from .history import HistoryCheckpoint,history_url,conflict_kind,unavailable_full_rom
     from .xiaomi_variants import engineering
     from .vendor_catalogue import identity,input_hash
@@ -183,12 +184,20 @@ def reconcile_cached_sources(store,status,limit=20):
             previous=store.get(target)
             if previous and previous.get('status') not in ('excluded','superseded'):
                 old=previous['release']
-                kind,blocking=conflict_kind({'link':old['download_url'],'md5':old.get('md5')},raw)
-                if blocking and available:ambiguous=True;break
-                if target!=key:
+                prior_device=corrected_device(store,previous['device'],old)
+                prior_target=store.key('release',identity(prior_device,corrected_release(previous['device'],old)))
+                if prior_target!=target:
+                    if prior_target not in groups:ambiguous=True;break
                     prior_evidence=store.key('identity_resolution_evidence',[target,digest(previous)])
                     changes[prior_evidence]={'source_target':target,'record':deepcopy(previous)}
-            same=bool(previous and previous['release'].get('download_url')==r['download_url'] and previous['release'].get('md5')==r.get('md5'))
+                    previous=None
+                else:
+                    kind,blocking=conflict_kind({'link':old['download_url'],'md5':old.get('md5')},raw)
+                    if blocking and available:ambiguous=True;break
+                    if target!=key:
+                        prior_evidence=store.key('identity_resolution_evidence',[target,digest(previous)])
+                        changes[prior_evidence]={'source_target':target,'record':deepcopy(previous)}
+            same=bool(previous and previous.get('status') not in ('excluded','superseded') and previous['release'].get('download_url')==r['download_url'] and previous['release'].get('md5')==r.get('md5'))
             updated={'device':d,'release':r,'input_hash':input_hash(r),'status':'pending','error':None,'next_check':0,'attempts':0,'last_cycle':'',
                      'published':bool(previous and previous.get('published') and same)}
             if previous and previous.get('publication'):updated['publication']=deepcopy(previous['publication'])

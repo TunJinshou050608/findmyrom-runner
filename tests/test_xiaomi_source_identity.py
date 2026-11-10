@@ -103,13 +103,14 @@ def test_conflict_audit_is_read_only_uses_only_head_and_never_logs_secret_fields
         def __exit__(self,*args):pass
         def head(self,url):
             seen.append(url)
-            return httpx.Response(404,headers={'content-length':'464','content-type':'text/html'})
+            return httpx.Response(403 if 'aliyuncs.com' not in url else 200,headers={'content-length':'464','content-type':'text/html'})
     monkeypatch.setattr(audit.httpx,'Client',Client)
     assert audit.main(['--network'])==0
     output=capsys.readouterr().out
-    assert seen==[release['download_url']]
+    from fmr_ingest_stock.cdn_rewriter import rewrite_to_fast_cdn
+    assert seen==[release['download_url'],rewrite_to_fast_cdn('xiaomi',release['download_url'])]
     assert 'PRIVATE_RECEIPT' not in output and 'https://' not in output
-    assert 'sample.zip' in output and '"status": 404' in output
+    assert 'sample.zip' in output and '"status": 200' in output
     assert target.read_bytes()==before
 
 
@@ -265,7 +266,8 @@ def test_legacy_india_markets_do_not_default_to_global(code,name):
     assert region_code(model_code(code,'V12.0.4.0.PDMMIXM',name),'V12.0.4.0.PDMMIXM')=='IN'
 
 
-def test_cached_source_reconciliation_recovers_both_hardware_packages_without_network(env):
+@pytest.mark.parametrize('selected_pro',[False,True])
+def test_cached_source_reconciliation_recovers_both_hardware_packages_without_network(env,selected_pro,monkeypatch):
     from fmr_ingest_stock.xiaomi_identity import reconcile_cached_sources
     from fmr_ingest_stock.catalogue_job import xiaomi_release
     from fmr_ingest_stock.history import model_code
@@ -276,8 +278,8 @@ def test_cached_source_reconciliation_recovers_both_hardware_packages_without_ne
     for name,h in zip(names,('a','b')):
         rows,_=parse_detail(detail(version=version,code='wt86047',filename=name).replace('a'*32,h*32),'wt86047')
         raw.extend(rows)
-    ordinary=next(r for r in raw if 'Pro' not in r['link'])
-    release=xiaomi_release(device,ordinary)
+    selected=next(r for r in raw if ('Pro' in r['link'])==selected_pro)
+    release=xiaomi_release(device,selected)
     job.seed_models(store,[device],{});job.seed_releases(store,device,[release])
     key,value=store.rows('release')[0]
     value.update(status='blocked',error='SourceIdentityConflict',published=True,publication={'public_token':'receipt'})
@@ -286,12 +288,18 @@ def test_cached_source_reconciliation_recovers_both_hardware_packages_without_ne
     HistoryCheckpoint(store).save('wt86047',url,{'revision':2,'url':url,'sha256':'source_digest','rows':raw,'error':None})
     class Status:
         def log(self,*args):pass
-    before=deepcopy(value)
+    before=deepcopy(value);original_rows=dict(store.rows('release'));execute=db.execute_batch
+    def fail(statements):return execute([*statements,('INSERT INTO nonexistent_table VALUES (1)',())])
+    monkeypatch.setattr(db,'execute_batch',fail)
+    with pytest.raises(Exception):reconcile_cached_sources(store,Status())
+    assert dict(store.rows('release'))==original_rows and not store.rows('identity_resolution_evidence')
+    monkeypatch.setattr(db,'execute_batch',execute)
     assert reconcile_cached_sources(store,Status())==1
     active=[v for _,v in store.rows('release') if v['status']!='superseded']
     assert len(active)==2 and {v['release'].get('variant_id') for v in active}=={None,'pro'}
     assert all(v['status']=='pending' for v in active)
-    assert store.get(key)['publication']==before['publication'] and store.get(key)['published']
+    if not selected_pro:assert store.get(key)['publication']==before['publication'] and store.get(key)['published']
+    else:assert not any(v['published'] for v in active)
     assert any(v['record']==before for _,v in store.rows('identity_resolution_evidence'))
     assert reconcile_cached_sources(store,Status())==0
     assert not db.query('SELECT * FROM stock_firmwares')
