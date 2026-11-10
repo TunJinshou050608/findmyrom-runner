@@ -6,16 +6,27 @@ from .catalogue_store import KIND,digest
 from .history import HISTORY_SEMANTICS_REVISION,model_code,official
 from .firmware_sync import region_code
 from .xiaomi_variants import edition,filename,LABELS
+from .xiaomi_devices import physical_code,NAMES,archive_route
 
 
 def corrected_release(device,row):
     if not official(row.get('download_url','')):return row
-    code=device['upstream_id'];name=filename(row['download_url']);result=deepcopy(row)
+    name=filename(row['download_url']);code=physical_code(device['upstream_id'],name);result=deepcopy(row)
     result['region']=region_code(model_code(code,row['version'],name),row['version'])
     variant=edition(code,name)
     if variant:result.update(variant_id=variant,variant_label=LABELS[variant])
     else:result.pop('variant_id',None);result.pop('variant_label',None)
     return result
+
+
+def corrected_device(store,device,row):
+    if not official(row.get('download_url','')):return device
+    owner=physical_code(device['upstream_id'],filename(row['download_url']))
+    if owner==device['upstream_id']:return device
+    saved=store.get(store.key('model',owner))
+    if saved:return deepcopy(saved['device'])
+    return {'vendor':'xiaomi','upstream_id':owner,'codename':owner,
+            'name':NAMES[owner],'route_code':archive_route(owner),'aliases':[NAMES[owner]]}
 
 
 def repair(store,status,limit=500):
@@ -33,7 +44,7 @@ def repair(store,status,limit=500):
         if value.get('status') in ('excluded','superseded'):
             state['cursor']=key;continue
         desired=corrected_release(value['device'],value['release'])
-        target=store.key('release',identity(value['device'],desired))
+        target=store.key('release',identity(corrected_device(store,value['device'],value['release']),desired))
         if key==target:
             state['cursor']=key;continue
         changes={};visiting=set();moves=[0]
@@ -41,14 +52,16 @@ def repair(store,status,limit=500):
         def move(k,depth=0):
             v=deepcopy(read(k));row=v['release'];device=v['device']
             if depth>4 or k in visiting:raise ValueError('Cyclic Xiaomi identity repair; retain original records')
-            desired=corrected_release(device,row);dest=store.key('release',identity(device,desired))
+            desired=corrected_release(device,row);device=corrected_device(store,device,row)
+            if device['upstream_id']!=v['device']['upstream_id']:desired.pop('_metadata',None)
+            dest=store.key('release',identity(device,desired))
             if dest==k:return
             visiting.add(k)
             evidence=store.key('identity_evidence',[k,digest(row)])
             if not read(evidence):changes[evidence]={'source_target':k,'record':deepcopy(v)}
             other=deepcopy(read(dest))
             if other and other.get('status') not in ('excluded','superseded'):
-                other_dest=store.key('release',identity(other['device'],corrected_release(other['device'],other['release'])))
+                other_dest=store.key('release',identity(corrected_device(store,other['device'],other['release']),corrected_release(other['device'],other['release'])))
                 if other_dest!=dest:
                     move(dest,depth+1);other=deepcopy(read(dest))
             if not other or other.get('status') in ('excluded','superseded'):

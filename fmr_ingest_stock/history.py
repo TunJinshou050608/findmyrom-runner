@@ -12,6 +12,8 @@ import time
 from urllib.parse import quote, unquote, urljoin, urlsplit, urlunsplit
 import httpx
 from .firmware_sync import normalize
+from .xiaomi_devices import archive_route,base_code,physical_code
+from .cdn_rewriter import FAST_HOST
 
 INDEX = 'https://xmfirmwareupdater.com'
 LABELS = ['Device', 'Codename', 'Version', 'Branch', 'Type', 'Size',
@@ -55,7 +57,7 @@ def field(text, label):
 def official(url):
     p = urlsplit(url)
     return (p.scheme == 'https' and not p.username and not p.password and not p.port
-            and bool(p.hostname) and (p.hostname == 'd.miui.com' or p.hostname.endswith('.d.miui.com')))
+            and bool(p.hostname) and (p.hostname == FAST_HOST or p.hostname == 'd.miui.com' or p.hostname.endswith('.d.miui.com')))
 
 
 def model_code(code, version, filename=''):
@@ -80,7 +82,7 @@ def parse_detail(html, code, diagnostics=None):
         if 'Package Name:' not in text:
             continue
         version, filename, kind = field(text, 'Version'), field(text, 'Package Name'), field(text, 'Type')
-        if field(text, 'Codename').split('_', 1)[0].lower() != code:
+        if archive_route(base_code(field(text, 'Codename'))) != archive_route(code):
             rejected += 1
             continue
         links = sorted({u for u in group['urls'] if official(u)
@@ -90,13 +92,14 @@ def parse_detail(html, code, diagnostics=None):
             rejected += 1
             continue
         android = re.search(r'(?:_|-)(\d{1,2}\.0)(?:_|-|\.)', filename)
-        row = {'codename': model_code(code, version, filename), 'version': version,
+        owner=physical_code(code,filename)
+        row = {'codename': model_code(owner, version, filename), 'version': version,
                'android': android[1] if android else 'unknown', 'link': links[0],
                'md5': field(text, 'MD5').lower() if field(text,'MD5').lower() not in ('','unknown','none','n/a','-') else None, 'date': field(text, 'Release Date'),
                'size': field(text, 'Size'), 'branch': field(text, 'Branch')}
         try:
             item = normalize(row, 'xiaomi')
-            if item['device_codename'] != code or (row['md5'] and not re.fullmatch('[0-9a-f]{32}', row['md5'])):
+            if item['device_codename'] != owner or (row['md5'] and not re.fullmatch('[0-9a-f]{32}', row['md5'])):
                 raise ValueError('Invalid record')
             if (kind == 'Recovery') != (item['package_type'] == 'recovery_zip'):
                 raise ValueError('Package kind mismatch')
@@ -131,7 +134,7 @@ def bounded_html(client, url, revalidate=False):
 
 
 HISTORY_REVISION = 2
-HISTORY_SEMANTICS_REVISION = 3
+HISTORY_SEMANTICS_REVISION = 4
 DETAIL_TTL = 30 * 86400
 
 
@@ -177,7 +180,7 @@ def discover_device(code, client=None, route_code=None, max_workers=4, checkpoin
         raise ValueError('Invalid discovery concurrency')
     if not re.fullmatch('[a-z0-9-]{2,32}', code):
         raise ValueError('Invalid target')
-    route = route_code or code
+    route = archive_route(code,route_code)
     if not re.fullmatch('[A-Za-z0-9-]{2,32}',route):raise ValueError('Invalid archive route')
     if max_details is not None and (type(max_details) is not int or not 1<=max_details<=100):raise ValueError('Invalid detail budget')
     owned = client is None
@@ -221,7 +224,7 @@ def discover_device(code, client=None, route_code=None, max_workers=4, checkpoin
                     archives.append(history_url(absolute))
         manifest['discovered_pages'] = len(versions)
         now=int(time.time())
-        saved=checkpoint.read(code,versions) if checkpoint else {}
+        saved=checkpoint.read(route,versions) if checkpoint else {}
         records=[];todo=[];pending=[];retry_at=[]
         for url in sorted(versions):
             entry=saved.get(url,{})
@@ -249,7 +252,7 @@ def discover_device(code, client=None, route_code=None, max_workers=4, checkpoin
                 revalidate=bool(entry.get('error') or entry.get('review_needed'))
                 data=bounded_html(client,url,revalidate=revalidate)
                 diagnostics=[]
-                rows,rejected=parse_detail(data.decode('utf-8'),code,diagnostics)
+                rows,rejected=parse_detail(data.decode('utf-8'),route,diagnostics)
                 error='RejectedFullROMRecord' if diagnostics else None if rows else 'NoFullROMRecord'
                 return url,rows,rejected,hashlib.sha256(data).hexdigest(),error,200
             except Exception as exc:
@@ -265,7 +268,7 @@ def discover_device(code, client=None, route_code=None, max_workers=4, checkpoin
                 entry={'revision':HISTORY_REVISION,'url':url,'sha256':digest,'records':len(retained),
                        'rows':retained,'checked_at':now,'rejected':rejected,'error':error,'status':status,
                        'next_check':now+delay if error else now+DETAIL_TTL}
-                if checkpoint:checkpoint.save(code,url,entry)
+                if checkpoint:checkpoint.save(route,url,entry)
                 saved[url]=entry
                 manifest['detail_pages'].append({k:entry[k] for k in ('url','sha256','records','checked_at','rejected')})
                 if error:
@@ -281,10 +284,12 @@ def discover_device(code, client=None, route_code=None, max_workers=4, checkpoin
             manifest['revision']=HISTORY_SEMANTICS_REVISION
         from .xiaomi_variants import edition,filename,engineering,LABELS
         for row in records:
-            row['codename']=model_code(code,row['version'],filename(row['link']))
+            owner=physical_code(route,filename(row['link']))
+            row['codename']=model_code(owner,row['version'],filename(row['link']))
             variant=edition(code,filename(row['link']))
             if variant:row['variant_id']=variant;row['variant_label']=LABELS[variant]
             else:row.pop('variant_id',None);row.pop('variant_label',None)
+        records=[r for r in records if base_code(r['codename'])==code]
         unique = {};blocked_keys=set()
         for row in sorted(records, key=lambda r: (engineering(filename(r['link'])), not bool(r.get('md5')), r['link'])):
             key=record_key(row)
@@ -301,7 +306,7 @@ def discover_device(code, client=None, route_code=None, max_workers=4, checkpoin
                 entry=saved.get(url,{})
                 review=any(record_key(row) in blocked_keys for row in entry.get('rows',[]))
                 if review and not entry.get('review_needed'):
-                    entry['review_needed']=True;checkpoint.save(code,url,entry)
+                    entry['review_needed']=True;checkpoint.save(route,url,entry)
         if not unique and not pending:
             manifest['errors'].append({'stage': 'coverage', 'error': 'NoHistoryFound'})
         return sorted((row for key,row in unique.items() if key not in blocked_keys), key=lambda r: (r['date'], r['version'], r['link']), reverse=True), manifest

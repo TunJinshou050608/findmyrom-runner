@@ -110,8 +110,9 @@ def publish_release(db,device,release):
         from .history import model_code,official
         from .firmware_sync import region_code
         from .xiaomi_variants import edition,filename,model_key
+        from .xiaomi_devices import physical_code
         expected=region_code(model_code(device['upstream_id'],release['version'],filename(url)),release['version'])
-        if not official(url) or expected!=region or edition(device['upstream_id'],filename(url))!=release.get('variant_id'):
+        if physical_code(device['upstream_id'],filename(url))!=device['upstream_id'] or not official(url) or expected!=region or edition(device['upstream_id'],filename(url))!=release.get('variant_id'):
             raise FirmwareIdentityPending('Xiaomi archive market or edition disagrees with descriptor; retain pending')
         if release.get('variant_id'):model=model_key(model,release['variant_id'])
     existing=db.query("SELECT public_token,extract_status,original_official_url,fast_cdn_url,md5_or_sha256 FROM stock_firmwares WHERE device_codename=? AND region_code=? AND version_str=? AND package_type=? AND COALESCE(NULLIF(model_code,''),device_codename)=?",

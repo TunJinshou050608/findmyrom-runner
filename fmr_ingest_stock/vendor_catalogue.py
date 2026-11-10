@@ -39,7 +39,10 @@ def upgrade_adapters(store,status):
         if (store.get(key) or {}).get('revision')==HISTORY_REVISION:return
         changes=[]
         for target,value in store.rows('model'):
-            if value.get('status') in ('retry','failed','blocked'):
+            if value.get('status') in ('retry','failed','blocked') or value['device']['upstream_id'] in ('emerald','emeraldr','shennong','shennongt'):
+                from .xiaomi_devices import archive_route,NAMES
+                if value['device']['upstream_id'] in NAMES:value['device']['name']=NAMES[value['device']['upstream_id']]
+                value['device']['route_code']=archive_route(value['device']['upstream_id'],value['device'].get('route_code'))
                 value.update(status='pending',next_check=0,last_cycle='',attempts=0,error=None)
                 changes.append((target,value))
         store.put_many(changes);store.put(key,{'revision':HISTORY_REVISION})
@@ -453,6 +456,9 @@ def run(db,vendor,mode='audit',operation='incremental',cycle='',sequence=1,clien
     store=Store(db,vendor);key=store.key('control');control=store.get(key)
     with Status(vendor) as status:
         upgrade_adapters(store,status)
+        if vendor=='xiaomi' and control and control.get('device_identity_revision')!=4:
+            control.update(device_identity_revision=4,discovery_checked_at=1)
+            control.pop('discovery_cycle',None)
         if int(os.environ.get('GITHUB_RUN_ATTEMPT','1'))>1 and control and control['state']=='completed_with_gaps':
             cycle='';mode=control['mode'];operation='retry_failed'
             status.log('收到失败任务的重新运行请求；复用成功记录，只重试失败项。')

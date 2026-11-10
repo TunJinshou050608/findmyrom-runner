@@ -93,6 +93,9 @@ def normalize(row, brand):
         raise ValueError("Firmware must be a mapping")
     model = text(row.get("codename"))
     code = model.lower().split("_", 1)[0]
+    if brand=="xiaomi":
+        from .xiaomi_devices import base_code,source_model
+        model=source_model(model);code=base_code(model)
     version = text(row.get("version"))
     if not re.fullmatch("[a-z0-9-]{2,32}", code) or not re.fullmatch(
         "[A-Za-z0-9._-]{2,64}", version

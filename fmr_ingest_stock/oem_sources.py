@@ -66,6 +66,9 @@ def download_origin(vendor, url):
     p = safe_url(url)
     if vendor=='oneplus' and p.hostname=='android.googleapis.com' and re.fullmatch(r'/packages/ota-api/[A-Za-z0-9/_-]+\.zip',p.path):
         return 'oem'
+    if vendor=='xiaomi':
+        from .cdn_rewriter import FAST_HOST
+        if p.hostname==FAST_HOST:return 'oem'
     for root in OEM_HOSTS.get(vendor, ()):
         if p.hostname == root or p.hostname.endswith('.'+root):
             return 'oem'
@@ -196,22 +199,23 @@ def atlas_devices(vendor, http):
 
 def xiaomi_devices(http):
     from .device_identity import clean_model_name
+    from .xiaomi_devices import base_code,source_model,archive_route
     source='https://raw.githubusercontent.com/XiaomiFirmwareUpdater/miui-updates-tracker/master/data/devices.yml'
     rows=yaml.safe_load(http.get(source))
     if not isinstance(rows,dict):raise ValueError('Invalid upstream Xiaomi device dictionary')
     devices={}
     for variant,labels in rows.items():
-        code=str(variant).lower().split('_',1)[0]
+        code=base_code(variant)
         if not re.fullmatch('[a-z0-9-]{2,32}',code):continue
         name=clean_model_name(labels[0] if isinstance(labels,list) and labels else code)
-        route=str(variant).split('_',1)[0]
+        route=archive_route(code,str(variant).split('_',1)[0])
         item=devices.setdefault(code,{'vendor':'xiaomi','upstream_id':code,'name':str(name)[:128],'aliases':[],
             'codename':code,'route_code':route,'page':'https://xmfirmwareupdater.com/archive/miui/'+route+'/',
             'source_kind':'community_index','catalogue_source':source})
         if name not in item['aliases']:item['aliases'].append(name)
         # Prefer the explicitly global product label, retaining other names for
         # the same codename instead of forcing the first (usually China) label.
-        if str(variant).lower()==code+'_global':item['name']=name[:128]
+        if source_model(variant)==code+'_global':item['name']=name[:128]
     if not devices:raise ValueError('No Xiaomi device catalogue discovered')
     return sorted(devices.values(),key=lambda d:d['upstream_id']),[]
 
