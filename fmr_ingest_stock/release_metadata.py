@@ -54,6 +54,9 @@ def normalize(device, release):
             release={**release,'os_name':inferred['os_name'],'os_version':inferred['os_version']}
     raw = str(release['version']).strip()
     model = str(device.get('codename') or device['upstream_id'])
+    if vendor=='xiaomi' and release.get('variant_id'):
+        from .xiaomi_variants import model_key
+        model=model_key(model,release['variant_id'])
     display = raw
     fields = {}
     if vendor == 'samsung':
@@ -89,7 +92,7 @@ def normalize(device, release):
         p=urlsplit(source);source=p._replace(query='',fragment='').geturl()
     result = {'schema': REVISION, 'vendor': vendor, 'model': model, 'raw_version': raw,
               'display_version': display, 'region': google_identity(device,release)[1] if vendor == 'google' else release.get('region') or 'Global',
-              'android_version': android_version, 'os_name': os_match[1] if os_match else clean(release.get('os_name')) or None,
+              'android_version': android_version, **({'variant_label':release.get('variant_label')} if vendor=='xiaomi' and release.get('variant_id') else {}), 'os_name': os_match[1] if os_match else clean(release.get('os_name')) or None,
               'os_version': os_match[2] or None if os_match else clean(release.get('os_version')) or None,
               'published_date': iso_date(official.get('date') or release.get('date')),
               'security_patch': iso_date(official.get('patch') or release.get('security_patch')), 'original_filename': filename,

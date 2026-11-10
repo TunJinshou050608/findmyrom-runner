@@ -34,13 +34,13 @@ ADAPTER_REVISION='20261101-download-refresh-1'
 def upgrade_adapters(store,status):
     """Retry affected local records once per adapter revision, never per start."""
     if store.vendor=='xiaomi':
-        from .history import HISTORY_REVISION
+        from .history import HISTORY_SEMANTICS_REVISION as HISTORY_REVISION
         key=store.key('history_revision')
         if (store.get(key) or {}).get('revision')==HISTORY_REVISION:return
         changes=[]
         for target,value in store.rows('model'):
             if value.get('status') in ('retry','failed','blocked'):
-                value.update(status='pending',next_check=0,last_cycle='',attempts=0)
+                value.update(status='pending',next_check=0,last_cycle='',attempts=0,error=None)
                 changes.append((target,value))
         store.put_many(changes);store.put(key,{'revision':HISTORY_REVISION})
         status.log(f'小米历史解析已更新：定向恢复 {len(changes)} 个缺口机型，保留已解析版本；每次最多补查 32 个详情页。')
@@ -115,7 +115,7 @@ class Status:
             '\n本工作流处理目录和下载链接；没有执行真实镜像下载、提取或发布验收。',
             '\n| 对象 | 状态 | 数量 |','| --- | --- | ---: |']
         names={'models':'机型','releases':'固件记录'}
-        states={'pending':'待处理','ok':'已检查','resolved':'链接已解析','blocked':'来源受限 / 待解决','failed':'重试耗尽','retry':'等待重试'}
+        states={'pending':'待处理','ok':'已检查','resolved':'链接已解析','blocked':'来源受限 / 待解决','failed':'重试耗尽','retry':'等待重试','superseded':'身份已改正，原始证据保留'}
         for stage,values in self.counts.items():
             for state,n in values.items():lines.append(f'| {names.get(stage,stage)} | {states.get(state,state)} | {n} |')
         lines+=['\n## 本批页面请求',f"\n网络请求 {self.stats.get('network',0)} · 缓存复用 {self.stats.get('cache_hits',0)} · 304 未变化 {self.stats.get('not_modified',0)}",
@@ -141,7 +141,8 @@ class Status:
 
 def identity(device,row=None):
     if row is None:return device['upstream_id']
-    return [device['upstream_id'],row.get('version'),row.get('region'),row.get('kind')]
+    result=[device['upstream_id'],row.get('version'),row.get('region'),row.get('kind')]
+    return result+[row['variant_id']] if row.get('variant_id') else result
 
 
 def download_input_hash(row):
@@ -152,7 +153,9 @@ def download_input_hash(row):
 
 
 def input_hash(row):
-    return digest([download_input_hash(row),{k:row.get(k) for k in ('android_version','os_raw','os_name','os_version','date','security_patch','size','metadata_source','filename','_official_metadata')}])
+    fields={k:row.get(k) for k in ('android_version','os_raw','os_name','os_version','date','security_patch','size','metadata_source','filename','_official_metadata')}
+    if row.get('variant_id'):fields.update(variant_id=row['variant_id'],variant_label=row.get('variant_label'))
+    return digest([download_input_hash(row),fields])
 
 
 def upgrade_metadata(store,http,limit=50):
@@ -351,7 +354,7 @@ def batch(store,control,http,status):
                 for conflict in provenance.get('conflicts',[]):
                     if not conflict.get('blocking',True):continue
                     k=conflict['key'];kind='full_ota' if k[3]=='recovery_zip' else 'fastboot'
-                    target=store.key('release',identity(device,{'version':k[2],'region':k[1],'kind':kind}))
+                    target=store.key('release',identity(device,{'version':k[2],'region':k[1],'kind':kind,**({'variant_id':k[4]} if len(k)>4 else {})}))
                     prior=store.get(target)
                     if prior:
                         prior.update(status='blocked',error='SourceIdentityConflict',next_check=now+FAILURE_TTL,last_cycle=cycle)
@@ -479,7 +482,10 @@ def run(db,vendor,mode='audit',operation='incremental',cycle='',sequence=1,clien
         status.update(stats=cache.stats)
         http=MetadataHTTP(cache);http.history_workers=1
         try:
+            from .xiaomi_identity import repair_until_deadline as repair_xiaomi_identity
             if not migrate(store,status):
+                more=True;counts=store.counts();changed=0
+            elif vendor=='xiaomi' and repair_xiaomi_identity(store,status,cache.deadline):
                 more=True;counts=store.counts();changed=0
             else:
                 metadata_upgraded=upgrade_metadata(store,http)

@@ -19,6 +19,7 @@ from .device_sync import BRANDS, ensure_base_brands_and_anchor
 def region_code(code, version):
     for suffix, region in [
         ("eea", "EEA"),
+        ("sg", "SG"),
         ("in", "IN"),
         ("jp", "JP"),
         ("tw", "TW"),
@@ -115,9 +116,14 @@ def normalize(row, brand):
             digest = candidate
             break
     date = text(row.get("date"))
+    region=region_code(model.lower(),version)
+    variant=row.get("variant_id") if brand=="xiaomi" else None
+    if variant:
+        from .xiaomi_variants import version_key,model_key
+        version=version_key(version,variant);model=model_key(code,variant)
     return dict(
         device_codename=code,
-        region_code=region_code(model.lower(), version),
+        region_code=region,
         model_code=model,
         version_str=version,
         android_version=text(row.get("android")) or "unknown",

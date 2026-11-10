@@ -94,3 +94,18 @@ def test_every_vendor_and_stock_publisher_require_a_fresh_snapshot_before_upload
     assert load('catalogue_samsung.yml')['jobs']['catalogue']['if']=="github.ref == 'refs/heads/main'"
     for vendor in ('huawei','honor'):
         assert load('catalogue_'+vendor+'.yml')['jobs']['catalogue']['if']=="github.ref == 'refs/heads/main' && false"
+
+
+def test_xiaomi_snapshot_retry_keeps_handoff_gated_on_success():
+    steps=load('catalogue_xiaomi.yml')['jobs']['catalogue']['steps']
+    first=next(s for s in steps if s.get('id')=='snapshot')
+    retry=next(s for s in steps if s.get('id')=='snapshot_retry')
+    assert first['continue-on-error'] is True
+    assert "steps.export_check.outcome == 'success'" in retry['if']
+    assert "steps.snapshot.outcome == 'failure'" in retry['if']
+    assert retry['with']['name']==first['with']['name']
+    assert retry['with']['path']==first['with']['path']
+    assert retry['with']['overwrite'] is True
+    for step in steps:
+        if 'staged_catalogue next' in step.get('run','') or 'staged_catalogue prune' in step.get('run',''):
+            assert "steps.snapshot.outcome == 'success' || steps.snapshot_retry.outcome == 'success'" in step['if']

@@ -97,12 +97,23 @@ def publish_release(db,device,release):
     if vendor=='google':
         from .release_metadata import google_identity
         raw_version,region,_=google_identity(device,release)
+    if vendor=='xiaomi' and release.get('variant_id'):
+        from .xiaomi_variants import version_key
+        raw_version=version_key(raw_version,release['variant_id'])
     version=build_version(raw_version)
     kind=package_kind(vendor,release)
     fast=rewrite_to_fast_cdn(vendor,url)
     digest=release.get('sha256') or release.get('md5')
     if digest and not re.fullmatch('[0-9a-fA-F]{32}|[0-9a-fA-F]{64}',digest):raise ValueError('Invalid source checksum')
     model=str(device.get('codename') or device['upstream_id'])
+    if vendor=='xiaomi':
+        from .history import model_code,official
+        from .firmware_sync import region_code
+        from .xiaomi_variants import edition,filename,model_key
+        expected=region_code(model_code(device['upstream_id'],release['version'],filename(url)),release['version'])
+        if not official(url) or expected!=region or edition(device['upstream_id'],filename(url))!=release.get('variant_id'):
+            raise FirmwareIdentityPending('Xiaomi archive market or edition disagrees with descriptor; retain pending')
+        if release.get('variant_id'):model=model_key(model,release['variant_id'])
     existing=db.query("SELECT public_token,extract_status,original_official_url,fast_cdn_url,md5_or_sha256 FROM stock_firmwares WHERE device_codename=? AND region_code=? AND version_str=? AND package_type=? AND COALESCE(NULLIF(model_code,''),device_codename)=?",
                  (code,region,version,kind,model))
     if vendor=='google' and not existing:
@@ -135,7 +146,7 @@ def publish_release(db,device,release):
         db.execute('''INSERT OR IGNORE INTO stock_firmwares(public_token,device_codename,region_code,model_code,
             version_str,android_version,package_type,file_size_str,md5_or_sha256,original_official_url,fast_cdn_url,
             published_date,ed25519_signature,extract_status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
-            (token,code,region,str(device.get('codename') or device['upstream_id']),version,
+            (token,code,region,model,version,
              (re.match(r'^\d+(?:\.\d+)*',str(release.get('android_version') or ''))[0] if re.match(r'^\d+(?:\.\d+)*',str(release.get('android_version') or '')) else str(release.get('android_version') or 'unknown')),kind,release.get('size'),digest.lower() if digest else None,
              url,fast,release.get('date'),signature,status))
     row=db.query("SELECT public_token,extract_status,original_official_url,fast_cdn_url,md5_or_sha256 FROM stock_firmwares WHERE device_codename=? AND region_code=? AND version_str=? AND package_type=? AND COALESCE(NULLIF(model_code,''),device_codename)=?",

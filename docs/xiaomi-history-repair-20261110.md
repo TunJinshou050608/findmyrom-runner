@@ -65,3 +65,59 @@ The correction used zero production D1 requests/writes and downloaded no ROM or
 partition images. Existing publisher pause switches and workflows were unchanged.
 Source 404/503 responses and genuine unresolved file conflicts remain visible;
 they are not converted into successful coverage claims.
+
+
+## Full saved-state closure audit and follow-up
+
+Read-only inspection covered all 335 model records and every saved release,
+including the provenance of every legacy conflict. A consistent metadata-only
+export contained 54,567 release rows. No HTML cache, credentials, ROM files or
+production D1 data was exported. Replay used a disposable local SQLite database
+with HTTP requests forbidden.
+
+| Replay check | Result |
+| --- | ---: |
+| Original release rows | 54,567 |
+| Original archives and publication receipts preserved | 54,567 |
+| Incorrect legacy identities corrected | 4,514 |
+| Active identity mismatches after repair | 0 |
+| Active candidates requiring conflict review | 13 |
+| Re-running a completed repair | No changes |
+| Network / production D1 requests | 0 / 0 |
+
+The corrected copy contains 58,298 release slots, including 4,514 superseded
+slots retaining evidence. Counts are not unique version counts. Conflict rows
+remain blocked, with immutable original records available for investigation.
+
+Follow-up changes:
+
+- Repair old queued regions and known editions before normal collection. A
+  persistent ordered cursor processes 500 rows per atomic batch within the job's
+  existing time budget. Original evidence, source slots, target slots and counts
+  commit together. Replays and interrupted runs are safe; no records are deleted.
+- Distinguish Singapore packages and five proven editions: China Mobile hermes,
+  China Telecom LTE cancro, China Telecom umi, Pro wt88047 and 48 MP picasso.
+  Existing ordinary identities stay stable. Known editions get distinct internal
+  keys and human-readable metadata; website labels and SEO show the real version
+  plus edition. Exact archive names remain visible.
+- Recognize userroot/userdebug/engineering builds, and same-checksum file aliases.
+  Contradictory checksums or genuinely different unresolved files remain blocked.
+- Due failed/conflicted pages revalidate stale HTML rather than reusing the same
+  invalid cache for another 30 days. Healthy pages retain normal cache behavior.
+- Publication checks trusted filename market/edition against staged descriptors.
+  This is an additional guard even if a legacy candidate reaches the publisher.
+- Real run 42778485051 collected and verified its snapshot successfully, but
+  GitHub CreateArtifact failed with ECONNRESET and prevented continuation. Xiaomi
+  now retries the same verified encrypted snapshot once. Pruning and continuation
+  require a successful attempt. Both failures produce a failed run and preserve
+  the local checkpoint; no endless retry or unbacked continuation is introduced.
+
+At export time the model states were 100 ok, 226 pending, 5 retry and 4 blocked.
+Pending work is unfinished history, not successful coverage. In particular,
+emeraldr and shennongt had no working archive family (404); unused archive
+families for hm2013023 and steppe had 503 responses. These source gaps are visible
+and retained; no unproven cross-device alias is substituted.
+
+The earlier production D1 rows have not been rewritten. Publisher pause variables
+remain enabled. Public site reads and native local D1 tests do not constitute
+production publication or firmware-download acceptance.

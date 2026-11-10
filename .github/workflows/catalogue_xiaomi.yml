@@ -76,6 +76,7 @@ jobs:
     - name: 持久保存加密进度；断开后可续接
       if: always() && steps.export_check.outcome == 'success'
       id: snapshot
+      continue-on-error: true
       uses: actions/upload-artifact@v4
       with:
         name: catalogue-v3-xiaomi
@@ -83,12 +84,26 @@ jobs:
         if-no-files-found: error
         retention-days: 90
         compression-level: 0
+    - name: 网络中断后重试保存同一份已校验快照
+      id: snapshot_retry
+      if: always() && steps.export_check.outcome == 'success' && steps.snapshot.outcome == 'failure'
+      uses: actions/upload-artifact@v4
+      with:
+        name: catalogue-v3-xiaomi
+        path: ${{ env.FMR_CATALOGUE_STATE_DIR }}/upload/xiaomi.sqlite.enc
+        if-no-files-found: error
+        retention-days: 90
+        compression-level: 0
+        overwrite: true
     - name: 仅保留最近三份加密快照
-      if: steps.snapshot.outcome == 'success'
+      if: always() && (steps.snapshot.outcome == 'success' || steps.snapshot_retry.outcome == 'success')
       run: python -m fmr_ingest_stock.staged_catalogue prune --vendor xiaomi
     - name: 有积压就自动接下一批
-      if: steps.snapshot.outcome == 'success' && steps.collect.outcome == 'success'
+      if: always() && (steps.snapshot.outcome == 'success' || steps.snapshot_retry.outcome == 'success') && steps.collect.outcome == 'success'
       run: python -m fmr_ingest_stock.staged_catalogue next --vendor xiaomi
+    - name: 报告快照保存失败；保留本机断点等待下次运行
+      if: always() && steps.export_check.outcome == 'success' && steps.snapshot.outcome != 'success' && steps.snapshot_retry.outcome != 'success'
+      run: exit 1
     - name: 报告本批中断
       if: steps.collect.outcome == 'failure'
       run: exit 1

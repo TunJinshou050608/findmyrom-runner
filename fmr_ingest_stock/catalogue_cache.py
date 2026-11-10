@@ -82,7 +82,8 @@ class CachedClient:
                 # Rebuild a damaged cache document from its trusted source; never
                 # clear the successfully resolved model/release checkpoints.
                 cached=None;self.memory.pop(key,None)
-        if cached and not self.force and now<cached['checked_at']+ttl:
+        bypass=any(str(k).lower()=='cache-control' and 'no-cache' in str(v).lower() for k,v in (kwargs.get('headers') or {}).items())
+        if cached and not self.force and not bypass and now<cached['checked_at']+ttl:
             self.stats['cache_hits']+=1
             response=httpx.Response(200,headers=cached['headers'],content=cached_body,request=httpx.Request('GET',url))
             try:yield response

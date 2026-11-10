@@ -2,6 +2,7 @@
 import json
 import time
 from contextlib import contextmanager
+from copy import deepcopy
 from pathlib import Path
 
 import httpx
@@ -104,7 +105,7 @@ def test_real_conflict_quarantines_both_files_but_debug_variant_does_not(env):
             if req.url.path.startswith('/archive/hyperos/'):return httpx.Response(404)
             return httpx.Response(200,text=html)
         with httpx.Client(transport=httpx.MockTransport(route)) as raw:return discover_device('sample',raw)
-    rows,m=run(detail()+detail(filename='miui_SAMPLE_other_13.0.zip'))
+    rows,m=run(detail()+detail(filename='miui_SAMPLE_other_13.0.zip').replace('a'*32,'b'*32))
     assert not rows and m['conflicts'][0]['blocking'] and m['conflicts'][0]['kind']=='package_variant'
     rows,m=run(detail(kind='Fastboot')+detail(kind='Fastboot',filename='sample_images_V1.0.0.0.TXXMIXM.debug_13.0_aaaaaaaaaa.tgz'))
     assert len(rows)==1 and '.debug' not in rows[0]['link']
@@ -132,7 +133,7 @@ def test_legacy_failed_model_upgrade_keeps_existing_release_and_healthy_model(en
 
 def test_existing_xiaomi_identity_cannot_be_acknowledged_with_another_archive(env):
     db,_=env;device={'vendor':'xiaomi','upstream_id':'sample','codename':'sample','name':'Sample'}
-    release={'version':'8.10.11','region':'CN','android_version':'8.1','kind':'full_ota','download_url':'https://bigota.d.miui.com/8.10.11/miui_SAMPLEGlobal_8.10.11_aaaaaaaaaa_8.1.zip'}
+    release={'version':'8.10.11','region':'CN','android_version':'8.1','kind':'full_ota','download_url':'https://bigota.d.miui.com/8.10.11/miui_SAMPLE_8.10.11_aaaaaaaaaa_8.1.zip'}
     result=publish_release(db,device,release)
     before=db.query('SELECT * FROM stock_firmwares');metadata=db.query('SELECT * FROM firmware_metadata')
     with pytest.raises(FirmwareIdentityPending):publish_release(db,device,{**release,'download_url':'https://bigota.d.miui.com/8.10.11/miui_SAMPLE_8.10.11_bbbbbbbbbb_8.1.zip'})
@@ -243,3 +244,111 @@ def test_conflicting_same_url_checksums_do_not_overwrite_known_digest():
     rows,m=run(detail()+detail().replace('a'*32,'b'*32))
     assert not rows and m['conflicts'][0]['kind']=='checksum_conflict'
     assert m['conflicts'][0]['blocking']
+
+
+def test_singapore_and_engineering_builds_do_not_block_normal_archives(env):
+    db,_=env
+    html=detail(version='V6.6.1.0.KHBMICF',code='HM2013023',filename='miui_HMWGlobal_V6.6.1.0.KHBMICF_aaaaaaaaaa_4.4.zip')+detail(version='V6.6.1.0.KHBMICF',code='HM2013023',filename='miui_HMWSGGlobal_V6.6.1.0.KHBMICF_bbbbbbbbbb_4.4.zip')
+    rows,_=parse_detail(html,'hm2013023')
+    from fmr_ingest_stock.firmware_sync import normalize
+    assert {normalize(r,'xiaomi')['region_code'] for r in rows}=={'Global','SG'}
+    def route(req):
+        if req.url.path.startswith('/archive/miui/'):return httpx.Response(404)
+        if req.url.path.startswith('/archive/hyperos/'):return httpx.Response(200,text='<a href="/hyperos/jinghu/stable/OS2.0.108.0.VOXCNXM/">v</a>')
+        return httpx.Response(200,text=detail(version='OS2.0.108.0.VOXCNXM',code='jinghu',kind='Fastboot',filename='jinghu-images-OS2.0.108.0.VOXCNXM-user-20250520.0000.00-15.0-cn-aaaaaaaaaa.tgz')+detail(version='OS2.0.108.0.VOXCNXM',code='jinghu',kind='Fastboot',filename='jinghu-images-OS2.0.108.0.VOXCNXM-userroot-20250520.0000.00-15.0-cn-bbbbbbbbbb.tgz'))
+    with httpx.Client(transport=httpx.MockTransport(route)) as client:rows,m=discover_device('jinghu',client)
+    assert len(rows)==1 and '-user-' in rows[0]['link']
+    assert m['conflicts'][0]['kind']=='engineering_variant' and not m['conflicts'][0]['blocking']
+
+
+@pytest.mark.parametrize('code,normal,special,variant',[
+ ('hermes','hermes_images_BUILD_5.0_cn_a.tgz','hermes_images_BUILD_5.0_cn_cmonly_b.tgz','cmonly'),
+ ('cancro','miui_MI3WMI4W_BUILD_a_6.0.zip','miui_MI4LTECT_BUILD_b_6.0.zip','lte-ct'),
+ ('umi','umi_images_BUILD_10.0_cn_a.tgz','umi_images_BUILD_10.0_cn_chinatelecom_b.tgz','china-telecom'),
+ ('wt88047','miui_HM2XWCGlobal_BUILD_a_4.4.zip','miui_HM2XWCProGlobal_BUILD_b_5.1.zip','pro'),
+ ('picasso','miui_PICASSO_BUILD_a_11.0.zip','miui_PICASSO48M_BUILD_b_11.0.zip','48mp')])
+def test_hardware_editions_have_distinct_checkpoint_and_public_identities(env,code,normal,special,variant):
+    db,_=env;version='V1.0.0.0.TESTCNXM';normal=normal.replace('BUILD',version);special=special.replace('BUILD',version)
+    html=detail(version=version,code=code,kind='Fastboot' if normal.endswith('.tgz') else 'Recovery',filename=normal)+detail(version=version,code=code,kind='Fastboot' if special.endswith('.tgz') else 'Recovery',filename=special).replace('a'*32,'b'*32)
+    def route(req):
+        if req.url.path.startswith('/archive/miui/'):return httpx.Response(200,text=f'<a href="/miui/{code}/stable/{version}/">v</a>')
+        if req.url.path.startswith('/archive/hyperos/'):return httpx.Response(404)
+        return httpx.Response(200,text=html)
+    with httpx.Client(transport=httpx.MockTransport(route)) as client:rows,m=discover_device(code,client)
+    assert len(rows)==2 and not m['conflicts']
+    variant_row=next(r for r in rows if r.get('variant_id'))
+    assert variant_row['variant_id']==variant
+    device={'vendor':'xiaomi','upstream_id':code,'codename':code,'name':code};store=Store(db,'xiaomi')
+    from fmr_ingest_stock.firmware_sync import normalize
+    public_tokens=[]
+    for row in rows:
+        n=normalize(row,'xiaomi');release={'version':row['version'],'region':n['region_code'],'kind':'fastboot' if normal.endswith('.tgz') else 'full_ota','download_url':row['link'],'md5':row['md5'],**({k:row[k] for k in ('variant_id','variant_label')} if row.get('variant_id') else {})}
+        job.seed_releases(store,device,[release]);public_tokens.append(publish_release(db,device,release)['public_token'])
+    assert len(set(public_tokens))==2 and len(store.rows('release'))==2
+    metadata=[json.loads(x['metadata_json']) for x in db.query('SELECT metadata_json FROM firmware_metadata')]
+    assert all(x['display_version']==version for x in metadata)
+    assert sum(bool(x.get('variant_label')) for x in metadata)==1
+
+
+def test_due_failed_page_revalidates_old_html_without_refetching_good_detail(env,monkeypatch):
+    db,_=env;store=Store(db,'xiaomi');requests=[];fixed=False
+    def route(req):
+        path=req.url.path;requests.append((path,dict(req.headers)))
+        if path.startswith('/archive/miui/'):
+            return httpx.Response(200,headers={'Content-Type':'text/html'},text='<a href="/miui/sample/stable/A/">a</a><a href="/miui/sample/stable/Z/">z</a>')
+        if path.startswith('/archive/hyperos/'):return httpx.Response(404)
+        body=detail(version='V1.0.0.0.TESTCNXM' if path.endswith('/A/') else 'V2.0.0.0.TESTCNXM')
+        if path.endswith('/Z/') and not fixed:body=body.replace('a'*32,'bad-checksum')
+        return httpx.Response(200,headers={'Content-Type':'text/html'},text=body)
+    with httpx.Client(transport=httpx.MockTransport(route)) as raw:
+        cache=CachedClient(store,raw)
+        try:
+            first,m=discover_device('sample',cache,checkpoint=HistoryCheckpoint(store),max_workers=1)
+            assert len(first)==1 and m['errors']
+            fixed=True;future=time.time()+86401
+            monkeypatch.setattr('fmr_ingest_stock.history.time.time',lambda:future)
+            rows,m=discover_device('sample',cache,checkpoint=HistoryCheckpoint(store),max_workers=1)
+            assert len(rows)==2 and not m['errors']
+            assert sum(p.endswith('/A/') for p,_ in requests)==1
+            assert sum(p.endswith('/Z/') for p,_ in requests)==2
+            assert [h for p,h in requests if p.endswith('/Z/')][-1].get('cache-control')=='no-cache'
+        finally:cache.close()
+
+
+def test_local_identity_repair_is_atomic_preserves_receipts_and_handles_occupied_destinations(env,monkeypatch):
+    from fmr_ingest_stock.xiaomi_identity import repair
+    db,_=env;store=Store(db,'xiaomi');device={'vendor':'xiaomi','upstream_id':'hm2013023','codename':'hm2013023','name':'Redmi 1'}
+    a={'version':'V6.6.1.0.KHBMICF','region':'CN','kind':'full_ota','download_url':'https://bigota.d.miui.com/V/miui_HMWGlobal_V6.6.1.0.KHBMICF_aaaaaaaaaa_4.4.zip'}
+    b={**a,'region':'Global','download_url':'https://bigota.d.miui.com/V/miui_HMWSGGlobal_V6.6.1.0.KHBMICF_bbbbbbbbbb_4.4.zip'}
+    job.seed_releases(store,device,[a,b])
+    for k,v in store.rows('release'):v.update(status='resolved',published=True,publication={'public_token':'preserved'});store.put(k,v)
+    original={k:deepcopy(v) for k,v in store.rows('release')}
+    class Status:
+        def log(self,*args):pass
+    execute=db.execute_batch
+    def fail(statements):
+        if any('identity_evidence' in str(params) for _,params in statements):return execute([*statements,('INSERT INTO nonexistent_table VALUES (1)',())])
+        return execute(statements)
+    monkeypatch.setattr(db,'execute_batch',fail)
+    with pytest.raises(Exception):repair(store,Status())
+    assert dict(store.rows('release'))==original and not store.rows('identity_evidence')
+    monkeypatch.setattr(db,'execute_batch',execute)
+    for _ in range(5):
+        if not repair(store,Status(),limit=1):break
+    active=[v for _,v in store.rows('release') if v['status']!='superseded']
+    assert {v['release']['region'] for v in active}=={'Global','SG'}
+    evidence=[v['record'] for _,v in store.rows('identity_evidence')]
+    assert all(any(x['release']==o['release'] and x['publication']==o['publication'] for x in evidence) for o in original.values())
+    before=store.counts();assert not repair(store,Status(),limit=1);assert store.counts()==before
+    assert not db.query('SELECT * FROM stock_firmwares')
+
+
+def test_identity_repair_uses_available_budget_and_resumes_at_deadline(monkeypatch):
+    from fmr_ingest_stock import xiaomi_identity as repairer
+    calls=[];answers=iter([True,True,False])
+    monkeypatch.setattr(repairer,'repair',lambda *a,**k:(calls.append(k['limit']),next(answers))[1])
+    monkeypatch.setattr(repairer.time,'monotonic',lambda:10)
+    assert repairer.repair_until_deadline(None,None,20) is False
+    assert calls==[500,500,500]
+    monkeypatch.setattr(repairer,'repair',lambda *a,**k:True)
+    assert repairer.repair_until_deadline(None,None,5) is True

@@ -94,3 +94,20 @@ D1 或下载固件，也不会启动三星/华为/荣耀或旧版历史扫描。
 缺 MD5 的可信官方包保留且校验值留空，非法非空校验值仍报告缺口。周更包根据
 文件名区分 Global 与中国区，已有 D1 身份若指向另一文件则保持待审，不覆盖签名。
 详见 [小米历史修复及验证](xiaomi-history-repair-20261110.md)。发布暂停开关不变。
+
+
+### Xiaomi identity repair revision 3
+
+Before normal network collection, legacy Xiaomi release identities are checked
+locally against trusted official archive filenames. The repair marker is
+`v2:xiaomi:history_identity_repair`; `revision=3, done=true` marks completion.
+Do not delete this marker to force a crawl. `identity_evidence:*` records preserve
+original archive descriptors and publication receipts; `superseded` source slots
+are excluded from due work and publication. Real file conflicts remain blocked.
+Known edition IDs are grouping keys, not newly discovered physical devices.
+
+A Xiaomi snapshot upload transport failure receives one retry with the same
+validated encrypted file. Only upload success permits pruning and continuation.
+On repeated failure, keep the local database and restart the existing Xiaomi
+workflow normally; never restore an older snapshot over dirty local progress.
+The publisher pause switches are independent and must not be changed for repair.

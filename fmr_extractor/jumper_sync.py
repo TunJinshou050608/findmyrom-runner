@@ -78,8 +78,9 @@ def generate_jumper_markdown_tree(db_client, output_dir: Path, base_site_url: st
             m=by_token.get(row['public_token'],{})
             if m.get('schema')==1 and isinstance(m.get('display_version'),str):
                 row['display_version']=m['display_version']
+                if isinstance(m.get('variant_label'),str):row['variant_label']=m['variant_label']
                 if isinstance(m.get('region'),str):row['display_region']=m['region']
-                labels[(row['device_codename'],row['version_str'])]=m['display_version']
+                labels[(row['device_codename'],row['version_str'])]=m['display_version']+(' · '+m['variant_label'] if m.get('variant_label') else '')
     grouped_images, grouped_fw = {}, {}
     for row in images:
         grouped_images.setdefault(row['device_codename'], []).append(row)
@@ -112,7 +113,7 @@ def generate_jumper_markdown_tree(db_client, output_dir: Path, base_site_url: st
             ]) + ' |\n')
         footer = '\n## Official firmware\n\n| Firmware Version | Region / Variant | Package | Download |\n| :--- | :--- | :--- | :--- |\n'
         fw_rows = ['| ' + ' | '.join([
-            cell(f.get('display_version') or f['version_str']), cell(f.get('display_region') or f['region_code']) + ' / ' + cell(f['model_code'] or code),
+            cell(f.get('display_version') or f['version_str']), cell(f.get('display_region') or f['region_code']) + ' / ' + cell(f.get('variant_label') or f['model_code'] or code),
             cell(package_label(d['brand_id'],f['package_type'])), '[Download](' + token_url(site, f['public_token'], 'fw_') + ')',
         ]) + ' |\n' for f in fws]
         # Bound a pathological device without emitting partial Markdown rows.

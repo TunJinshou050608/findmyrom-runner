@@ -63,6 +63,7 @@ def model_code(code, version, filename=''):
                            ('RUXM','ru'),('TRXM','tr'),('TWXM','tw'),('JPXM','jp')]:
         if marker in version.upper():
             return code + '_' + suffix
+    if re.search(r'(?:SGGlobal_|_sg_global_)',filename,re.I):return code+'_sg'
     if 'CNXM' in version.upper():return code
     if re.search(r'(?:_global_images_|_global_|^miui_[^_]*Global_)',filename,re.I):
         return code+'_global'
@@ -107,13 +108,13 @@ def parse_detail(html, code, diagnostics=None):
     return rows, rejected
 
 
-def bounded_html(client, url):
+def bounded_html(client, url, revalidate=False):
     p = urlsplit(url)
     if p.scheme != 'https' or p.netloc != urlsplit(INDEX).netloc:
         raise ValueError('Untrusted history origin')
     for attempt in range(3):
         try:
-            with client.stream('GET', url) as response:
+            with client.stream('GET',url,**({'headers':{'Cache-Control':'no-cache'}} if revalidate else {})) as response:
                 response.raise_for_status()
                 data = bytearray()
                 for chunk in response.iter_bytes(65536):
@@ -130,6 +131,7 @@ def bounded_html(client, url):
 
 
 HISTORY_REVISION = 2
+HISTORY_SEMANTICS_REVISION = 3
 DETAIL_TTL = 30 * 86400
 
 
@@ -154,12 +156,20 @@ class HistoryCheckpoint:
 
 
 def conflict_kind(first,other):
+    from .xiaomi_variants import engineering
     a=unquote(urlsplit(first['link']).path).rsplit('/',1)[-1]
     b=unquote(urlsplit(other['link']).path).rsplit('/',1)[-1]
     if a==b:
         return ('checksum_conflict',True) if first.get('md5') and other.get('md5') and first['md5']!=other['md5'] else ('mirror_alias',False)
-    if ('.debug' in a)!=('.debug' in b):return 'debug_variant',False
+    if engineering(a)!=engineering(b):return 'debug_variant' if '.debug' in a or '.debug' in b else 'engineering_variant',False
+    if first.get('md5') and first.get('md5')==other.get('md5'):return 'payload_alias',False
     return 'package_variant',True
+
+
+def record_key(row):
+    n=normalize({k:v for k,v in row.items() if k not in ('variant_id','variant_label')},'xiaomi')
+    key=tuple(n[k] for k in ('device_codename','region_code','version_str','package_type'))
+    return key+(row['variant_id'],) if row.get('variant_id') else key
 
 
 def discover_device(code, client=None, route_code=None, max_workers=4, checkpoint=None, max_details=None, previous=None):
@@ -235,7 +245,9 @@ def discover_device(code, client=None, route_code=None, max_workers=4, checkpoin
         if max_details is not None:pending=todo[max_details:];todo=todo[:max_details]
         def fetch(url):
             try:
-                data=bounded_html(client,url)
+                entry=saved.get(url,{})
+                revalidate=bool(entry.get('error') or entry.get('review_needed'))
+                data=bounded_html(client,url,revalidate=revalidate)
                 diagnostics=[]
                 rows,rejected=parse_detail(data.decode('utf-8'),code,diagnostics)
                 error='RejectedFullROMRecord' if diagnostics else None if rows else 'NoFullROMRecord'
@@ -266,11 +278,16 @@ def discover_device(code, client=None, route_code=None, max_workers=4, checkpoin
         manifest['rejected_records']=sum(p.get('rejected') or 0 for p in manifest['detail_pages'])
         # Keep evidence for temporarily removed archive links, without claiming coverage.
         if checkpoint:
-            manifest['revision']=HISTORY_REVISION
+            manifest['revision']=HISTORY_SEMANTICS_REVISION
+        from .xiaomi_variants import edition,filename,engineering,LABELS
+        for row in records:
+            row['codename']=model_code(code,row['version'],filename(row['link']))
+            variant=edition(code,filename(row['link']))
+            if variant:row['variant_id']=variant;row['variant_label']=LABELS[variant]
+            else:row.pop('variant_id',None);row.pop('variant_label',None)
         unique = {};blocked_keys=set()
-        for row in sorted(records, key=lambda r: ('.debug' in r['link'], not bool(r.get('md5')), r['link'])):
-            n = normalize(row, 'xiaomi')
-            key = tuple(n[k] for k in ('device_codename','region_code','version_str','package_type'))
+        for row in sorted(records, key=lambda r: (engineering(filename(r['link'])), not bool(r.get('md5')), r['link'])):
+            key=record_key(row)
             if key in unique and (unique[key]['link'] != row['link'] or (unique[key].get('md5') and row.get('md5') and unique[key]['md5']!=row['md5'])):
                 # The frozen schema admits one package per natural key. Preserve
                 # every alternate in the private manifest; never claim it was published.
@@ -282,7 +299,7 @@ def discover_device(code, client=None, route_code=None, max_workers=4, checkpoin
         if checkpoint and blocked_keys:
             for url in versions:
                 entry=saved.get(url,{})
-                review=any(tuple(normalize(row,'xiaomi')[k] for k in ('device_codename','region_code','version_str','package_type')) in blocked_keys for row in entry.get('rows',[]))
+                review=any(record_key(row) in blocked_keys for row in entry.get('rows',[]))
                 if review and not entry.get('review_needed'):
                     entry['review_needed']=True;checkpoint.save(code,url,entry)
         if not unique and not pending:

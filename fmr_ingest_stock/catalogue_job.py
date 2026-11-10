@@ -119,11 +119,12 @@ def collect_model(device,embedded,http,history_previous=None):
         from .firmware_sync import normalize
         for row in rows:
             n=normalize(row,'xiaomi')
-            releases.append({'vendor':vendor,'device_id':device['upstream_id'],'version':n['version_str'],
+            releases.append({'vendor':vendor,'device_id':device['upstream_id'],'version':row['version'],
                 'region':n['region_code'],'android_version':n['android_version'],
                 'kind':'full_ota' if n['package_type']=='recovery_zip' else 'fastboot',
                 'date':n['published_date'],'size':n['file_size_str'],'md5':n['md5_or_sha256'],
-                'download_url':n['original_official_url'],'origin_kind':'oem','resolution':'resolved'})
+                'download_url':n['original_official_url'],'origin_kind':'oem','resolution':'resolved',
+                **({k:row[k] for k in ('variant_id','variant_label')} if row.get('variant_id') else {})})
         return device,releases,provenance
     device,rows=atlas_releases(device,http)
     if vendor=='samsung':

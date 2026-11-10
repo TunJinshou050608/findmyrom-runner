@@ -132,3 +132,18 @@ def test_formal_metadata_labels_reach_markdown_without_rekeying(tmp_path):
         row=db.query("SELECT version_str,region_code FROM stock_firmwares WHERE public_token='fw_aaaaaaaaaa'")[0]
         assert row=={'version_str':'Verizon','region_code':'NDE63X'}
     finally:db.close()
+
+
+def test_jumper_edition_labels_replace_internal_grouping_keys(tmp_path):
+    from fmr_core.firmware_metadata_schema import ensure
+    db=fixture(tmp_path)
+    try:
+        ensure(db,apply=True)
+        db.execute("UPDATE stock_firmwares SET version_str='OS2__pro',model_code='marble__pro' WHERE public_token='fw_aaaaaaaaaa'")
+        db.execute('INSERT INTO firmware_metadata(public_token,metadata_json,content_hash) VALUES (?,?,?)',('fw_aaaaaaaaaa',json.dumps({'schema':1,'display_version':'OS2','raw_version':'OS2','variant_label':'Pro edition'}),'hash'))
+        generate_jumper_markdown_tree(db,tmp_path/'editions')
+        page=(tmp_path/'editions/devices/marble.md').read_text()
+        assert '| OS2 | Global / Pro edition |' in page
+        assert 'marble__pro' not in page and 'OS2__pro' not in page
+        assert '/verify/fw_aaaaaaaaaa' in page
+    finally:db.close()
