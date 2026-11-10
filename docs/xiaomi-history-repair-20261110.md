@@ -121,3 +121,19 @@ and retained; no unproven cross-device alias is substituted.
 The earlier production D1 rows have not been rewritten. Publisher pause variables
 remain enabled. Public site reads and native local D1 tests do not constitute
 production publication or firmware-download acceptance.
+
+### Production rollout verification
+
+- Runner commit `886ed1e`: 639 local tests passed; CI passed on Python 3.11,
+  3.12 and 3.13. Web commit `b1d47c2`: 113 tests, typecheck, six read-cost
+  tests and native Worker/D1/DO runtime tests passed locally and in Web CI.
+- Xiaomi run `42797293876` loaded `886ed1e` and completed collection, fresh
+  export verification, encrypted snapshot upload, three-copy retention and
+  continuation dispatch successfully. The retry path was not needed in this run.
+- Read-only inspection of the actual collector database confirmed identity
+  revision 3 done, 4,514 repaired rows, and the expected current code SHA.
+- Worker deployment `6fbcb6c58cb54da6879e4f87fb96ad43` succeeded, preserving
+  bindings and secrets. The existing popsicle release URL returned HTTP 200,
+  its expected title and canonical URL, and standalone package choices.
+- All three D1 write pause variables remain true. No production D1 write or
+  firmware/image download was performed during this verification.
