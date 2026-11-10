@@ -345,6 +345,7 @@ def test_local_identity_repair_is_atomic_preserves_receipts_and_handles_occupied
 
 def test_identity_repair_uses_available_budget_and_resumes_at_deadline(monkeypatch):
     from fmr_ingest_stock import xiaomi_identity as repairer
+    monkeypatch.setattr(repairer,'reconcile_cached_sources',lambda *a,**k:0)
     calls=[];answers=iter([True,True,False])
     monkeypatch.setattr(repairer,'repair',lambda *a,**k:(calls.append(k['limit']),next(answers))[1])
     monkeypatch.setattr(repairer.time,'monotonic',lambda:10)

@@ -125,8 +125,92 @@ def repair(store,status,limit=500):
     return not state['done']
 
 
+def reconcile_cached_sources(store,status,limit=20):
+    """Re-evaluate quarantined source rows from durable parsed evidence, no HTTP."""
+    from .history import HistoryCheckpoint,history_url,conflict_kind,unavailable_full_rom
+    from .xiaomi_variants import engineering
+    from .vendor_catalogue import identity,input_hash
+    from .catalogue_job import xiaomi_release
+    from urllib.parse import unquote,urlsplit
+    rows=store.db.query("""SELECT source_target,last_cursor_val FROM crawler_sources
+        WHERE device_codename='__global__' AND source_kind=? AND source_target GLOB ?
+        AND json_extract(last_cursor_val,'$.status')='blocked'
+        AND json_extract(last_cursor_val,'$.error')='SourceIdentityConflict'
+        ORDER BY source_target LIMIT ?""",(KIND,store.prefix+'release:*',limit))
+    reconciled=0;checkpoint=HistoryCheckpoint(store)
+    for record in rows:
+        key=record['source_target'];value=json.loads(record['last_cursor_val']);device=value['device'];release=value['release']
+        scope=archive_route(device['upstream_id'],device.get('route_code'))
+        model=store.get(store.key('model',device['upstream_id'])) or {}
+        urls={p['url'] for p in model.get('provenance',{}).get('detail_pages',[])
+              if p.get('url') and unquote(urlsplit(p['url']).path).rstrip('/').split('/')[-1]==release['version']}
+        for family in ('miui','hyperos'):
+            for branch in ('stable','stable beta','weekly','public beta'):
+                urls.add(history_url('https://xmfirmwareupdater.com/'+family+'/'+scope+'/'+branch+'/'+release['version']+'/'))
+        if len(urls)>20:continue
+        saved=checkpoint.read(scope,urls);parsed=[];proof=[]
+        for entry in saved.values():
+            if entry.get('error'):continue
+            proof.append({'url':entry.get('url'),'sha256':entry.get('sha256')})
+            for raw in entry.get('rows',[]):
+                if raw.get('version')!=release['version'] or not official(raw.get('link','')):continue
+                row=deepcopy(raw);owner=physical_code(scope,filename(row['link']))
+                row['codename']=model_code(owner,row['version'],filename(row['link']))
+                variant=edition(owner,filename(row['link']))
+                if variant:row.update(variant_id=variant,variant_label=LABELS[variant])
+                else:row.pop('variant_id',None);row.pop('variant_label',None)
+                owner_device=corrected_device(store,device,{'download_url':row['link']})
+                candidate=xiaomi_release(owner_device,row)
+                if candidate['kind']==release['kind']:parsed.append((owner_device,candidate,row))
+        if not parsed or len(parsed)>8:continue
+        if not any(filename(r['download_url'])==filename(release['download_url']) for _,r,_ in parsed):continue
+        groups={}
+        for d,r,raw in parsed:groups.setdefault(store.key('release',identity(d,r)),[]).append((d,r,raw))
+        changes={};ambiguous=False
+        evidence=store.key('identity_resolution_evidence',[key,digest(value)])
+        changes[evidence]={'source_target':key,'record':deepcopy(value),'source_pages':proof}
+        for target,items in groups.items():
+            available=[item for item in items if not unavailable_full_rom(item[2])]
+            pool=available or items
+            d,r,raw=sorted(pool,key=lambda item:(engineering(filename(item[1]['download_url'])),not bool(item[1].get('md5')),item[1]['download_url']))[0]
+            r=deepcopy(r);revisions=[]
+            for _,alternate,alternate_raw in available:
+                kind,blocking=conflict_kind(raw,alternate_raw)
+                if blocking:ambiguous=True;break
+                if kind=='repacked_archive':revisions.append(alternate_raw)
+            if ambiguous:break
+            if revisions:r['archive_revisions']=revisions
+            previous=store.get(target)
+            if previous and previous.get('status') not in ('excluded','superseded'):
+                old=previous['release']
+                kind,blocking=conflict_kind({'link':old['download_url'],'md5':old.get('md5')},raw)
+                if blocking and available:ambiguous=True;break
+                if target!=key:
+                    prior_evidence=store.key('identity_resolution_evidence',[target,digest(previous)])
+                    changes[prior_evidence]={'source_target':target,'record':deepcopy(previous)}
+            same=bool(previous and previous['release'].get('download_url')==r['download_url'] and previous['release'].get('md5')==r.get('md5'))
+            updated={'device':d,'release':r,'input_hash':input_hash(r),'status':'pending','error':None,'next_check':0,'attempts':0,'last_cycle':'',
+                     'published':bool(previous and previous.get('published') and same)}
+            if previous and previous.get('publication'):updated['publication']=deepcopy(previous['publication'])
+            if not available:updated.update(status='unavailable',error='UpstreamNotFullROM',next_check=2**40)
+            changes[target]=updated
+        if ambiguous or len(changes)>24:continue
+        if key not in groups:
+            original=deepcopy(value);original.update(status='superseded',superseded_by=sorted(groups)[0],identity_evidence=evidence,error='ArchiveIdentityCorrected',next_check=2**40)
+            changes[key]=original
+        store.put_many(list(changes.items()));reconciled+=1
+    if reconciled:
+        marker=store.key('history_identity_repair');state=store.get(marker) or {}
+        state['source_conflicts_reconciled']=state.get('source_conflicts_reconciled',0)+reconciled
+        store.put(marker,state)
+        status.log(f'按持久化原始页面重新核验并恢复 {reconciled} 条来源记录；原始凭据保留，未请求网络或 D1。')
+    return reconciled
+
+
 def repair_until_deadline(store,status,deadline):
     """Spend only this job's existing local budget; resume on the next job."""
+    reconcile_cached_sources(store,status)
     while repair(store,status,limit=500):
         if time.monotonic()>=deadline:return True
+    reconcile_cached_sources(store,status)
     return False

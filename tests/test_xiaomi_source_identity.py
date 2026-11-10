@@ -152,7 +152,10 @@ def test_attested_umi_repack_preserves_existing_archive_and_signature(env):
     original=db.query('SELECT * FROM stock_firmwares')
     result=publish_release(db,device,{**release,'download_url':a['link'],'md5':a['md5'],'archive_revisions':[b]})
     assert result['public_token']==first['public_token']
-    assert db.query('SELECT * FROM stock_firmwares')==original
+    immutable=('public_token','device_codename','region_code','model_code','version_str','package_type','original_official_url','fast_cdn_url','md5_or_sha256','ed25519_signature','extract_status')
+    current=db.query('SELECT * FROM stock_firmwares')
+    assert [{k:r[k] for k in immutable} for r in current]==[{k:r[k] for k in immutable} for r in original]
+    assert current[0]['file_size_str']=='4.8 GB'
     metadata=json.loads(db.query('SELECT metadata_json FROM firmware_metadata')[0]['metadata_json'])
     assert metadata['original_filename']==names[1]
 
@@ -207,3 +210,88 @@ def test_legacy_repack_conflict_reconciles_locally_without_erasing_either_receip
     assert store.get(evidence)['record']==alternate
     assert store.rows('identity_resolution_evidence')[0][1]['record']==value
     assert not reconcile_conflict(store,key,resolved)
+
+
+def test_snapshot_audit_fails_on_wrong_identity_without_touching_the_database(env,monkeypatch,capsys):
+    from pathlib import Path
+    import sqlite3
+    from fmr_ingest_stock import xiaomi_source_audit as audit
+    db,path=env;root=Path(path).parent;target=root/'xiaomi.sqlite';store=Store(db,'xiaomi')
+    device={'vendor':'xiaomi','upstream_id':'sample','codename':'sample','name':'Sample'}
+    row={'version':'V1','region':'CN','kind':'full_ota','download_url':'https://bigota.d.miui.com/V1/sample.zip'}
+    store.put(store.key('release','wrong'),{'device':device,'release':row,'status':'pending','published':False})
+    with sqlite3.connect(path) as source:
+        with sqlite3.connect(target) as destination:source.backup(destination)
+    before=target.read_bytes();monkeypatch.setenv('FMR_CATALOGUE_STATE_DIR',str(root))
+    assert audit.main([])==1
+    output=capsys.readouterr().out
+    assert '"active_identity_mismatches": 1' in output
+    assert '"counts_consistent": true' in output
+    assert target.read_bytes()==before
+
+
+@pytest.mark.parametrize('code,variant,names',[
+ ('hermes','cmonly',['miui_HMNote2CM_BUILD_hash_5.0.zip','hermes_cmonly_images_BUILD_stamp_5.0_cn_hash.tgz']),
+ ('virgo','lte-ct',['miui_MINoteCT_BUILD_hash_4.4.zip','virgo_lte_ct_images_BUILD_stamp_4.4_cn_hash.tgz']),
+ ('wt86047','pro',['miui_HM2XTDPro_BUILD_hash_5.1.zip','wt86047_pro_images_BUILD_stamp_5.1_cn_hash.tgz']),
+ ('wt88047','pro',['miui_HM2XWCProGlobal_BUILD_hash_5.1.zip','wt88047_pro_global_images_BUILD_stamp_5.1_global_hash.tgz']),
+ ('picasso','48mp',['miui_PICASSO48MPRE_BUILD_hash_12.0.zip','picasso_48m_images_BUILD_stamp_12.0_cn_hash.tgz']),
+ ('lcsh92','td-scdma',['miui_HMNoteTD_BUILD_hash_4.4.zip','lcsh92_wet_xm_td_images_BUILD_stamp_4.4_cn_hash.tgz']),
+ ('dandelion','c3l2',['miui_DANDELIONC3L2EEAGlobal_BUILD_hash_11.0.zip','dandelion_c3l2_eea_global_images_BUILD_stamp_11.0_eea_hash.tgz']),
+ ('rosemary','poco-m5s',['miui_ROSEMARYPGlobal_BUILD_hash_13.0.zip','rosemary_p_global_images_BUILD_stamp_13.0_global_hash.tgz']),
+ ('sweet','k6a',['miui_SWEETK6AGlobal_BUILD_hash_13.0.zip','sweet_k6a_global_images_BUILD_stamp_13.0_global_hash.tgz']),
+ ('curtana','rf',['miui_CURTANAINRFGlobal_BUILD_hash_12.0.zip','curtana_in_rf_global_images_BUILD_stamp_12.0_in_hash.tgz']),
+ ('angelicain','rf',['miui_ANGELICAININRFGlobal_BUILD_hash_11.0.zip','angelicain_in_rf_global_images_BUILD_stamp_11.0_in_hash.tgz']),
+ ('pissarro','fk',['miui_PISSARROINFKGlobal_BUILD_hash_13.0.zip','pissarro_in_fk_global_images_BUILD_stamp_13.0_in_hash.tgz'])])
+def test_real_upstream_editions_cover_both_recovery_and_fastboot(code,variant,names):
+    from fmr_ingest_stock.xiaomi_variants import edition,LABELS
+    from fmr_ingest_stock.firmware_sync import normalize
+    for name in names:
+        assert edition(code,name)==variant
+        row={'codename':code,'version':'V1.0.0.0.TESTCNXM','link':'https://bigota.d.miui.com/V1/'+name,'variant_id':variant}
+        assert normalize(row,'xiaomi')['model_code']==code+'__'+variant
+        assert LABELS[variant]
+
+
+@pytest.mark.parametrize('code,name',[
+ ('sakura','miui_HM6ProINGlobal_V12.0.4.0.PDMMIXM_hash_9.0.zip'),
+ ('sakura','sakura_india_global_images_V12.0.4.0.PDMMIXM_stamp_9.0_global_hash.tgz'),
+ ('curtana','miui_CURTANAINRFGlobal_V14.0.6.0.SJWINRF_hash_12.0.zip'),
+ ('angelicain','angelicain_in_rf_global_images_V12.5.5.0.RCRINRF_stamp_11.0_in_hash.tgz'),
+ ('pissarro','miui_PISSARROINFKGlobal_OS1.0.13.0.TKTINFK_hash_13.0.zip')])
+def test_legacy_india_markets_do_not_default_to_global(code,name):
+    from fmr_ingest_stock.history import model_code
+    from fmr_ingest_stock.firmware_sync import region_code
+    assert region_code(model_code(code,'V12.0.4.0.PDMMIXM',name),'V12.0.4.0.PDMMIXM')=='IN'
+
+
+def test_cached_source_reconciliation_recovers_both_hardware_packages_without_network(env):
+    from fmr_ingest_stock.xiaomi_identity import reconcile_cached_sources
+    from fmr_ingest_stock.catalogue_job import xiaomi_release
+    from fmr_ingest_stock.history import model_code
+    db,_=env;store=Store(db,'xiaomi');version='7.11.16'
+    device={'vendor':'xiaomi','upstream_id':'wt86047','codename':'wt86047','name':'Redmi 2'}
+    names=['miui_HM2XTD_'+version+'_aaaaaaaaaa_4.4.zip','miui_HM2XTDPro_'+version+'_bbbbbbbbbb_5.1.zip']
+    raw=[]
+    for name,h in zip(names,('a','b')):
+        rows,_=parse_detail(detail(version=version,code='wt86047',filename=name).replace('a'*32,h*32),'wt86047')
+        raw.extend(rows)
+    ordinary=next(r for r in raw if 'Pro' not in r['link'])
+    release=xiaomi_release(device,ordinary)
+    job.seed_models(store,[device],{});job.seed_releases(store,device,[release])
+    key,value=store.rows('release')[0]
+    value.update(status='blocked',error='SourceIdentityConflict',published=True,publication={'public_token':'receipt'})
+    store.put(key,value)
+    url='https://xmfirmwareupdater.com/miui/wt86047/weekly/'+version+'/'
+    HistoryCheckpoint(store).save('wt86047',url,{'revision':2,'url':url,'sha256':'source_digest','rows':raw,'error':None})
+    class Status:
+        def log(self,*args):pass
+    before=deepcopy(value)
+    assert reconcile_cached_sources(store,Status())==1
+    active=[v for _,v in store.rows('release') if v['status']!='superseded']
+    assert len(active)==2 and {v['release'].get('variant_id') for v in active}=={None,'pro'}
+    assert all(v['status']=='pending' for v in active)
+    assert store.get(key)['publication']==before['publication'] and store.get(key)['published']
+    assert any(v['record']==before for _,v in store.rows('identity_resolution_evidence'))
+    assert reconcile_cached_sources(store,Status())==0
+    assert not db.query('SELECT * FROM stock_firmwares')

@@ -101,6 +101,18 @@ def bump(summary,error):
     summary['errors'][error]=summary['errors'].get(error,0)+1
 
 
+def xiaomi_release(device,row):
+    """Project one validated parsed record identically for collection and replay."""
+    from .firmware_sync import normalize
+    n=normalize(row,'xiaomi')
+    return {'vendor':'xiaomi','device_id':device['upstream_id'],'version':row['version'],
+        'region':n['region_code'],'android_version':n['android_version'],
+        'kind':'full_ota' if n['package_type']=='recovery_zip' else 'fastboot',
+        'date':n['published_date'],'size':n['file_size_str'],'md5':n['md5_or_sha256'],
+        'download_url':n['original_official_url'],'origin_kind':'oem','resolution':'resolved',
+        **({k:row[k] for k in ('variant_id','variant_label')} if row.get('variant_id') else {})}
+
+
 def collect_model(device,embedded,http,history_previous=None):
     vendor=device['vendor'];provenance={}
     if vendor=='sony':
@@ -120,13 +132,9 @@ def collect_model(device,embedded,http,history_previous=None):
         for row in rows:
             n=normalize(row,'xiaomi')
             revisions=[c['alternate'] for c in provenance.get('conflicts',[]) if c.get('kind')=='repacked_archive' and c['key'][:4]==[n['device_codename'],n['region_code'],row['version'],n['package_type']]]
-            releases.append({'vendor':vendor,'device_id':device['upstream_id'],'version':row['version'],
-                'region':n['region_code'],'android_version':n['android_version'],
-                'kind':'full_ota' if n['package_type']=='recovery_zip' else 'fastboot',
-                'date':n['published_date'],'size':n['file_size_str'],'md5':n['md5_or_sha256'],
-                'download_url':n['original_official_url'],'origin_kind':'oem','resolution':'resolved',
-                **({'archive_revisions':revisions} if revisions else {}),
-                **({k:row[k] for k in ('variant_id','variant_label')} if row.get('variant_id') else {})})
+            release=xiaomi_release(device,row)
+            if revisions:release['archive_revisions']=revisions
+            releases.append(release)
         return device,releases,provenance
     device,rows=atlas_releases(device,http)
     if vendor=='samsung':

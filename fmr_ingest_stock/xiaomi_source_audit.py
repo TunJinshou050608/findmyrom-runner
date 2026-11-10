@@ -11,7 +11,10 @@ from urllib.parse import urlsplit
 import httpx
 from .history import official
 from .xiaomi_variants import filename
-from .catalogue_store import KIND
+from .catalogue_store import KIND,digest
+from .xiaomi_identity import corrected_release
+from .xiaomi_devices import physical_code
+from collections import Counter
 
 def main(argv=None):
     parser=argparse.ArgumentParser(description=__doc__)
@@ -23,7 +26,31 @@ def main(argv=None):
     except (OSError,ValueError):cache={}
     changed=False
     conn=sqlite3.connect(path.resolve().as_uri()+'?mode=ro',uri=True)
+    issues=0
     try:
+        states=Counter();ready=0;total=0;mismatches=0;invalid=0
+        for source_key,body in conn.execute("SELECT source_target,last_cursor_val FROM crawler_sources WHERE device_codename='__global__' AND source_kind=? AND source_target GLOB 'v2:xiaomi:release:*'",(KIND,)):
+            value=json.loads(body);state=value.get('status','pending');states[state]+=1;total+=1
+            ready+=state=='resolved' and not value.get('published')
+            if state in ('excluded','superseded'):continue
+            try:
+                release=value['release'];device=value['device'];url=release.get('download_url','')
+                if not official(url):invalid+=1;continue
+                corrected=corrected_release(device,release)
+                owner=physical_code(device['upstream_id'],filename(url))
+                identity=[owner,corrected.get('version'),corrected.get('region'),corrected.get('kind')]
+                if corrected.get('variant_id'):identity.append(corrected['variant_id'])
+                mismatches+=source_key!='v2:xiaomi:release:'+digest(identity)
+            except (KeyError,TypeError,ValueError):invalid+=1
+        def checkpoint(key):
+            found=conn.execute("SELECT last_cursor_val FROM crawler_sources WHERE device_codename='__global__' AND source_kind=? AND source_target=?",(KIND,'v2:xiaomi:'+key)).fetchone()
+            return json.loads(found[0]) if found else {}
+        counts=checkpoint('counts');consistent=counts.get('releases',{})==dict(states) and counts.get('ready',0)==ready
+        marker=checkpoint('history_identity_repair');control=checkpoint('control')
+        model_count=conn.execute("SELECT count(*) FROM crawler_sources WHERE device_codename='__global__' AND source_kind=? AND source_target GLOB 'v2:xiaomi:model:*'",(KIND,)).fetchone()[0]
+        issues=mismatches+invalid+int(not consistent)
+        print(json.dumps({'event':'xiaomi_snapshot_invariants','models':model_count,'release_slots':total,'active_identity_mismatches':mismatches,'invalid_descriptors':invalid,'counts_consistent':consistent,
+                          'repair_revision':marker.get('revision'),'repair_done':marker.get('done'),'reconciled_conflicts':marker.get('reconciled_conflicts',0),'source_conflicts_reconciled':marker.get('source_conflicts_reconciled',0),'code_sha':control.get('last_code_sha'),'states':dict(states)}),flush=True)
         rows=conn.execute("""SELECT source_target,last_cursor_val FROM crawler_sources
             WHERE device_codename='__global__' AND source_kind=? AND source_target GLOB 'v2:xiaomi:release:*'
             AND json_extract(last_cursor_val,'$.status') IN ('blocked','failed')
@@ -57,6 +84,6 @@ def main(argv=None):
         with tempfile.NamedTemporaryFile(mode='w',dir=path.parent,delete=False) as handle:
             json.dump(cache,handle);temporary=handle.name
         Path(temporary).replace(cache_path)
-    return 0
+    return 1 if issues else 0
 
 if __name__=='__main__':raise SystemExit(main())

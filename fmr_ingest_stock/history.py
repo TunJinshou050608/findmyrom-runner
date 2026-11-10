@@ -61,6 +61,12 @@ def official(url):
 
 
 def model_code(code, version, filename=''):
+    # Older India SKUs can retain MIXM or use INRF/INFK instead of INXM.
+    market=re.search(r'(?:^|_)(india|in|eea|ru|tr|id|tw|jp|sg)(?:_rf|_fk)?_global(?:_|-)',filename,re.I)
+    if market:return code+'_'+('in' if market[1].lower()=='india' else market[1].lower())
+    recovery=re.match(r'^miui_'+re.escape(code)+r'(INRF|INFK|IN|EEA|RU|TR|ID|TW|JP|SG)Global_',filename,re.I)
+    if recovery:return code+'_'+('in' if recovery[1].upper() in ('INRF','INFK') else recovery[1].lower())
+    if re.match(r'^miui_HM6ProINGlobal_',filename,re.I):return code+'_in'
     for marker, suffix in [('MIXM','global'),('EUXM','eea'),('INXM','in'),('IDXM','id'),
                            ('RUXM','ru'),('TRXM','tr'),('TWXM','tw'),('JPXM','jp')]:
         if marker in version.upper():
