@@ -170,7 +170,7 @@ def conflict_kind(first,other):
     if first.get('md5') and first.get('md5')==other.get('md5'):return 'payload_alias',False
     # Same Xiaomi build stamp/market/platform; the publisher keeps an already
     # published matching archive instead of replacing its URL or signature.
-    shape=lambda name:re.sub(r'_[0-9a-f]{10}(?=\\.tgz$)','_HASH',name,flags=re.I)
+    shape=lambda name:re.sub(r'_[0-9a-f]{10}(?=\.tgz$)','_HASH',name,flags=re.I)
     if a.startswith('umi_images_') and b.startswith('umi_images_') and shape(a)==shape(b) and all(
         re.fullmatch('[0-9a-f]{32}',r.get('md5') or '') and '_'+r['md5'][:10]+'.tgz' in name
         for r,name in ((first,a),(other,b))):return 'repacked_archive',False
@@ -179,7 +179,7 @@ def conflict_kind(first,other):
 
 def unavailable_full_rom(row):
     size=str(row.get('size') or '').strip()
-    match=re.fullmatch(r'(\\d+(?:\\.\\d+)?)\\s*(?:Bytes|B)',size,re.I)
+    match=re.fullmatch(r'(\d+(?:\.\d+)?)\s*(?:Bytes|B)',size,re.I)
     return bool(match and float(match[1])<4096 and not row.get('md5') and row.get('date') in (None,'','None','Unknown'))
 
 
