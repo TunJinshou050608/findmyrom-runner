@@ -29,6 +29,44 @@ def corrected_device(store,device,row):
             'name':NAMES.get(owner,owner),'route_code':archive_route(owner),'aliases':[NAMES.get(owner,owner)]}
 
 
+def reconcile_conflict(store,key,value):
+    """Resolve only evidence-proven aliases/repacked builds; keep every receipt."""
+    from .history import conflict_kind,unavailable_full_rom
+    from .vendor_catalogue import identity,input_hash
+    if value.get('status')!='blocked' or value.get('error')!='LegacyIdentityConflict':return False
+    refs=value.get('identity_review_sources',[])
+    if len(refs)>16:return False
+    candidates=[deepcopy(value['release'])]
+    for ref,evidence in store.get_many(refs).items():
+        record=evidence.get('record',{})
+        if not record.get('release') or not record.get('device'):return False
+        row=corrected_release(record['device'],record['release'])
+        device=corrected_device(store,record['device'],row)
+        if store.key('release',identity(device,row))==key:candidates.append(row)
+    available=[r for r in candidates if not unavailable_full_rom(r)]
+    original=deepcopy(value);updated=deepcopy(value)
+    if not available:
+        updated.update(status='unavailable',error='UpstreamNotFullROM',next_check=2**40)
+    else:
+        from .xiaomi_variants import engineering
+        selected=next((r for r in available if not engineering(filename(r['download_url']))),available[0])
+        alternates=[]
+        for other in available:
+            kind,blocking=conflict_kind({'link':selected['download_url'],'md5':selected.get('md5')},
+                                       {'link':other['download_url'],'md5':other.get('md5')})
+            if blocking:return False
+            if kind=='repacked_archive':
+                alternates.append({'link':other['download_url'],'md5':other.get('md5'),'size':other.get('size')})
+        changed=selected.get('download_url')!=original['release'].get('download_url') or selected.get('md5')!=original['release'].get('md5')
+        if changed:selected.pop('_metadata',None)
+        if alternates:selected['archive_revisions']=alternates
+        updated.update(release=selected,input_hash=input_hash(selected),status='pending',error=None,next_check=0,last_cycle='',attempts=0,
+                       published=bool(original.get('published')) and not changed)
+    evidence_key=store.key('identity_resolution_evidence',[key,digest(original)])
+    store.put_many([(evidence_key,{'source_target':key,'record':original}),(key,updated)])
+    return True
+
+
 def repair(store,status,limit=500):
     if getattr(store.db,'mode',None)!='sqlite':raise ValueError('Xiaomi identity repair must stay local')
     marker=store.key('history_identity_repair');state=store.get(marker) or {}
@@ -46,6 +84,7 @@ def repair(store,status,limit=500):
         desired=corrected_release(value['device'],value['release'])
         target=store.key('release',identity(corrected_device(store,value['device'],value['release']),desired))
         if key==target:
+            if reconcile_conflict(store,key,value):state['reconciled_conflicts']=state.get('reconciled_conflicts',0)+1
             state['cursor']=key;continue
         changes={};visiting=set();moves=[0]
         def read(k):return changes[k] if k in changes else store.get(k)

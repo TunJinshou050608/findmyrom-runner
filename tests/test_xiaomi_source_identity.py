@@ -184,3 +184,26 @@ def test_missing_source_error_documents_are_retained_as_unavailable_not_roms():
     assert len(rows)==1 and rows[0]['version']=='OS1.0.5.0.UNKCNXM'
     assert manifest['unavailable_records'][0]['version']=='OS1.0.4.0.UNKCNXM'
     assert manifest['errors'][0]['error']=='UpstreamNotFullROM'
+
+
+def test_legacy_repack_conflict_reconciles_locally_without_erasing_either_receipt(env):
+    from fmr_ingest_stock.xiaomi_identity import reconcile_conflict
+    db,_=env;store=Store(db,'xiaomi');version='V12.2.2.0.RJBCNXM'
+    device={'vendor':'xiaomi','upstream_id':'umi','codename':'umi','name':'Mi 10'}
+    def row(h):return {'version':version,'region':'CN','kind':'fastboot','md5':h*32,'size':'4.8 GB',
+       'download_url':'https://bigota.d.miui.com/'+version+'/umi_images_'+version+'_20201105.0000.00_11.0_cn_'+h*10+'.tgz'}
+    job.seed_releases(store,device,[row('a')]);key,value=store.rows('release')[0]
+    evidence=store.key('identity_evidence','alternate')
+    alternate={'device':device,'release':row('b'),'published':True,'publication':{'public_token':'receipt_b'}}
+    store.put(evidence,{'record':alternate})
+    value.update(status='blocked',error='LegacyIdentityConflict',identity_review_sources=[evidence],
+                 published=True,publication={'public_token':'receipt_a'})
+    store.put(key,value)
+    assert reconcile_conflict(store,key,value)
+    resolved=store.get(key)
+    assert resolved['status']=='pending' and resolved['error'] is None
+    assert resolved['publication']==value['publication'] and resolved['published']
+    assert resolved['release']['archive_revisions'][0]['md5']=='b'*32
+    assert store.get(evidence)['record']==alternate
+    assert store.rows('identity_resolution_evidence')[0][1]['record']==value
+    assert not reconcile_conflict(store,key,resolved)
