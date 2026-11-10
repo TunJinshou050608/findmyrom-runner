@@ -19,8 +19,12 @@ def parse(page, model, region, source):
         item = {'model': model, 'csc': region, 'ap': ap[0], 'android': android[1],
                 'date': iso_date(date[1]) if date else None,
                 'patch': iso_date(patch[1]) if patch else None, 'source': source}
-        if ap[0] in result and result[ap[0]] != item:
-            raise ValueError('Conflicting official Samsung build metadata')
+        if ap[0] in result:
+            prior=result[ap[0]]
+            # Samsung can publish one AP more than once with different CSC/CP.
+            # A notice does not identify those variants: retain only agreed fields.
+            for field in ('android','date','patch'):
+                if prior.get(field)!=item.get(field):item[field]=None
         result[ap[0]] = item
     return result
 

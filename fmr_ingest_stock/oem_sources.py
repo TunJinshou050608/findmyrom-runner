@@ -282,7 +282,7 @@ def atlas_releases(device,http):
             timestamp=tr.find('time')
             row={'vendor':vendor,'device_id':device['upstream_id'],'version':version,'region':region,
                  'kind':tr.get('data-type') or cells.get('type') or 'samsung_firmware',
-                 **system_fields(cells.get('os','unknown')),'date':timestamp.get('datetime') if timestamp else None,
+                 **system_fields(cells.get('os','unknown'),vendor),'date':timestamp.get('datetime') if timestamp else None,
                  'size':cells.get('size'),'detail_page':detail,'origin_kind':'unresolved',
                  'metadata_source':base}
             rows[(version,region,row['kind'],detail)]=row

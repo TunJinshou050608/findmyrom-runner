@@ -144,7 +144,7 @@ def input_hash(row):
 
 
 def upgrade_metadata(store,http,limit=50):
-    from .release_metadata import REVISION,normalize
+    from .release_metadata import NORMALIZATION_REVISION as REVISION,normalize
     items=store._select('release',"json_extract(last_cursor_val,'$.status')='resolved' AND COALESCE(json_extract(last_cursor_val,'$.metadata_revision'),0)<?",[REVISION],limit,'metadata')
     for key,value in items:
         if time.monotonic()>=http.client.deadline:break
@@ -205,7 +205,7 @@ def seed_releases(store,device,rows):
                 # Keep resolved URLs and refresh descriptors when only catalogue metadata changes.
                 for field in ('download_url','refresh_source','filename','resolution'):
                     if not row.get(field) and previous['release'].get(field):merged[field]=previous['release'][field]
-                from .release_metadata import REVISION,normalize
+                from .release_metadata import NORMALIZATION_REVISION as REVISION,normalize
                 merged['_metadata']=normalize(device,merged)
                 writes[key]={**previous,'device':device,'release':merged,'input_hash':signature,'metadata_revision':REVISION,'metadata_dirty':True}
             else:
@@ -382,7 +382,7 @@ def batch(store,control,http,status):
                 if result['status'] not in ('published_new','preserved_existing'):
                     raise ValueError('PublicationRejected')
                 value['published']=True
-            from .release_metadata import REVISION,normalize
+            from .release_metadata import NORMALIZATION_REVISION as REVISION,normalize
             row['_metadata']=normalize(value['device'],row)
             value['metadata_revision']=REVISION;value['metadata_dirty']=True
             value.update(release=row,status='resolved',checked_at=now,next_check=now+RELEASE_TTL,

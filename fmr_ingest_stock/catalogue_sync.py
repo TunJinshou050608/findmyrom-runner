@@ -93,19 +93,11 @@ def publish_release(db,device,release):
     code=publish_device(db,device)
     vendor=device['vendor']
     raw_version=str(release['version'])
-    if vendor=='google':
-        match=re.search(r'\(([A-Za-z][A-Za-z0-9._-]+)(?:[,\s)]|$)',raw_version)
-        if match:raw_version=match[1]
-    version=build_version(raw_version)
     region=str(release.get('region') or 'Global').strip()[:64]
-    if vendor=='google' and region=='Global':
-        # Official Google labels include carrier/market exceptions after the
-        # build and date. Keep them visible instead of silently calling all Global.
-        block=re.search(r'\(([^)]+)\)',str(release['version']))
-        if block:
-            parts=[v.strip() for v in block[1].split(',')[1:]]
-            editions=[v for v in parts if v and not re.fullmatch(r'(?:[A-Za-z]{3,9}\.?\s+\d{4}|\d{4}-\d{2}(?:-\d{2})?)',v)]
-            if editions:region=' · '.join(editions)[:64]
+    if vendor=='google':
+        from .release_metadata import google_identity
+        raw_version,region,_=google_identity(device,release)
+    version=build_version(raw_version)
     kind=package_kind(vendor,release)
     fast=rewrite_to_fast_cdn(vendor,url)
     digest=release.get('sha256') or release.get('md5')
@@ -113,6 +105,21 @@ def publish_release(db,device,release):
     model=str(device.get('codename') or device['upstream_id'])
     existing=db.query("SELECT public_token,extract_status,original_official_url,fast_cdn_url FROM stock_firmwares WHERE device_codename=? AND region_code=? AND version_str=? AND package_type=? AND COALESCE(NULLIF(model_code,''),device_codename)=?",
                  (code,region,version,kind,model))
+    if vendor=='google' and not existing:
+        # Match the old caption-derived identity, then require the exact same official file.
+        # Never change historical URLs, tokens, region keys or signatures.
+        legacy=re.search(r'\(([A-Za-z][A-Za-z0-9._-]+)(?:[,\s)]|$)',str(release['version']))
+        block=re.search(r'\(([^)]+)\)',str(release['version']))
+        old_region=str(release.get('region') or 'Global')
+        if block and old_region=='Global':
+            editions=[v.strip() for v in block[1].split(',')[1:] if v.strip() and not re.fullmatch(r'(?:[A-Za-z]{3,9}\.?\s+\d{4}|\d{4}-\d{2}(?:-\d{2})?)',v.strip())]
+            if editions:old_region=' · '.join(editions)[:64]
+        legacy_rows=db.query("SELECT public_token,extract_status,original_official_url,fast_cdn_url FROM stock_firmwares WHERE device_codename=? AND region_code=? AND version_str=? AND package_type=? AND COALESCE(NULLIF(model_code,''),device_codename)=?",
+            (code,old_region,build_version(legacy[1] if legacy else release['version']),kind,model))
+        existing=[r for r in legacy_rows if r['original_official_url']==url]
+        if legacy_rows and not existing:raise FirmwareIdentityPending('Google legacy file differs; keep pending')
+    if vendor=='google' and existing and existing[0]['original_official_url']!=url:
+        raise FirmwareIdentityPending('Google canonical build points to a different official file')
     token=None
     if not existing:
         token=generate_public_token('fw')

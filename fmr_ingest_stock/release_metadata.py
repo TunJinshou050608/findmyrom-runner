@@ -3,6 +3,7 @@ import re
 from urllib.parse import unquote, urlsplit
 
 REVISION = 1
+NORMALIZATION_REVISION = 2
 
 
 def clean(value):
@@ -19,14 +20,38 @@ def iso_date(value):
         return None
 
 
-def system_fields(value):
+def system_fields(value, vendor=None):
     raw=str(value or '').strip()
     android=re.match(r'^(?:Android\s+)?(\d+(?:\.\d+)*)(?=\s*\(|$)',raw,re.I)
-    return {'android_version':android[1] if android else 'unknown','os_raw':raw}
+    if vendor == 'nothing' and android and not raw.lower().startswith('android '):
+        return {'android_version':'unknown','os_raw':raw,'os_name':'Nothing OS','os_version':android[1]}
+    os_match=re.match(r'(ColorOS|OxygenOS|Funtouch OS|OriginOS|HyperOS|MIUI|One UI|Nothing OS|realme UI)(?:\s+|(?=\d)|$)(.*)',raw,re.I)
+    return {'android_version':android[1] if android else 'unknown','os_raw':raw,
+            'os_name':os_match[1] if os_match else None,'os_version':os_match[2] or None if os_match else None}
+
+
+def google_identity(device, release):
+    """Use the official archive build, independent of carrier/date order in captions."""
+    raw=str(release['version']).strip()
+    filename=release.get('filename') or unquote(urlsplit(release.get('download_url') or '').path.rsplit('/',1)[-1])
+    model=str(device.get('codename') or device['upstream_id'])
+    archive=re.fullmatch(re.escape(model)+r'-(?:ota-)?([a-z0-9._-]+?)-(?:factory-)?[a-f0-9]{8,64}\.zip',filename,re.I)
+    block=re.search(r'\(([^)]+)\)',raw)
+    parts=[p.strip() for p in block[1].split(',')] if block else []
+    build=archive[1].upper() if archive else next((p.upper() for p in parts if re.fullmatch(r'[A-Za-z][A-Za-z0-9._-]*\d[A-Za-z0-9._-]*',p) and not re.search(r'\s',p)),raw)
+    # Historical simple build captions are already canonical.
+    channels=[p for p in parts if p.upper()!=build and not re.fullmatch(r'(?:[A-Za-z]{3,9}\.?\s+\d{4}|\d{4}-\d{2}(?:-\d{2})?)',p)]
+    region=str(release.get('region') or 'Global')
+    if region=='Global' and channels:region=' · '.join(channels)[:64]
+    return build,region,channels
 
 
 def normalize(device, release):
     vendor = device['vendor']
+    if vendor=='nothing' and release.get('os_raw'):
+        inferred=system_fields(release['os_raw'],vendor)
+        if inferred.get('os_name')=='Nothing OS':
+            release={**release,'os_name':inferred['os_name'],'os_version':inferred['os_version']}
     raw = str(release['version']).strip()
     model = str(device.get('codename') or device['upstream_id'])
     display = raw
@@ -39,13 +64,8 @@ def normalize(device, release):
                 display = parts[0]
                 fields = dict(zip(('ap', 'csc_version', 'cp', 'data_version'), parts))
     elif vendor == 'google':
-        match = re.search(r'\(([A-Za-z][A-Za-z0-9._-]+)(?:[,\s)]|$)', raw)
-        if match:
-            display = match[1]
-        block = re.search(r'\(([^)]+)\)', raw)
-        if block:
-            fields['channels'] = [p.strip() for p in block[1].split(',')[1:]
-                                  if p.strip() and not re.fullmatch(r'(?:[A-Za-z]{3,9}\.?\s+\d{4}|\d{4}-\d{2}(?:-\d{2})?)', p.strip())]
+        display, _, channels = google_identity(device, release)
+        fields['channels'] = channels
     elif vendor == 'sony':
         fields['cdf'] = str(release.get('bundle', {}).get('cdf') or '')
         fields['customization'] = str(release.get('bundle', {}).get('cust') or '')
@@ -53,7 +73,9 @@ def normalize(device, release):
     android = re.fullmatch(r'(?:Android\s+)?(\d+(?:\.\d+)*)(?:\s*\([^)]*\))?', value, re.I)
     if vendor == 'google' and not android:
         android = re.match(r'^(\d+(?:\.\d+)*)(?=\s|\(|$)', value)
-    os_match = re.match(r'(ColorOS|OxygenOS|Funtouch OS|OriginOS|HyperOS|MIUI|One UI|Nothing OS)(?:\s+|(?=\d)|$)(.*)', clean(release.get('os_raw')) or value, re.I)
+    os_match = re.match(r'(ColorOS|OxygenOS|Funtouch OS|OriginOS|HyperOS|MIUI|One UI|Nothing OS|realme UI)(?:\s+|(?=\d)|$)(.*)', clean(release.get('os_raw')) or value, re.I)
+    if vendor == 'nothing' and clean(release.get('os_name')) == 'Nothing OS' and value == clean(release.get('os_version')):
+        android = None
     official = release.get('_official_metadata') or {}
     # An official record must match both the actual model and requested sales code.
     if official.get('model') != model or official.get('csc') != release.get('region') or official.get('ap') != display:
@@ -63,8 +85,10 @@ def normalize(device, release):
     if not filename and release.get('download_url') and not release.get('refresh_source') and vendor != 'sony':
         filename = unquote(urlsplit(release['download_url']).path.rsplit('/', 1)[-1])
     source = release.get('metadata_source') or release.get('source_reference') or device.get('page') or release.get('bundle',{}).get('service')
+    if source and vendor == 'sony':
+        p=urlsplit(source);source=p._replace(query='',fragment='').geturl()
     result = {'schema': REVISION, 'vendor': vendor, 'model': model, 'raw_version': raw,
-              'display_version': display, 'region': release.get('region') or 'Global',
+              'display_version': display, 'region': google_identity(device,release)[1] if vendor == 'google' else release.get('region') or 'Global',
               'android_version': android_version, 'os_name': os_match[1] if os_match else clean(release.get('os_name')) or None,
               'os_version': os_match[2] or None if os_match else clean(release.get('os_version')) or None,
               'published_date': iso_date(official.get('date') or release.get('date')),

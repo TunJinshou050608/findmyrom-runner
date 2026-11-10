@@ -27,6 +27,8 @@ def publish(db, token, device, release):
     current = db.query('SELECT android_version,published_date,file_size_str FROM stock_firmwares WHERE public_token=?', (token,))[0]
     import re
     android = metadata.get('android_version') or (current['android_version'] if re.fullmatch(r'(?:Android\s+)?\d+(?:\.\d+)*',str(current['android_version'] or ''),re.I) else 'unknown')
+    if device['vendor']=='nothing' and metadata.get('os_name')=='Nothing OS' and not metadata.get('android_version') and str(current['android_version'])==str(metadata.get('os_version')):
+        android='unknown'
     date = metadata.get('published_date') or current['published_date']
     size = metadata.get('file_size') or current['file_size_str']
     body = json.dumps(metadata, sort_keys=True, separators=(',',':'))

@@ -126,3 +126,68 @@ def test_shared_metadata_contract_covers_every_active_vendor(vendor):
     before=deepcopy(release);m=normalize(device,release)
     assert m['schema']==REVISION and m['android_version']=='14' and m['os_name']=='ColorOS' and m['os_version']=='16'
     assert m['original_filename']=='firmware.zip' and release==before
+
+
+def test_google_real_caption_carrier_first_and_legacy_identity_are_safe(env):
+    from fmr_ingest_stock.release_metadata import google_identity
+    db,_=env
+    device={'vendor':'google','upstream_id':'marlin','codename':'marlin','name':'Google Pixel XL'}
+    release={'version':'7.1.0 (Verizon, NDE63X, Nov 2016)','region':'Global','kind':'factory','download_url':'https://dl.google.com/dl/android/aosp/marlin-nde63x-factory-8b520419.zip','android_version':'7.1.0'}
+    assert google_identity(device,release)==('NDE63X','Verizon',['Verizon'])
+    m=normalize(device,release)
+    assert m['display_version']=='NDE63X' and m['region']=='Verizon'
+    result=publish_release(db,device,release)
+    row=db.query('SELECT * FROM stock_firmwares')[0]
+    assert row['version_str']=='NDE63X' and row['region_code']=='Verizon'
+    db.execute("UPDATE stock_firmwares SET version_str='Verizon',region_code='NDE63X'")
+    before=db.query('SELECT * FROM stock_firmwares')[0]
+    repeated=publish_release(db,device,release)
+    assert repeated['public_token']==result['public_token']
+    assert db.query('SELECT * FROM stock_firmwares')==[before]
+    assert not repeated['metadata_changed']
+    ota={**release,'download_url':'https://dl.google.com/dl/android/aosp/marlin-ota-qp1a.191005.007.a3-12345678.zip','version':'10.0.0 (QP1A.191005.007.A3, Oct 2019, Verizon)'}
+    assert google_identity(device,ota)==('QP1A.191005.007.A3','Verizon',['Verizon'])
+
+
+def test_nothing_os_numeric_source_is_not_android_and_can_repair_old_value(env):
+    from fmr_ingest_stock.release_metadata import system_fields
+    from fmr_ingest_stock.metadata_publish import publish
+    db,_=env;device,release=source();device['vendor']='nothing'
+    release.update(version='Spacewar-V3.2-260618-1045',android_version='3.2',os_raw='3.2',os_name='Nothing OS',os_version='3.2')
+    fields=system_fields('3.2','nothing')
+    assert fields['android_version']=='unknown' and fields['os_name']=='Nothing OS'
+    assert system_fields('Android 15','nothing')['android_version']=='15'
+    assert normalize(device,release)['android_version'] is None
+    # Use a known published token, then simulate the legacy OS-as-Android value.
+    d,r=source();token=publish_release(db,d,r)['public_token']
+    db.execute("DELETE FROM firmware_metadata")
+    db.execute("UPDATE stock_firmwares SET android_version='3.2'")
+    assert publish(db,token,device,release)
+    assert db.query('SELECT android_version FROM stock_firmwares')[0]['android_version']=='unknown'
+    assert not publish(db,token,device,release)
+    db.execute("UPDATE stock_firmwares SET android_version='15'")
+    release['date']='2025-02-02';publish(db,token,device,release)
+    assert db.query('SELECT android_version FROM stock_firmwares')[0]['android_version']=='15'
+
+
+def test_realme_ui_and_sony_source_projection():
+    from fmr_ingest_stock.release_metadata import system_fields
+    d={'vendor':'realme','codename':'sample','upstream_id':'sample'}
+    m=normalize(d,{'version':'build','android_version':'realme UI 16'})
+    assert m['os_name']=='realme UI' and m['os_version']=='16' and m['android_version'] is None
+    assert system_fields('realme UI 16','realme')['os_name']=='realme UI'
+    d['vendor']='sony'
+    m=normalize(d,{'version':'32.1.C.0.401-R19C','bundle':{'service':'https://app.swup.update.sony.net/service?password=private','cdf':'1295-0427','cust':'KDDI JP'}})
+    assert m['sources']['catalogue']=='https://app.swup.update.sony.net/service'
+
+
+def test_samsung_repeated_ap_dates_do_not_discard_other_official_builds():
+    from fmr_ingest_stock.samsung_metadata import parse
+    def block(ap,android,date,patch):
+        return f'<div>Build Number : {ap}</div><div>Android version : T(Android {android})</div><div>Release Date : {date}</div><div>Security patch level : {patch}</div>'
+    page=block('A716U1UEU9GWF7','13','2023-07-18','2023-06-01')+block('A716U1UEU6DVA1','11','2022-04-18','2022-01-01')+block('A716U1UEU6DVA1','11','2022-03-04','2022-01-01')
+    result=parse(page,'SM-A716U1','XAA','source')
+    assert result['A716U1UEU9GWF7']['android']=='13'
+    assert result['A716U1UEU6DVA1']['android']=='11'
+    assert result['A716U1UEU6DVA1']['date'] is None
+    assert result['A716U1UEU6DVA1']['patch']=='2022-01-01'

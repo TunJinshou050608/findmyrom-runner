@@ -32,7 +32,7 @@ def candidates(local,ledger,vendor):
         for key,value in store.rows(stage):
             if value.get('status')=='excluded' or value['device'].get('catalogue_scope')=='non_android':continue
             if stage=='release' and (value.get('status')!='resolved' or (value.get('published') and not value.get('metadata_dirty'))):continue
-            from .release_metadata import REVISION
+            from .release_metadata import NORMALIZATION_REVISION as REVISION
             body=value['device'] if stage=='model' else [value['device'],value['release'],REVISION]
             fingerprint=digest(body)
             old=ledger.query('SELECT hash FROM published WHERE vendor=? AND key=?',(vendor,key))

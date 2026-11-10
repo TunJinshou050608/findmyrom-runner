@@ -59,3 +59,18 @@ file only after its affected rows have been republished and verified on the site
 Tests cover metadata-only updates, atomic failure/replay, exact model isolation,
 all active vendors, optional source failures, UTC quota handling and stable
 signatures/tokens/extraction state. No production firmware payload is downloaded.
+
+## Acceptance fixes, 2026-11-10
+
+- Public JSON remains schema 1. Checkpoint normalization has its own revision 2,
+  so gradual metadata upgrades do not change Web's public schema contract.
+- Google build identities come from the official archive filename. Carrier/date
+  order in captions is irrelevant. Historical caption-derived records are reused
+  only after an exact device/model/package/legacy-key lookup and official-file
+  match; mismatches stay pending. Public carrier labels never rekey old URLs.
+- Atlas OS parsing receives the vendor: numeric Nothing OS labels remain vendor
+  OS versions. `realme UI` is recognized. A proven legacy Nothing OS-as-Android
+  value can be cleared while a separate known Android version is retained.
+- Repeated Samsung AP notices retain only agreed Android/date/patch fields.
+  Different dates do not invalidate unrelated AP notices or remove packages.
+- Sony public source provenance excludes service query parameters.
