@@ -86,13 +86,15 @@ def test_conflict_audit_is_read_only_uses_only_head_and_never_logs_secret_fields
     from pathlib import Path
     from fmr_ingest_stock import xiaomi_source_audit as audit
     db,path=env;root=Path(path).parent;target=root/'xiaomi.sqlite'
-    import shutil
+    import sqlite3
     device={'vendor':'xiaomi','upstream_id':'sample','codename':'sample','name':'Sample'}
     release={'version':'V1','region':'CN','kind':'full_ota','download_url':'https://bigota.d.miui.com/V1/sample.zip'}
     store=Store(db,'xiaomi');job.seed_releases(store,device,[release]);key,value=store.rows('release')[0]
     value.update(status='blocked',error='LegacyIdentityConflict',publication={'public_token':'PRIVATE_RECEIPT'})
-    store.put(key,value);db._sqlite_conn.commit()
-    shutil.copyfile(path,target);before=target.read_bytes()
+    store.put(key,value)
+    with sqlite3.connect(path) as source:
+        with sqlite3.connect(target) as destination:source.backup(destination)
+    before=target.read_bytes()
     monkeypatch.setenv('FMR_CATALOGUE_STATE_DIR',str(root));seen=[]
     class Client:
         def __init__(self,**kwargs):assert kwargs['follow_redirects'] is False
@@ -108,3 +110,28 @@ def test_conflict_audit_is_read_only_uses_only_head_and_never_logs_secret_fields
     assert 'PRIVATE_RECEIPT' not in output and 'https://' not in output
     assert 'sample.zip' in output and '"status": 404' in output
     assert target.read_bytes()==before
+
+
+def test_archive_transport_gap_uses_short_backoff_and_keeps_successful_history():
+    import time
+    def route(req):
+        if req.url.path.startswith('/archive/miui/'):return httpx.Response(503)
+        if req.url.path.startswith('/archive/hyperos/'):return httpx.Response(200,text='<a href="/hyperos/sample/stable/V1/">v</a>')
+        return httpx.Response(200,text=detail())
+    with httpx.Client(transport=httpx.MockTransport(route)) as client:
+        before=time.time();rows,manifest=discover_device('sample',client,max_workers=1)
+    assert len(rows)==1
+    assert manifest['errors'][0]['status']==503
+    assert before+899<=manifest['retry_after']<=time.time()+900
+
+
+def test_partially_untrusted_full_package_is_reported_as_incomplete():
+    html=detail()+detail(kind='Fastboot').replace('bigota.d.miui.com','attacker.example')
+    def route(req):
+        if req.url.path.startswith('/archive/miui/'):return httpx.Response(404)
+        if req.url.path.startswith('/archive/hyperos/'):return httpx.Response(200,text='<a href="/hyperos/sample/stable/V1/">v</a>')
+        return httpx.Response(200,text=html)
+    with httpx.Client(transport=httpx.MockTransport(route)) as client:
+        rows,manifest=discover_device('sample',client,max_workers=1)
+    assert len(rows)==1 and manifest['rejected_records']==1
+    assert manifest['errors'][0]['error']=='RejectedFullROMRecord'

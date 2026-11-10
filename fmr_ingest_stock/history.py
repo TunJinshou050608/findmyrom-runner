@@ -89,6 +89,8 @@ def parse_detail(html, code, diagnostics=None):
                         and unquote(urlsplit(u).path).rsplit('/', 1)[-1] == filename},
                        key=lambda u: ('bigota.d.miui.com' not in u, u))
         if not links or kind not in {'Recovery', 'Fastboot'} or 'blockota' in filename.lower() or filename.lower().startswith('fw_'):
+            if not links and kind in {'Recovery','Fastboot'} and 'blockota' not in filename.lower() and not filename.lower().startswith('fw_'):
+                diagnostics.append('MissingTrustedFullROMLink')
             rejected += 1
             continue
         android = re.search(r'(?:_|-)(\d{1,2}\.0)(?:_|-|\.)', filename)
@@ -203,11 +205,13 @@ def discover_device(code, client=None, route_code=None, max_workers=4, checkpoin
             except httpx.HTTPStatusError as exc:
                 manifest['archive_pages'].append({'url': url, 'status': exc.response.status_code})
                 if exc.response.status_code != 404:
-                    manifest['errors'].append({'stage': 'archive', 'error': type(exc).__name__})
+                    manifest['errors'].append({'stage':'archive','url':url,'status':exc.response.status_code,'error':type(exc).__name__})
+                    manifest['archive_retry_after']=int(time.time())+900
                 continue
             except Exception as exc:
                 if getattr(exc,'fmr_batch_deadline',False):raise
-                manifest['errors'].append({'stage': 'archive', 'error': type(exc).__name__})
+                manifest['errors'].append({'stage':'archive','url':url,'error':type(exc).__name__})
+                manifest['archive_retry_after']=int(time.time())+900
                 continue
             manifest['archive_pages'].append({'url': url, 'status': 200, 'sha256': hashlib.sha256(data).hexdigest()})
             doc = Document()
@@ -225,12 +229,13 @@ def discover_device(code, client=None, route_code=None, max_workers=4, checkpoin
         manifest['discovered_pages'] = len(versions)
         now=int(time.time())
         saved=checkpoint.read(route,versions) if checkpoint else {}
-        records=[];todo=[];pending=[];retry_at=[]
+        records=[];todo=[];pending=[];retry_at=[manifest['archive_retry_after']] if manifest.get('archive_retry_after') else []
         for url in sorted(versions):
             entry=saved.get(url,{})
             current=entry.get('revision')==HISTORY_REVISION
-            fresh=current and not entry.get('error') and entry.get('checked_at',0)+(86400 if entry.get('review_needed') else DETAIL_TTL)>now
-            cooling=current and entry.get('error') and entry.get('next_check',0)>now
+            needs_refresh=bool(entry.get('rejected')) and entry.get('source_semantics_revision',0)<HISTORY_SEMANTICS_REVISION
+            fresh=current and not needs_refresh and not entry.get('error') and entry.get('checked_at',0)+(86400 if entry.get('review_needed') else DETAIL_TTL)>now
+            cooling=current and not needs_refresh and entry.get('error') and entry.get('next_check',0)>now
             if fresh or cooling:
                 records.extend(entry.get('rows',[]))
                 manifest['detail_pages'].append({k:entry.get(k) for k in ('url','sha256','records','checked_at','rejected')})
@@ -249,7 +254,7 @@ def discover_device(code, client=None, route_code=None, max_workers=4, checkpoin
         def fetch(url):
             try:
                 entry=saved.get(url,{})
-                revalidate=bool(entry.get('error') or entry.get('review_needed'))
+                revalidate=bool(entry.get('error') or entry.get('review_needed') or entry.get('rejected'))
                 data=bounded_html(client,url,revalidate=revalidate)
                 diagnostics=[]
                 rows,rejected=parse_detail(data.decode('utf-8'),route,diagnostics)
@@ -265,7 +270,7 @@ def discover_device(code, client=None, route_code=None, max_workers=4, checkpoin
                 # An unavailable refresh is not permission to erase prior source evidence.
                 retained=rows or saved.get(url,{}).get('rows',[])
                 delay=86400 if status in (404,410) or error in ('NoFullROMRecord','RejectedFullROMRecord') else 900
-                entry={'revision':HISTORY_REVISION,'url':url,'sha256':digest,'records':len(retained),
+                entry={'revision':HISTORY_REVISION,'source_semantics_revision':HISTORY_SEMANTICS_REVISION,'url':url,'sha256':digest,'records':len(retained),
                        'rows':retained,'checked_at':now,'rejected':rejected,'error':error,'status':status,
                        'next_check':now+delay if error else now+DETAIL_TTL}
                 if checkpoint:checkpoint.save(route,url,entry)
