@@ -33,6 +33,18 @@ ADAPTER_REVISION='20261101-download-refresh-1'
 
 def upgrade_adapters(store,status):
     """Retry affected local records once per adapter revision, never per start."""
+    if store.vendor=='xiaomi':
+        from .history import HISTORY_REVISION
+        key=store.key('history_revision')
+        if (store.get(key) or {}).get('revision')==HISTORY_REVISION:return
+        changes=[]
+        for target,value in store.rows('model'):
+            if value.get('status') in ('retry','failed','blocked'):
+                value.update(status='pending',next_check=0,last_cycle='',attempts=0)
+                changes.append((target,value))
+        store.put_many(changes);store.put(key,{'revision':HISTORY_REVISION})
+        status.log(f'小米历史解析已更新：定向恢复 {len(changes)} 个缺口机型，保留已解析版本；每次最多补查 32 个详情页。')
+        return
     if store.vendor=='samsung':
         key=store.key('samsung_source_revision')
         if (store.get(key) or {}).get('revision')=='fus-resolver-2':return
@@ -326,22 +338,43 @@ def batch(store,control,http,status):
         if time.monotonic()>=http.client.deadline:break
         status.update(f'检查本批第 {number}/{len(models)} 个机型的历史目录')
         try:
-            device,rows,provenance=collect_model(value['device'],value.get('embedded'),http)
+            args={'history_previous':value.get('provenance')} if store.vendor=='xiaomi' else {}
+            device,rows,provenance=collect_model(value['device'],value.get('embedded'),http,**args)
             if store.vendor=='asus' and rows and all(row.get('kind')=='chromeos' for row in rows):
                 value.update(device={**device,'catalogue_scope':'non_android'},provenance=provenance,
                     releases=len(rows),checked_at=now,status='excluded',error=None,next_check=2**40,last_cycle=cycle)
                 store.put(key,value);store.advance('model',key);changed+=1
                 status.log('该目录为 ChromeOS 固件，已排除出 Android 官包采集。')
                 continue
+            if store.vendor=='xiaomi':
+                # Ambiguous files remain reviewable, never eligible for automatic publication.
+                for conflict in provenance.get('conflicts',[]):
+                    if not conflict.get('blocking',True):continue
+                    k=conflict['key'];kind='full_ota' if k[3]=='recovery_zip' else 'fastboot'
+                    target=store.key('release',identity(device,{'version':k[2],'region':k[1],'kind':kind}))
+                    prior=store.get(target)
+                    if prior:
+                        prior.update(status='blocked',error='SourceIdentityConflict',next_check=now+FAILURE_TTL,last_cycle=cycle)
+                        store.put(target,prior)
             new=0
             for offset in range(0,len(rows),100):
                 if time.monotonic()>=http.client.deadline:raise CatalogueDeadline()
                 new+=seed_releases(store,device,rows[offset:offset+100])
                 status.log(f'本机型已核对 {min(offset+100,len(rows))}/{len(rows)} 条记录，新增或变化 {new} 条。');status.update(checkpoint=True)
             value.update(device=device,provenance=provenance,releases=len(rows),checked_at=now)
-            issues=any(provenance.get(k) for k in ('errors','conflicts','fota_errors','source_errors','blocker')) or not rows
-            if issues:
+            conflicts=any(x.get('blocking',True) for x in provenance.get('conflicts',[]))
+            issues=any(provenance.get(k) for k in ('errors','fota_errors','source_errors','blocker')) or conflicts or not rows
+            if store.vendor=='xiaomi' and provenance.get('pending_pages'):
+                value.update(status='pending',error='HistoryPagesPending',next_check=0,last_cycle='')
+                status.log(f"历史详情预算已到：仍有 {provenance['pending_pages']} 页；已解析结果持久保存，下批仅补未完成页。")
+            elif store.vendor=='xiaomi' and conflicts:
+                mark_problem(value,'SourceIdentityConflict',cycle,blocked=True)
+                status.log('存在不同文件的真实身份冲突，候选已保留并阻止自动发布；不会整机立即重抓。')
+            elif issues:
                 mark_problem(value,'IncompleteSourceHistory',cycle,blocked=store.vendor in RESTRICTED)
+                if store.vendor=='xiaomi':
+                    value['next_check']=max(now+900,provenance.get('retry_after') or now+FAILURE_TTL)
+                    value['last_cycle']=cycle
                 status.log(f"来源历史不完整，已记录为 {value['status']}，本轮第 {value['attempts']}/3 次检查。")
             else:value.update(status='ok',next_check=now+MODEL_TTL,last_cycle=cycle,attempts=0,error=None)
             if control['mode']=='publish':publish_device(store.db,device)

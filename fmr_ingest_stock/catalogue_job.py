@@ -101,7 +101,7 @@ def bump(summary,error):
     summary['errors'][error]=summary['errors'].get(error,0)+1
 
 
-def collect_model(device,embedded,http):
+def collect_model(device,embedded,http,history_previous=None):
     vendor=device['vendor'];provenance={}
     if vendor=='sony':
         from .sony_source import releases
@@ -109,8 +109,12 @@ def collect_model(device,embedded,http):
     if vendor in RESTRICTED:return device,[],{'blocker':RESTRICTED[vendor]}
     if embedded is not None:return device,embedded,{'provider':'google_official'}
     if vendor=='xiaomi':
+        from .history import HistoryCheckpoint
+        store=getattr(http.client,'store',None)
+        checkpoint=HistoryCheckpoint(store) if store and getattr(store.db,'mode',None)=='sqlite' else None
         rows,provenance=discover_device(device['upstream_id'],route_code=device.get('route_code'),
-            client=http.client, max_workers=getattr(http,'history_workers',4))
+            client=http.client,max_workers=getattr(http,'history_workers',4),checkpoint=checkpoint,
+            max_details=getattr(http,'history_detail_budget',32) if checkpoint else None,previous=history_previous)
         releases=[]
         from .firmware_sync import normalize
         for row in rows:

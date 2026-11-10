@@ -103,7 +103,7 @@ def publish_release(db,device,release):
     digest=release.get('sha256') or release.get('md5')
     if digest and not re.fullmatch('[0-9a-fA-F]{32}|[0-9a-fA-F]{64}',digest):raise ValueError('Invalid source checksum')
     model=str(device.get('codename') or device['upstream_id'])
-    existing=db.query("SELECT public_token,extract_status,original_official_url,fast_cdn_url FROM stock_firmwares WHERE device_codename=? AND region_code=? AND version_str=? AND package_type=? AND COALESCE(NULLIF(model_code,''),device_codename)=?",
+    existing=db.query("SELECT public_token,extract_status,original_official_url,fast_cdn_url,md5_or_sha256 FROM stock_firmwares WHERE device_codename=? AND region_code=? AND version_str=? AND package_type=? AND COALESCE(NULLIF(model_code,''),device_codename)=?",
                  (code,region,version,kind,model))
     if vendor=='google' and not existing:
         # Match the old caption-derived identity, then require the exact same official file.
@@ -114,12 +114,19 @@ def publish_release(db,device,release):
         if block and old_region=='Global':
             editions=[v.strip() for v in block[1].split(',')[1:] if v.strip() and not re.fullmatch(r'(?:[A-Za-z]{3,9}\.?\s+\d{4}|\d{4}-\d{2}(?:-\d{2})?)',v.strip())]
             if editions:old_region=' · '.join(editions)[:64]
-        legacy_rows=db.query("SELECT public_token,extract_status,original_official_url,fast_cdn_url FROM stock_firmwares WHERE device_codename=? AND region_code=? AND version_str=? AND package_type=? AND COALESCE(NULLIF(model_code,''),device_codename)=?",
+        legacy_rows=db.query("SELECT public_token,extract_status,original_official_url,fast_cdn_url,md5_or_sha256 FROM stock_firmwares WHERE device_codename=? AND region_code=? AND version_str=? AND package_type=? AND COALESCE(NULLIF(model_code,''),device_codename)=?",
             (code,old_region,build_version(legacy[1] if legacy else release['version']),kind,model))
         existing=[r for r in legacy_rows if r['original_official_url']==url]
         if legacy_rows and not existing:raise FirmwareIdentityPending('Google legacy file differs; keep pending')
     if vendor=='google' and existing and existing[0]['original_official_url']!=url:
         raise FirmwareIdentityPending('Google canonical build points to a different official file')
+    if vendor=='xiaomi' and existing:
+        from urllib.parse import unquote
+        old=existing[0]
+        same_file=unquote(urlsplit(old['original_official_url']).path).rsplit('/',1)[-1]==unquote(urlsplit(url).path).rsplit('/',1)[-1]
+        checksum_conflict=bool(digest and old.get('md5_or_sha256') and digest.lower()!=old['md5_or_sha256'].lower())
+        if not same_file or checksum_conflict:
+            raise FirmwareIdentityPending('Xiaomi existing identity points to another file; retain pending for review')
     token=None
     if not existing:
         token=generate_public_token('fw')
@@ -131,7 +138,7 @@ def publish_release(db,device,release):
             (token,code,region,str(device.get('codename') or device['upstream_id']),version,
              (re.match(r'^\d+(?:\.\d+)*',str(release.get('android_version') or ''))[0] if re.match(r'^\d+(?:\.\d+)*',str(release.get('android_version') or '')) else str(release.get('android_version') or 'unknown')),kind,release.get('size'),digest.lower() if digest else None,
              url,fast,release.get('date'),signature,status))
-    row=db.query("SELECT public_token,extract_status,original_official_url,fast_cdn_url FROM stock_firmwares WHERE device_codename=? AND region_code=? AND version_str=? AND package_type=? AND COALESCE(NULLIF(model_code,''),device_codename)=?",
+    row=db.query("SELECT public_token,extract_status,original_official_url,fast_cdn_url,md5_or_sha256 FROM stock_firmwares WHERE device_codename=? AND region_code=? AND version_str=? AND package_type=? AND COALESCE(NULLIF(model_code,''),device_codename)=?",
                  (code,region,version,kind,model)) if not existing else existing
     if not row:raise FirmwareIdentityPending('Model identity conflict; retain pending metadata without modifying another model')
     row=row[0]
