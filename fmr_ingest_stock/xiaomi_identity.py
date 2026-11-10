@@ -26,7 +26,7 @@ def corrected_device(store,device,row):
     saved=store.get(store.key('model',owner))
     if saved:return deepcopy(saved['device'])
     return {'vendor':'xiaomi','upstream_id':owner,'codename':owner,
-            'name':NAMES[owner],'route_code':archive_route(owner),'aliases':[NAMES[owner]]}
+            'name':NAMES.get(owner,owner),'route_code':archive_route(owner),'aliases':[NAMES.get(owner,owner)]}
 
 
 def repair(store,status,limit=500):

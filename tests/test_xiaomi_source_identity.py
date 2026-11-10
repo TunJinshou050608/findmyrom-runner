@@ -80,3 +80,31 @@ def test_legacy_wrong_product_is_moved_with_original_receipt_preserved(env):
     assert any(v['release']==original['release'] and v['publication']==original['publication'] for v in evidence)
     with pytest.raises(FirmwareIdentityPending):publish_release(db,device,release)
     assert not db.query('SELECT * FROM stock_firmwares')
+
+
+def test_conflict_audit_is_read_only_uses_only_head_and_never_logs_secret_fields(env,monkeypatch,capsys):
+    from pathlib import Path
+    from fmr_ingest_stock import xiaomi_source_audit as audit
+    db,path=env;root=Path(path).parent;target=root/'xiaomi.sqlite'
+    import shutil
+    device={'vendor':'xiaomi','upstream_id':'sample','codename':'sample','name':'Sample'}
+    release={'version':'V1','region':'CN','kind':'full_ota','download_url':'https://bigota.d.miui.com/V1/sample.zip'}
+    store=Store(db,'xiaomi');job.seed_releases(store,device,[release]);key,value=store.rows('release')[0]
+    value.update(status='blocked',error='LegacyIdentityConflict',publication={'public_token':'PRIVATE_RECEIPT'})
+    store.put(key,value);db._sqlite_conn.commit()
+    shutil.copyfile(path,target);before=target.read_bytes()
+    monkeypatch.setenv('FMR_CATALOGUE_STATE_DIR',str(root));seen=[]
+    class Client:
+        def __init__(self,**kwargs):assert kwargs['follow_redirects'] is False
+        def __enter__(self):return self
+        def __exit__(self,*args):pass
+        def head(self,url):
+            seen.append(url)
+            return httpx.Response(404,headers={'content-length':'464','content-type':'text/html'})
+    monkeypatch.setattr(audit.httpx,'Client',Client)
+    assert audit.main(['--network'])==0
+    output=capsys.readouterr().out
+    assert seen==[release['download_url']]
+    assert 'PRIVATE_RECEIPT' not in output and 'https://' not in output
+    assert 'sample.zip' in output and '"status": 404' in output
+    assert target.read_bytes()==before
