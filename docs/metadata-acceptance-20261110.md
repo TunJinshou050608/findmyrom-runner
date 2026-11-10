@@ -30,7 +30,7 @@ separately through the provider's daily analytics.
 
 | Area | Evidence |
 |---|---|
-| Active vendor adapters, checkpoints and existing workflows | Runner suite: 610 passed |
+| Active vendor adapters, checkpoints and existing workflows | Runner suite: 611 passed |
 | Metadata changes, failure rollback, exact model identity, local acknowledgements and retries | Real SQLite/crypto regression tests; replay against production readback |
 | Quota stop and no follow-up/settlement calls after provider rejection | Deterministic provider-error tests, no production error injection |
 | Web labels, grouping, gateway and absent-metadata budget handling | Web suite: 112 passed; TypeScript check passed |
@@ -68,3 +68,22 @@ firmware delivery or full scheduled run was executed. Existing download
 signatures and preparation interfaces were checked without transferring payloads.
 Legacy Google identity strings remain immutable; this small repair does not
 backfill the site's version-search index for every corrected historical label.
+
+## Final quota and live-run observations
+
+The provider daily counter advanced from 233,452 to 247,523 rows read during the
+acceptance window: +14,071 including public-page checks and simultaneous normal
+traffic. This exceeded the initial 10,000-read estimate; database tests were
+stopped when the delayed analytics arrived. The increase is approximately 0.28%
+of the 5-million-row daily read allocation. Written rows advanced from 3 to 43:
+exactly the 40 rows charged for this acceptance batch. No additional write test
+or full task rerun was started.
+
+A separately inspected pre-existing Samsung collection run failed at GitHub
+artifact finalization with ECONNRESET. Its export freshness check passed and its
+local encrypted checkpoint remained saved. This was not a D1 failure; the test
+did not rerun that large collection job or treat its failed upload as success.
+
+The public Markdown generator also consumes the corrected region label while
+keeping frozen identifiers and verification links. Its regression fixture checks
+that neither private source provenance nor identity changes reach the output.

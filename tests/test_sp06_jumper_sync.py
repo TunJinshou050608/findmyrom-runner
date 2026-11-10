@@ -115,3 +115,20 @@ def test_telegram_registration_is_outside_worker_and_never_sends_messages():
     assert calls[0][1]['allowed_updates']==['message','inline_query']
     assert calls[0][1]['drop_pending_updates'] is False
     assert 'synthetic_bot_token' not in json.dumps(result)
+
+
+def test_formal_metadata_labels_reach_markdown_without_rekeying(tmp_path):
+    from fmr_core.firmware_metadata_schema import ensure
+    db=fixture(tmp_path)
+    try:
+        ensure(db,apply=True)
+        db.execute("UPDATE stock_firmwares SET version_str='Verizon',region_code='NDE63X' WHERE public_token='fw_aaaaaaaaaa'")
+        db.execute('INSERT INTO firmware_metadata(public_token,metadata_json,content_hash) VALUES (?,?,?)',('fw_aaaaaaaaaa',json.dumps({'schema':1,'display_version':'NDE63X','region':'Verizon','raw_version':'7.1.0 (Verizon, NDE63X, Nov 2016)','sources':{'catalogue':'private-source-not-exported'}}),'hash'))
+        generate_jumper_markdown_tree(db,tmp_path/'formal')
+        page=(tmp_path/'formal/devices/marble.md').read_text()
+        assert '| NDE63X | Verizon / marble |' in page
+        assert '[Download](https://findmyrom.com/verify/fw_aaaaaaaaaa)' in page
+        assert 'private-source-not-exported' not in page
+        row=db.query("SELECT version_str,region_code FROM stock_firmwares WHERE public_token='fw_aaaaaaaaaa'")[0]
+        assert row=={'version_str':'Verizon','region_code':'NDE63X'}
+    finally:db.close()
