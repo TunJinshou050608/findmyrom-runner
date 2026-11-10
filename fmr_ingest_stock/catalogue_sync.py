@@ -130,6 +130,9 @@ def publish_release(db,device,release):
     if digest and not re.fullmatch('[0-9a-fA-F]{32}|[0-9a-fA-F]{64}',digest):raise ValueError('Invalid source checksum')
     model=str(device.get('codename') or device['upstream_id'])
     if vendor=='xiaomi':
+        from .xiaomi_delivery import verified
+        if release.get('source_filename') and not verified(release):
+            raise FirmwareIdentityPending('Corrected mirror label awaits positive archive headers')
         from .history import model_code,official
         from .firmware_sync import region_code
         from .xiaomi_variants import edition,filename,model_key,matches,platform_parts,version_key,canonical_version

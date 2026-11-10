@@ -268,8 +268,30 @@ def reconcile_cached_sources(store,status,limit=20):
     return reconciled
 
 
+def reconcile_delivery_observations(store):
+    from .xiaomi_delivery import available,missing,verification
+    rows=store.db.query("""SELECT source_target,last_cursor_val FROM crawler_sources
+        WHERE device_codename='__global__' AND source_kind=? AND source_target GLOB ?
+        AND json_extract(last_cursor_val,'$.release.source_filename') IS NOT NULL
+        AND json_extract(last_cursor_val,'$.status') NOT IN ('superseded','excluded')
+        ORDER BY source_target LIMIT 20""",(KIND,store.prefix+'release:*'))
+    changes=[]
+    for entry in rows:
+        value=json.loads(entry['last_cursor_val']);row=value['release']
+        if missing(row) and value.get('error')!='DownloadMirrorUnavailable':
+            value.update(status='unavailable',error='DownloadMirrorUnavailable',next_check=2**40,metadata_dirty=True)
+            changes.append((entry['source_target'],value))
+        elif available(row) and value.get('status') in ('unavailable','pending') and value.get('error') in ('DownloadMirrorUnavailable','ArchiveHeadersPending'):
+            value.update(status='pending',error=None,next_check=0,last_cycle='',metadata_dirty=True)
+            value['release']={**row,'archive_header_verified':verification(row)}
+            changes.append((entry['source_target'],value))
+    if changes:store.put_many(changes)
+    return len(changes)
+
+
 def repair_until_deadline(store,status,deadline):
     """Spend only this job's existing local budget; resume on the next job."""
+    reconcile_delivery_observations(store)
     reconcile_cached_sources(store,status)
     while repair(store,status,limit=500):
         if time.monotonic()>=deadline:return True

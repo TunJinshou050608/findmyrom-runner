@@ -21,6 +21,7 @@ def archive_route(code,route=None):
     return FAMILIES.get(code,route or code)
 
 def physical_code(code,name):
+    code=base_code(code)
     family=FAMILIES.get(code,code)
     if family=='emerald':
         special=bool(re.match(r'^emerald_r(?:_|-)',name,re.I) or re.match(r'^miui_EMERALDR(?:Global|EEAGlobal|RUGlobal|TRGlobal)_',name,re.I))

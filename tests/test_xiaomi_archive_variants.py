@@ -111,3 +111,63 @@ def test_cached_android_conflict_repair_retires_only_exact_legacy_file_atomicall
     assert len(active)==2 and {v['release']['variant_id'] for v in active}=={'android-6-0','android-7-0'}
     assert not any(v.get('published') for v in active)
     assert store.get(key)['publication']=={'public_token':'receipt'}
+
+
+def test_uppercase_archive_routes_keep_lowercase_product_identity():
+    name='miui_HM2W_JHBCNBH21.0_98f4f157d1_4.2.zip'
+    rows,rejected=parse_detail(detail(code='HM2013023',version='JHBCNBH21.0',filename=name),'HM2013023')
+    assert rejected==0 and len(rows)==1
+    assert rows[0]['codename']=='hm2013023' and rows[0]['android']=='4.2'
+
+def test_legacy_http_oem_links_are_upgraded_without_trusting_other_origins():
+    name='miui_ONCINGlobal_V10.3.2.0.PFFINXM_2e1cef855e_9.0.zip'
+    html=detail(code='onc',version='V10.3.2.0.PFFINXM',filename=name).replace('https://bigota.d.miui.com','http://bigota.d.miui.com')
+    rows,rejected=parse_detail(html,'onc')
+    assert len(rows)==1 and not rejected and rows[0]['link'].startswith('https://bigota.d.miui.com/')
+    assert not parse_detail(html.replace('bigota.d.miui.com','evil.example'),'onc')[0]
+
+def test_hash_named_mirror_label_requires_exact_device_build_checksum_agreement():
+    name='miui_UMIGlobal_V12.1.2.0.RJBMIXM_101a6de3c8_11.0.zip'
+    html=detail(code='umi',version='V12.1.2.0.RJBMIXM',filename=name).replace('MD5: '+'a'*32,'MD5: 101a6de3c8db1c60f4a38d1ed455a764')
+    # Replace only the visible filename, leaving actual OEM URLs unchanged.
+    html=html.replace('Package Name: '+name,'Package Name: 44edb6fd7214022224e0a6ba8eb8a067362c0fe7.zip')
+    rows,rejected=parse_detail(html,'umi')
+    assert not rejected and len(rows)==1
+    assert rows[0]['source_filename']=='44edb6fd7214022224e0a6ba8eb8a067362c0fe7.zip'
+    assert rows[0]['link'].endswith(name)
+    assert not parse_detail(html.replace('101a6de3c8db1c60f4a38d1ed455a764','f'*32),'umi')[0]
+    assert not parse_detail(html.replace('miui_UMIGlobal','miui_OTHERGlobal'),'umi')[0]
+
+def test_semantic_parser_repair_prioritizes_affected_models_once_without_resetting_healthy_history(env):
+    db,_=env;store=Store(db,'xiaomi')
+    for code in ('umi','onc','hm2013023','healthy'):
+        d=device(code);key=store.key('model',code)
+        store.put(key,{'device':d,'status':'pending' if code!='healthy' else 'ok','next_check':2**40,'provenance':{'errors':[] if code=='healthy' else [{'error':'NoFullROMRecord' if code=='hm2013023' else 'RejectedFullROMRecord'}]}})
+    class Status:
+        def log(self,*args):pass
+    job.upgrade_adapters(store,Status())
+    targets=job.due_models(store,'cycle',4,0)
+    assert {v['device']['upstream_id'] for _,v in targets}=={'umi','onc','hm2013023'}
+    healthy=store.get(store.key('model','healthy'))
+    assert healthy['status']=='ok' and healthy['next_check']==2**40
+    for k,v in targets:
+        v.pop('source_semantics_pending');v['next_check']=2**40;store.put(k,v)
+    assert not job.due_models(store,'cycle',4,0)
+
+def test_corrected_mirror_labels_cannot_publish_until_the_archive_headers_are_verified(env,monkeypatch,tmp_path):
+    from fmr_ingest_stock.catalogue_sync import FirmwareIdentityPending
+    from fmr_ingest_stock.xiaomi_identity import reconcile_delivery_observations
+    db,_=env;d=device('umi');store=Store(db,'xiaomi')
+    row={'version':'V12.1.2.0.RJBMIXM','region':'Global','kind':'full_ota','source_filename':'a'*40+'.zip','download_url':'https://bigota.d.miui.com/V12.1.2.0.RJBMIXM/miui_UMIGlobal_V12.1.2.0.RJBMIXM_101a6de3c8_11.0.zip'}
+    with pytest.raises(FirmwareIdentityPending):publish_release(db,d,row)
+    assert not db.query('SELECT * FROM stock_firmwares')
+    job.seed_releases(store,d,[row]);key,value=store.rows('release')[0]
+    value.update(error='ArchiveHeadersPending');store.put(key,value)
+    head(monkeypatch,tmp_path,row['download_url'],404)
+    assert reconcile_delivery_observations(store)==1
+    assert store.get(key)['status']=='unavailable'
+    head(monkeypatch,tmp_path,row['download_url'],200)
+    assert reconcile_delivery_observations(store)==1
+    value=store.get(key)
+    assert value['status']=='pending' and value['release']['archive_header_verified']['status']==200
+    assert publish_release(db,d,value['release'])['status']=='published_new'

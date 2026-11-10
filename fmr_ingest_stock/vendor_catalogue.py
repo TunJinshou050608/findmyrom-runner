@@ -39,11 +39,13 @@ def upgrade_adapters(store,status):
         if (store.get(key) or {}).get('revision')==HISTORY_REVISION:return
         changes=[]
         for target,value in store.rows('model'):
-            if value.get('status') in ('retry','failed','blocked') or value['device']['upstream_id'] in ('emerald','emeraldr','shennong','shennongt'):
+            affected=any(e.get('error') in ('RejectedFullROMRecord','NoFullROMRecord') for e in value.get('provenance',{}).get('errors',[]))
+            if value.get('status') in ('retry','failed','blocked') or affected or value['device']['upstream_id'] in ('emerald','emeraldr','shennong','shennongt'):
                 from .xiaomi_devices import archive_route,NAMES
                 if value['device']['upstream_id'] in NAMES:value['device']['name']=NAMES[value['device']['upstream_id']]
                 value['device']['route_code']=archive_route(value['device']['upstream_id'],value['device'].get('route_code'))
                 value.update(status='pending',next_check=0,last_cycle='',attempts=0,error=None)
+                if affected:value['source_semantics_pending']=HISTORY_REVISION
                 changes.append((target,value))
         store.put_many(changes);store.put(key,{'revision':HISTORY_REVISION})
         status.log(f'小米历史解析已更新：定向恢复 {len(changes)} 个缺口机型，保留已解析版本；每次最多补查 32 个详情页。')
@@ -158,6 +160,7 @@ def download_input_hash(row):
 def input_hash(row):
     fields={k:row.get(k) for k in ('android_version','os_raw','os_name','os_version','date','security_patch','size','metadata_source','filename','_official_metadata')}
     if row.get('variant_id'):fields.update(variant_id=row['variant_id'],variant_label=row.get('variant_label'))
+    if row.get('source_filename'):fields['source_filename']=row['source_filename']
     if row.get('archive_revisions'):fields['archive_revisions']=row['archive_revisions']
     return digest([download_input_hash(row),fields])
 
@@ -206,6 +209,18 @@ def seed_models(store,devices,embedded):
         keys=[store.key('model',identity(d)) for d in chunk]
         old=store.get_many(keys)
         store.put_many([(key,model_value(d,embedded.get(d['upstream_id']),old.get(key))) for key,d in zip(keys,chunk)])
+
+
+def due_models(store,cycle,limit,now,**options):
+    if store.vendor=='xiaomi':
+        from .history import HISTORY_SEMANTICS_REVISION
+        from .catalogue_store import KIND
+        rows=store.db.query("""SELECT source_target,last_cursor_val FROM crawler_sources
+            WHERE device_codename='__global__' AND source_kind=? AND source_target GLOB ?
+            AND json_extract(last_cursor_val,'$.source_semantics_pending')=?
+            ORDER BY source_target LIMIT ?""",(KIND,store.prefix+'model:*',HISTORY_SEMANTICS_REVISION,limit))
+        if rows:return [(r['source_target'],json.loads(r['last_cursor_val'])) for r in rows]
+    return store.due('model',cycle,limit,now,**options)
 
 
 def seed_releases(store,device,rows):
@@ -354,9 +369,10 @@ def batch(store,control,http,status):
             more=bool(store.ready_count or store.due('model',cycle,1,operation=control['operation']) or store.due('release',cycle,1,operation=control['operation'],publish=True))
             return more,counts,changed
     options={'operation':control['operation'],'publish':control['mode']=='publish'}
-    models=store.due('model',cycle,4,now,**options)
+    models=due_models(store,cycle,4,now,**options)
     for number,(key,value) in enumerate(models,1):
         if time.monotonic()>=http.client.deadline:break
+        value.pop('source_semantics_pending',None)
         status.update(f'检查本批第 {number}/{len(models)} 个机型的历史目录')
         try:
             args={'history_previous':value.get('provenance')} if store.vendor=='xiaomi' else {}
@@ -424,6 +440,16 @@ def batch(store,control,http,status):
         status.update(f'解析本批第 {number}/{len(releases)} 条下载记录')
         try:
             row=value['release']
+            if store.vendor=='xiaomi' and row.get('source_filename'):
+                from .xiaomi_delivery import available,missing,verification,verified
+                if missing(row):
+                    value.update(status='unavailable',error='DownloadMirrorUnavailable',next_check=now+86400,last_cycle=cycle)
+                    store.put(key,value);changed+=1;continue
+                if not available(row) and not verified(row):
+                    value.update(status='pending',error='ArchiveHeadersPending',next_check=now+900,last_cycle=cycle)
+                    store.put(key,value);changed+=1;continue
+                if available(row):
+                    row={**row,'archive_header_verified':verification(row)}
             if store.vendor=='samsung' and row.get('metadata_source')=='samsung_fota_version_xml' and not row.get('download_url'):
                 from .samsung_fus import resolve_release,FirmwareUnavailable
                 try:

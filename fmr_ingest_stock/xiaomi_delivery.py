@@ -26,8 +26,20 @@ def missing(row):
     head=observation(row) or {}
     return head.get('status') in (404,410)
 
-def available(row):
-    head=observation(row) or {}
+def _available(head):
     try:size=int(head.get('length') or 0)
     except (TypeError,ValueError):return False
     return head.get('status')==200 and size>4096 and not any(t in str(head.get('type') or '').lower() for t in ('html','xml','json'))
+
+
+def available(row):return _available(observation(row) or {})
+
+def verification(row):
+    head=observation(row) or {}
+    if not _available(head):return None
+    return {**head,'url_sha256':hashlib.sha256((row.get('download_url') or row.get('link') or '').encode()).hexdigest()}
+
+def verified(row):
+    head=row.get('archive_header_verified') or {}
+    url=row.get('download_url') or row.get('link') or ''
+    return isinstance(head,dict) and head.get('url_sha256')==hashlib.sha256(url.encode()).hexdigest() and _available(head)

@@ -113,6 +113,7 @@ def xiaomi_release(device,row):
         'date':n['published_date'],'size':n['file_size_str'],'md5':n['md5_or_sha256'],
         'download_url':n['original_official_url'],'origin_kind':'oem','resolution':'resolved',
         **({'source_version':row['source_version']} if row.get('source_version') else {}),
+        **({'source_filename':row['source_filename']} if row.get('source_filename') else {}),
         **({k:row[k] for k in ('variant_id','variant_label')} if row.get('variant_id') else {})}
 
 

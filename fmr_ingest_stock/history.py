@@ -89,10 +89,23 @@ def parse_detail(html, code, diagnostics=None):
         if 'Package Name:' not in text:
             continue
         version, filename, kind = field(text, 'Version'), field(text, 'Package Name'), field(text, 'Type')
-        if archive_route(base_code(field(text, 'Codename'))) != archive_route(code):
+        if archive_route(base_code(field(text, 'Codename'))) != archive_route(base_code(code)):
             rejected += 1
             continue
-        links = sorted({u for u in group['urls'] if official(u)
+        # Upgrade legacy OEM HTTP links before the unchanged HTTPS trust gate.
+        urls=[urlsplit(u)._replace(scheme='https').geturl() if urlsplit(u).scheme=='http' else u for u in group['urls']]
+        source_filename=None
+        trusted={u for u in urls if official(u)}
+        if re.fullmatch(r'[0-9a-f]{40}\.zip',filename,re.I):
+            # A few mirrors label a ZIP with a SHA-1 name while every OEM
+            # destination has the original filename. Require one exact
+            # device/build/checksum-attested candidate, never a guessed URL.
+            checksum=field(text,'MD5').lower()
+            names={unquote(urlsplit(u).path).rsplit('/',1)[-1] for u in trusted}
+            matching=[name for name in names if re.fullmatch(r'miui_'+re.escape(base_code(code))+r'(?:Global|(?:IN|EEA|RU|TR|ID|TW|JP|SG)Global)?_'+re.escape(version)+'_'+re.escape(checksum[:10])+r'_\d{1,2}\.\d{1,2}\.zip',name,re.I)]
+            if re.fullmatch(r'[0-9a-f]{32}',checksum) and len(matching)==1:
+                source_filename=filename;filename=matching[0]
+        links = sorted({u for u in trusted if official(u)
                         and unquote(urlsplit(u).path).rsplit('/', 1)[-1] == filename},
                        key=lambda u: ('bigota.d.miui.com' not in u, u))
         if not links or kind not in {'Recovery', 'Fastboot'} or 'blockota' in filename.lower() or filename.lower().startswith('fw_'):
@@ -117,6 +130,7 @@ def parse_detail(html, code, diagnostics=None):
             diagnostics.append('InvalidFullROMRecord')
             rejected += 1
             continue
+        if source_filename:row['source_filename']=source_filename
         if declared_version!=version:row['source_version']=declared_version
         rows.append(row)
     return rows, rejected
@@ -145,7 +159,7 @@ def bounded_html(client, url, revalidate=False):
 
 
 HISTORY_REVISION = 2
-HISTORY_SEMANTICS_REVISION = 6
+HISTORY_SEMANTICS_REVISION = 7
 DETAIL_TTL = 30 * 86400
 
 

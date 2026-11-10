@@ -54,17 +54,25 @@ def main(argv=None):
         counts=checkpoint('counts');consistent=(counts.get('releases',{})==dict(states) and counts.get('ready',0)==ready) if full_check else None
         marker=checkpoint('history_identity_repair');control=checkpoint('control')
         model_count=conn.execute("SELECT count(*) FROM crawler_sources WHERE device_codename='__global__' AND source_kind=? AND source_target GLOB 'v2:xiaomi:model:*'",(KIND,)).fetchone()[0]
+        model_states=Counter();source_errors=Counter();pending_pages=0;source_samples=[]
+        for body, in conn.execute("SELECT last_cursor_val FROM crawler_sources WHERE device_codename='__global__' AND source_kind=? AND source_target GLOB 'v2:xiaomi:model:*'",(KIND,)):
+            model=json.loads(body);model_states[model.get('status','pending')]+=1
+            provenance=model.get('provenance',{});pending_pages+=provenance.get('pending_pages',0)
+            for error in provenance.get('errors',[]):
+                category=str(error.get('stage'))+':'+str(error.get('error'));source_errors[category]+=1
+                if len(source_samples)<10:source_samples.append({'device':model['device']['upstream_id'],'category':category,'http_status':error.get('status')})
+        print(json.dumps({'event':'xiaomi_model_coverage','models':model_count,'states':dict(model_states),'pending_detail_pages':pending_pages,'source_errors':dict(source_errors),'samples':source_samples}),flush=True)
         issues=mismatches+invalid+int(consistent is False)
         print(json.dumps({'event':'xiaomi_snapshot_invariants','models':model_count,'release_slots':total if full_check else sum(counts.get('releases',{}).values()),'full_check':full_check,'checked_rows':total,'active_identity_mismatches':mismatches if full_check else None,'invalid_descriptors':invalid if full_check else None,'counts_consistent':consistent,
                           'repair_revision':marker.get('revision'),'repair_done':marker.get('done'),'reconciled_conflicts':marker.get('reconciled_conflicts',0),'source_conflicts_reconciled':marker.get('source_conflicts_reconciled',0),'code_sha':control.get('last_code_sha'),'states':dict(states) if full_check else counts.get('releases',{}),'last_full_check':receipt.get('checked_at')}),flush=True)
         rows=conn.execute("""SELECT source_target,last_cursor_val FROM crawler_sources
             WHERE device_codename='__global__' AND source_kind=? AND source_target GLOB 'v2:xiaomi:release:*'
-            AND json_extract(last_cursor_val,'$.status') IN ('blocked','failed','unavailable')
+            AND (json_extract(last_cursor_val,'$.status') IN ('blocked','failed','unavailable') OR json_extract(last_cursor_val,'$.release.source_filename') IS NOT NULL)
             AND source_target>? ORDER BY source_target LIMIT 20""",(KIND,receipt.get('review_cursor',''))).fetchall()
         if not rows and receipt.get('review_cursor'):
             rows=conn.execute("""SELECT source_target,last_cursor_val FROM crawler_sources
                 WHERE device_codename='__global__' AND source_kind=? AND source_target GLOB 'v2:xiaomi:release:*'
-                AND json_extract(last_cursor_val,'$.status') IN ('blocked','failed','unavailable')
+                AND (json_extract(last_cursor_val,'$.status') IN ('blocked','failed','unavailable') OR json_extract(last_cursor_val,'$.release.source_filename') IS NOT NULL)
                 ORDER BY source_target LIMIT 20""",(KIND,)).fetchall()
         receipt['review_cursor']=rows[-1][0] if rows else ''
         heads=0
