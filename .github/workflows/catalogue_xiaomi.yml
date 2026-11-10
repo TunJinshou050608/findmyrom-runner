@@ -70,7 +70,7 @@ jobs:
         COLLECT_SECONDS: ${{ github.event_name == 'push' && '90' || '420' }}
       run: python -u -m fmr_ingest_stock.staged_catalogue collect --vendor xiaomi --operation "$CATALOGUE_OPERATION" --seconds "$COLLECT_SECONDS"
     - name: 小范围核对剩余官方来源冲突（仅请求响应头）
-      if: github.event_name == 'push' && steps.collect.outcome == 'success'
+      if: steps.collect.outcome == 'success'
       run: python -m fmr_ingest_stock.xiaomi_source_audit --network
     - name: 校验备份由本次任务生成且内容完整
       id: export_check
