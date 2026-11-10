@@ -233,9 +233,12 @@ def seed_releases(store,device,rows):
                 merged['_metadata']=normalize(device,merged)
                 writes[key]={**previous,'device':device,'release':merged,'input_hash':signature,'metadata_revision':REVISION,'metadata_dirty':True}
             else:
+                if store.vendor=='xiaomi' and previous:
+                    evidence=store.key('release_revision_evidence',[key,digest(previous)])
+                    writes[evidence]={'source_target':key,'record':previous}
                 writes[key]={'device':device,'release':row,'input_hash':signature,'status':'pending','next_check':0,
                     'attempts':0,'published':False,'source_changed':key in old}
-        store.put_many(list(writes.items()));new+=len(writes)
+        store.put_many(list(writes.items()));new+=sum(k.startswith(store.prefix+'release:') for k in writes)
     return new
 
 

@@ -295,3 +295,15 @@ def test_cached_source_reconciliation_recovers_both_hardware_packages_without_ne
     assert any(v['record']==before for _,v in store.rows('identity_resolution_evidence'))
     assert reconcile_cached_sources(store,Status())==0
     assert not db.query('SELECT * FROM stock_firmwares')
+
+
+def test_changed_quarantined_source_keeps_original_publication_receipt(env):
+    db,_=env;store=Store(db,'xiaomi')
+    device={'vendor':'xiaomi','upstream_id':'sample','codename':'sample','name':'Sample'}
+    release={'version':'V1','region':'CN','kind':'full_ota','download_url':'https://bigota.d.miui.com/V1/sample.zip'}
+    job.seed_releases(store,device,[release]);key,value=store.rows('release')[0]
+    value.update(status='blocked',error='SourceIdentityConflict',published=True,publication={'public_token':'original'})
+    store.put(key,value)
+    assert job.seed_releases(store,device,[{**release,'size':'2.0 GB'}])==1
+    assert store.get(key)['status']=='pending'
+    assert store.rows('release_revision_evidence')[0][1]['record']==value
