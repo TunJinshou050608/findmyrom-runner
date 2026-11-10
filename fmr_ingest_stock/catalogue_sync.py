@@ -135,7 +135,19 @@ def publish_release(db,device,release):
     if vendor=='xiaomi' and existing:
         from urllib.parse import unquote
         old=existing[0]
-        same_file=unquote(urlsplit(old['original_official_url']).path).rsplit('/',1)[-1]==unquote(urlsplit(url).path).rsplit('/',1)[-1]
+        old_name=unquote(urlsplit(old['original_official_url']).path).rsplit('/',1)[-1]
+        same_file=old_name==unquote(urlsplit(url).path).rsplit('/',1)[-1]
+        if not same_file and release.get('archive_revisions'):
+            from .history import conflict_kind,official
+            for alternate in release['archive_revisions']:
+                candidate=alternate.get('link','')
+                if not official(candidate) or filename(candidate)!=old_name:continue
+                if conflict_kind({'link':url,'md5':digest},alternate)!=('repacked_archive',False):continue
+                if old.get('md5_or_sha256') and old['md5_or_sha256'].lower()!=alternate['md5'].lower():continue
+                release={**release,'download_url':candidate,'md5':alternate['md5'],'size':alternate.get('size') or release.get('size')}
+                release.pop('_metadata',None)
+                url=candidate;digest=alternate['md5'];same_file=True
+                break
         checksum_conflict=bool(digest and old.get('md5_or_sha256') and digest.lower()!=old['md5_or_sha256'].lower())
         if not same_file or checksum_conflict:
             raise FirmwareIdentityPending('Xiaomi existing identity points to another file; retain pending for review')

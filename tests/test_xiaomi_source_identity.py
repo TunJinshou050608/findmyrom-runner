@@ -48,6 +48,7 @@ def test_device_dictionary_preserves_underscored_products_without_merging_famili
     devices,errors=xiaomi_devices(HTTP());by={d['upstream_id']:d for d in devices}
     assert set(by)=={'emerald','emeraldr','shennong','shennongt'} and not errors
     assert by['emeraldr']['name']=='Redmi Note 14S'
+    assert by['emeraldr']['aliases']==['Redmi Note 14S']
     assert by['emeraldr']['route_code']=='emerald'
     assert by['shennongt']['route_code']=='shennong'
     assert 'Redmi Note 14S' not in by['emerald']['aliases']
@@ -135,3 +136,51 @@ def test_partially_untrusted_full_package_is_reported_as_incomplete():
         rows,manifest=discover_device('sample',client,max_workers=1)
     assert len(rows)==1 and manifest['rejected_records']==1
     assert manifest['errors'][0]['error']=='RejectedFullROMRecord'
+
+
+def test_attested_umi_repack_preserves_existing_archive_and_signature(env):
+    from fmr_ingest_stock.history import conflict_kind
+    db,_=env;version='V12.2.2.0.RJBCNXM'
+    names=['umi_images_'+version+'_20201105.0000.00_11.0_cn_'+h*10+'.tgz' for h in ('a','b')]
+    a={'link':'https://bigota.d.miui.com/'+version+'/'+names[0],'md5':'a'*32,'size':'4.8 GB'}
+    b={'link':'https://bigota.d.miui.com/'+version+'/'+names[1],'md5':'b'*32,'size':'4.8 GB'}
+    assert conflict_kind(a,b)==('repacked_archive',False)
+    assert conflict_kind(a,{**b,'md5':'c'*32})==('package_variant',True)
+    device={'vendor':'xiaomi','upstream_id':'umi','codename':'umi','name':'Mi 10'}
+    release={'version':version,'region':'CN','kind':'fastboot','download_url':b['link'],'md5':b['md5']}
+    first=publish_release(db,device,release)
+    original=db.query('SELECT * FROM stock_firmwares')
+    result=publish_release(db,device,{**release,'download_url':a['link'],'md5':a['md5'],'archive_revisions':[b]})
+    assert result['public_token']==first['public_token']
+    assert db.query('SELECT * FROM stock_firmwares')==original
+    metadata=json.loads(db.query('SELECT metadata_json FROM firmware_metadata')[0]['metadata_json'])
+    assert metadata['original_filename']==names[1]
+
+
+def test_source_conflict_cannot_age_into_ready_without_a_clean_source_result(env):
+    db,_=env;store=Store(db,'xiaomi')
+    device={'vendor':'xiaomi','upstream_id':'sample','codename':'sample','name':'Sample'}
+    release={'version':'V1','region':'CN','kind':'full_ota','download_url':'https://bigota.d.miui.com/V1/sample.zip'}
+    job.seed_releases(store,device,[release]);key,value=store.rows('release')[0]
+    value.update(status='blocked',error='SourceIdentityConflict',next_check=0,last_cycle='',published=True,publication={'public_token':'receipt'})
+    store.put(key,value)
+    assert not store.due('release','next',10,operation='retry_failed')
+    job.seed_releases(store,device,[release])
+    recovered=store.get(key)
+    assert recovered['status']=='pending' and recovered['error'] is None
+    assert recovered['publication']==value['publication'] and recovered['published']
+    assert store.due('release','next',10)
+
+
+def test_missing_source_error_documents_are_retained_as_unavailable_not_roms():
+    bad=detail(version='OS1.0.4.0.UNKCNXM',code='vermeer').replace('6.0 GB','464 Bytes').replace('2023-01-01','None').replace('a'*32,'Unknown')
+    good=detail(version='OS1.0.5.0.UNKCNXM',code='vermeer')
+    def route(req):
+        if req.url.path.startswith('/archive/miui/'):return httpx.Response(404)
+        if req.url.path.startswith('/archive/hyperos/'):return httpx.Response(200,text='<a href="/hyperos/vermeer/stable/V1/">v</a>')
+        return httpx.Response(200,text=bad+good)
+    with httpx.Client(transport=httpx.MockTransport(route)) as client:
+        rows,manifest=discover_device('vermeer',client,max_workers=1)
+    assert len(rows)==1 and rows[0]['version']=='OS1.0.5.0.UNKCNXM'
+    assert manifest['unavailable_records'][0]['version']=='OS1.0.4.0.UNKCNXM'
+    assert manifest['errors'][0]['error']=='UpstreamNotFullROM'

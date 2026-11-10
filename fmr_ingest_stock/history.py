@@ -136,7 +136,7 @@ def bounded_html(client, url, revalidate=False):
 
 
 HISTORY_REVISION = 2
-HISTORY_SEMANTICS_REVISION = 4
+HISTORY_SEMANTICS_REVISION = 5
 DETAIL_TTL = 30 * 86400
 
 
@@ -168,7 +168,19 @@ def conflict_kind(first,other):
         return ('checksum_conflict',True) if first.get('md5') and other.get('md5') and first['md5']!=other['md5'] else ('mirror_alias',False)
     if engineering(a)!=engineering(b):return 'debug_variant' if '.debug' in a or '.debug' in b else 'engineering_variant',False
     if first.get('md5') and first.get('md5')==other.get('md5'):return 'payload_alias',False
+    # Same Xiaomi build stamp/market/platform; the publisher keeps an already
+    # published matching archive instead of replacing its URL or signature.
+    shape=lambda name:re.sub(r'_[0-9a-f]{10}(?=\\.tgz$)','_HASH',name,flags=re.I)
+    if a.startswith('umi_images_') and b.startswith('umi_images_') and shape(a)==shape(b) and all(
+        re.fullmatch('[0-9a-f]{32}',r.get('md5') or '') and '_'+r['md5'][:10]+'.tgz' in name
+        for r,name in ((first,a),(other,b))):return 'repacked_archive',False
     return 'package_variant',True
+
+
+def unavailable_full_rom(row):
+    size=str(row.get('size') or '').strip()
+    match=re.fullmatch(r'(\\d+(?:\\.\\d+)?)\\s*(?:Bytes|B)',size,re.I)
+    return bool(match and float(match[1])<4096 and not row.get('md5') and row.get('date') in (None,'','None','Unknown'))
 
 
 def record_key(row):
@@ -295,6 +307,11 @@ def discover_device(code, client=None, route_code=None, max_workers=4, checkpoin
             if variant:row['variant_id']=variant;row['variant_label']=LABELS[variant]
             else:row.pop('variant_id',None);row.pop('variant_label',None)
         records=[r for r in records if base_code(r['codename'])==code]
+        unavailable=[r for r in records if unavailable_full_rom(r)]
+        if unavailable:
+            manifest['unavailable_records']=unavailable
+            manifest['errors'].append({'stage':'package','error':'UpstreamNotFullROM','records':len(unavailable)})
+        records=[r for r in records if not unavailable_full_rom(r)]
         unique = {};blocked_keys=set()
         for row in sorted(records, key=lambda r: (engineering(filename(r['link'])), not bool(r.get('md5')), r['link'])):
             key=record_key(row)

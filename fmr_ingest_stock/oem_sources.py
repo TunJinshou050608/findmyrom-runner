@@ -206,6 +206,9 @@ def xiaomi_devices(http):
     devices={}
     for variant,labels in rows.items():
         code=base_code(variant)
+        # Prefer the explicit product spelling over obsolete bare alias labels.
+        if str(variant).lower() in ('emeraldr','shennongt') and any(
+            base_code(other)==code and source_model(other)!=str(other).lower() for other in rows):continue
         if not re.fullmatch('[a-z0-9-]{2,32}',code):continue
         name=clean_model_name(labels[0] if isinstance(labels,list) and labels else code)
         route=archive_route(code,str(variant).split('_',1)[0])

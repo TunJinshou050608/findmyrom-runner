@@ -118,7 +118,7 @@ class Status:
             '\n本工作流处理目录和下载链接；没有执行真实镜像下载、提取或发布验收。',
             '\n| 对象 | 状态 | 数量 |','| --- | --- | ---: |']
         names={'models':'机型','releases':'固件记录'}
-        states={'pending':'待处理','ok':'已检查','resolved':'链接已解析','blocked':'来源受限 / 待解决','failed':'重试耗尽','retry':'等待重试','superseded':'身份已改正，原始证据保留'}
+        states={'pending':'待处理','ok':'已检查','resolved':'链接已解析','blocked':'来源受限 / 待解决','failed':'重试耗尽','retry':'等待重试','superseded':'身份已改正，原始证据保留','unavailable':'上游文件不可用，版本证据保留'}
         for stage,values in self.counts.items():
             for state,n in values.items():lines.append(f'| {names.get(stage,stage)} | {states.get(state,state)} | {n} |')
         lines+=['\n## 本批页面请求',f"\n网络请求 {self.stats.get('network',0)} · 缓存复用 {self.stats.get('cache_hits',0)} · 304 未变化 {self.stats.get('not_modified',0)}",
@@ -158,6 +158,7 @@ def download_input_hash(row):
 def input_hash(row):
     fields={k:row.get(k) for k in ('android_version','os_raw','os_name','os_version','date','security_patch','size','metadata_source','filename','_official_metadata')}
     if row.get('variant_id'):fields.update(variant_id=row['variant_id'],variant_label=row.get('variant_label'))
+    if row.get('archive_revisions'):fields['archive_revisions']=row['archive_revisions']
     return digest([download_input_hash(row),fields])
 
 
@@ -216,6 +217,11 @@ def seed_releases(store,device,rows):
         old=store.get_many(keys);writes={}
         for key,row in zip(keys,chunk):
             signature=input_hash(row)
+            previous=old.get(key)
+            recovered=bool(store.vendor=='xiaomi' and previous and previous.get('status')=='blocked' and previous.get('error') in ('SourceIdentityConflict','LegacyIdentityConflict'))
+            if recovered and previous.get('input_hash')==signature:
+                writes[key]={**previous,'device':device,'release':row,'status':'pending','next_check':0,'attempts':0,'error':None,'last_cycle':''}
+                continue
             if key in old and old[key].get('input_hash')==signature:continue
             previous=old.get(key)
             if previous and previous.get('status')=='resolved' and download_input_hash(previous['release'])==download_input_hash(row):
@@ -353,6 +359,16 @@ def batch(store,control,http,status):
                 status.log('该目录为 ChromeOS 固件，已排除出 Android 官包采集。')
                 continue
             if store.vendor=='xiaomi':
+                # Explicitly invalid upstream placeholders remain in the version
+                # ledger with a reason, rather than looking like a valid ROM.
+                from .firmware_sync import normalize as normalize_xiaomi
+                for unavailable in provenance.get('unavailable_records',[]):
+                    n=normalize_xiaomi(unavailable,'xiaomi')
+                    target=store.key('release',identity(device,{'version':unavailable['version'],'region':n['region_code'],'kind':'full_ota' if n['package_type']=='recovery_zip' else 'fastboot'}))
+                    prior=store.get(target)
+                    if prior:
+                        prior.update(status='unavailable',error='UpstreamNotFullROM',next_check=now+7*86400,last_cycle=cycle)
+                        store.put(target,prior)
                 # Ambiguous files remain reviewable, never eligible for automatic publication.
                 for conflict in provenance.get('conflicts',[]):
                     if not conflict.get('blocking',True):continue
@@ -456,8 +472,8 @@ def run(db,vendor,mode='audit',operation='incremental',cycle='',sequence=1,clien
     store=Store(db,vendor);key=store.key('control');control=store.get(key)
     with Status(vendor) as status:
         upgrade_adapters(store,status)
-        if vendor=='xiaomi' and control and control.get('device_identity_revision')!=4:
-            control.update(device_identity_revision=4,discovery_checked_at=1)
+        if vendor=='xiaomi' and control and control.get('device_identity_revision')!=5:
+            control.update(device_identity_revision=5,discovery_checked_at=1)
             control.pop('discovery_cycle',None)
         if int(os.environ.get('GITHUB_RUN_ATTEMPT','1'))>1 and control and control['state']=='completed_with_gaps':
             cycle='';mode=control['mode'];operation='retry_failed'
