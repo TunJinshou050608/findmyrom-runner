@@ -123,12 +123,13 @@ jobs:
         FMR_CATALOGUE_PROCESSES: ${{ inputs.processes || '1' }}
         FMR_REBUILD_XIAOMI_RECEIPTS: ${{ inputs.rebuild_xiaomi_receipts && 'true' || 'false' }}
         FMR_RECEIPT_LIMIT: ${{ inputs.receipt_limit || '100' }}
+        FMR_RECEIPT_MERGE_REQUESTED: ${{ inputs.merge_shards && 'true' || 'false' }}
       run: |
         set -o pipefail
         count="${FMR_CATALOGUE_PROCESSES:-1}"
         if [ "$FMR_REBUILD_XIAOMI_RECEIPTS" = true ]; then
-          if [ "$count" != 1 ] || [ "$FMR_CATALOGUE_SHARD_COUNT" != 1 ] || [ "$FMR_D1_WRITES_PAUSED" = true ]; then
-            echo 'Receipt reconciliation requires one active process and one shard.' >&2
+          if [ "$count" != 1 ] || [ "$FMR_CATALOGUE_SHARD_COUNT" != 1 ] || [ "$FMR_D1_WRITES_PAUSED" = true ] || [ "$FMR_CATALOGUE_SKIP_EXPORT" = true ] || [ "$FMR_RECEIPT_MERGE_REQUESTED" = true ]; then
+            echo 'Receipt reconciliation requires one process, a saved checkpoint, and no shard merge.' >&2
             exit 1
           fi
           python -u -m fmr_ingest_stock.xiaomi_ack_rebuild --limit "$FMR_RECEIPT_LIMIT"
@@ -156,7 +157,7 @@ jobs:
         for p in $pids; do wait "$p" || status=1; done
         exit $status
     - name: Merge parallel shard checkpoints
-      if: always() && (inputs.merge_shards || inputs.merge_only) && !inputs.dry_run
+      if: always() && (inputs.merge_shards || inputs.merge_only) && !inputs.dry_run && !inputs.rebuild_xiaomi_receipts
       run: python -u -m fmr_ingest_stock.merge_shards
     - name: Verify publisher checkpoint
       id: export_check
