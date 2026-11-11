@@ -15,6 +15,43 @@ import httpx
 def device(code):
     return {'vendor':'xiaomi','upstream_id':code,'codename':code,'name':code}
 
+
+def test_receipt_rebuild_only_confirms_exact_d1_noops(env):
+    from fmr_ingest_stock.catalogue_publish import candidates, open_ledger
+    from fmr_ingest_stock.xiaomi_ack_rebuild import rebuild
+
+    db, _ = env
+    d = device('mido')
+    def release(version):
+        return {'version':version, 'region':'Global','kind':'full_ota','size':'1 GB',
+                'download_url':f'https://bigota.d.miui.com/{version}/miui_HMNote4XGlobal_{version}_e6eed016d8_6.0.zip'}
+
+    for version in ('7.2.16','7.2.23','7.3.2'):
+        publish_release(db,d,release(version))
+    before = db.query('SELECT * FROM stock_firmwares ORDER BY id')
+    inputs = [release('7.2.16'), {**release('7.2.23'),'size':'2 GB'}, release('7.3.3'),
+              {**release('7.3.2'),'download_url':release('7.3.2')['download_url'].replace('e6eed016d8','aaaaaaaaaa')}]
+    store = Store(db,'xiaomi')
+    job.seed_releases(store,d,inputs)
+    for key,value in store.rows('release'):
+        store.put(key,{**value,'status':'resolved'})
+
+    class ReadOnlyFixture:
+        rows_read = 0
+        def query(self, sql, params):
+            assert sql.lstrip().startswith('SELECT')
+            return db.query(sql,params)
+
+    ledger = open_ledger(':memory:')
+    try:
+        assert rebuild(ReadOnlyFixture(),db,ledger,10) == {
+            'confirmed_local':1,'publication_needed':2,'identity_pending':1}
+        remaining = list(candidates(db,ledger,'xiaomi'))
+        assert {v['release']['version'] for _,_,v,_ in remaining} == {'7.2.23','7.3.2','7.3.3'}
+        assert db.query('SELECT * FROM stock_firmwares ORDER BY id') == before
+    finally:
+        ledger.close()
+
 def head(monkeypatch,tmp_path,url,status=404):
     monkeypatch.setenv('FMR_CATALOGUE_STATE_DIR',str(tmp_path))
     (tmp_path/'xiaomi-source-heads.json').write_text(json.dumps({hashlib.sha256(url.encode()).hexdigest():{'checked_at':1,'head':{'status':status,'original_status':403,'length':'9000000' if status==200 else '475','type':'application/zip' if status==200 else 'application/xml'}}}))

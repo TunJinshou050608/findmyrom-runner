@@ -1,0 +1,157 @@
+"""Reconcile Xiaomi publication receipts against D1 using local replay."""
+import argparse
+from collections import Counter, defaultdict
+import json
+from pathlib import Path
+
+from fmr_core.d1_client import D1Client
+from fmr_ingest_stock.catalogue_publish import candidates, open_ledger
+from fmr_ingest_stock.catalogue_sync import FirmwareIdentityPending, publish_release
+from fmr_ingest_stock.d1_budget import BudgetDB
+from fmr_ingest_stock.device_sync import ensure_base_brands_and_anchor
+from fmr_ingest_stock.oem_sources import canonical_code
+from fmr_ingest_stock.staged_catalogue import Artifacts, ROOT, encrypt_file, open_local
+
+PAGE_SIZE = 200
+READ_LIMIT = 250_000
+ACK_SQL = """INSERT INTO published(vendor,key,hash) VALUES ('xiaomi',?,?)
+             ON CONFLICT(vendor,key) DO UPDATE SET hash=excluded.hash"""
+
+
+class ReadOnlyD1(BudgetDB):
+    def _request_cf_with_retry(self, payload, is_safe_to_retry):
+        if not payload.get('sql', '').lstrip().upper().startswith('SELECT '):
+            raise RuntimeError('Receipt reconciliation only permits D1 SELECT queries')
+        return super()._request_cf_with_retry(payload, is_safe_to_retry)
+
+
+class ShadowDB(D1Client):
+    def execute_batch(self, statements):
+        if not self._get_sqlite_conn().in_transaction:
+            return super().execute_batch(statements)
+        return {'changes': sum(self.execute(sql, params)['changes'] for sql, params in statements), 'success': True}
+
+
+def insert_rows(db, table, rows):
+    if not rows:
+        return
+    columns = list(rows[0])
+    # The table names and columns come from the fixed D1 schema.
+    sql = f"INSERT INTO {table} ({','.join(columns)}) VALUES ({','.join('?' for _ in columns)})"
+    db._get_sqlite_conn().executemany(sql, [tuple(row[col] for col in columns) for row in rows])
+
+
+def device_snapshot(remote, shadow, code):
+    conn = shadow._get_sqlite_conn()
+    for table in ('firmware_metadata', 'stock_firmwares', 'devices'):
+        conn.execute(f'DELETE FROM {table}' + (" WHERE codename!='__global__'" if table == 'devices' else ''))
+    if remote.rows_read >= READ_LIMIT:
+        return False
+    insert_rows(shadow, 'devices', remote.query('SELECT * FROM devices WHERE codename=?', (code,)))
+    after = 0
+    while True:
+        if remote.rows_read >= READ_LIMIT:
+            return False
+        rows = remote.query("""SELECT f.*,m.metadata_json,m.content_hash
+            FROM stock_firmwares f LEFT JOIN firmware_metadata m USING(public_token)
+            WHERE f.device_codename=? AND f.id>? ORDER BY f.id LIMIT ?""", (code,after,PAGE_SIZE))
+        meta = []
+        for row in rows:
+            body, fingerprint = row.pop('metadata_json'), row.pop('content_hash')
+            if body is not None:
+                meta.append(dict(public_token=row['public_token'],metadata_json=body,content_hash=fingerprint))
+        insert_rows(shadow, 'stock_firmwares', rows)
+        insert_rows(shadow, 'firmware_metadata', meta)
+        if len(rows) < PAGE_SIZE:
+            return True
+        after = rows[-1]['id']
+
+
+def replay(shadow, value):
+    conn = shadow._get_sqlite_conn()
+    before = conn.total_changes
+    conn.execute('SAVEPOINT receipt_probe')
+    try:
+        result = publish_release(shadow, value['device'], value['release'])
+        if result['status'] == 'preserved_existing' and not result['metadata_changed'] and conn.total_changes == before:
+            return 'confirmed_local'
+        return 'publication_needed'
+    except FirmwareIdentityPending:
+        return 'identity_pending'
+    finally:
+        conn.execute('ROLLBACK TO receipt_probe')
+        conn.execute('RELEASE receipt_probe')
+
+
+def rebuild(remote, local, ledger, limit):
+    groups = defaultdict(list)
+    for stage, key, value, fingerprint in candidates(local, ledger, 'xiaomi'):
+        if stage != 'release' or value['status'] != 'resolved' or value['release'].get('refresh_source'):
+            continue
+        device = value['device']
+        code = device.get('canonical_code') or canonical_code('xiaomi',device.get('codename') or device['upstream_id'])
+        groups[code].append((key,value,fingerprint))
+        limit -= 1
+        if not limit:
+            break
+    counts = Counter()
+    with_shadow = ShadowDB(local_sqlite_path=':memory:')
+    try:
+        schema = (Path(__file__).parents[1] / 'schema.sql').read_text()
+        # Read both old and model-keyed D1 datasets. Only the replay's exact
+        # natural-key lookup can establish that a record already exists.
+        schema = schema.replace('UNIQUE(device_codename, region_code, version_str, package_type)',
+                                'UNIQUE(device_codename, model_code, region_code, version_str, package_type)')
+        with_shadow.execute_script(schema)
+        ensure_base_brands_and_anchor(with_shadow)
+        from fmr_core.firmware_metadata_schema import ensure
+        ensure(with_shadow, apply=True)
+        for code, items in groups.items():
+            if not device_snapshot(remote, with_shadow, code):
+                counts['read_budget_stop'] += 1
+                break
+            receipts = []
+            for key, value, fingerprint in items:
+                outcome = replay(with_shadow, value)
+                counts[outcome] += 1
+                if outcome == 'confirmed_local':
+                    receipts.append((key,fingerprint))
+            if receipts:
+                ledger._get_sqlite_conn().executemany(ACK_SQL, receipts)
+        return dict(counts)
+    finally:
+        with_shadow.close()
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--limit',type=int,required=True)
+    limit = parser.parse_args().limit
+    if not 1 <= limit <= 70_000:
+        parser.error('--limit must be between 1 and 70000')
+    artifacts = Artifacts()
+    resources = []
+    path = ROOT/'publisher.sqlite'
+    try:
+        if not artifacts.restore('publisher', path, baseline=False) or not artifacts.restore('xiaomi', ROOT/'xiaomi.sqlite'):
+            raise RuntimeError('Missing publication or Xiaomi checkpoint')
+        ledger = open_ledger(path)
+        resources.append(ledger)
+        local = open_local(ROOT/'xiaomi.sqlite', initialize=False)
+        resources.append(local)
+        remote = ReadOnlyD1(enforce_limits=False)
+        resources.append(remote)
+        remote.metering = True
+        counts = rebuild(remote, local, ledger, limit)
+        assert remote.rows_written == 0
+        print(json.dumps({'event':'xiaomi_receipts_rebuilt','rows_read':remote.rows_read,
+                          'rows_written':remote.rows_written,**counts}),flush=True)
+    finally:
+        for resource in reversed(resources):
+            resource.close()
+        artifacts.close()
+    encrypt_file('publisher', path)
+
+
+if __name__ == '__main__':
+    main()

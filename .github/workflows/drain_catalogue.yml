@@ -36,6 +36,14 @@ name: D1 · 一次性清空积压
         description: '单进程最多尝试发布的记录数。0 表示原有积压发布模式'
         type: number
         default: 0
+      rebuild_xiaomi_receipts:
+        description: '只读 D1，比对并恢复小米本地发布确认点'
+        type: boolean
+        default: false
+      receipt_limit:
+        description: '恢复模式最多检查的小米记录数'
+        type: number
+        default: 100
       count_only:
         type: boolean
         default: false
@@ -113,9 +121,19 @@ jobs:
       if: (github.event_name == 'workflow_dispatch' || steps.guard.outputs.run == 'true') && !inputs.count_only && !inputs.merge_only
       env:
         FMR_CATALOGUE_PROCESSES: ${{ inputs.processes || '1' }}
+        FMR_REBUILD_XIAOMI_RECEIPTS: ${{ inputs.rebuild_xiaomi_receipts && 'true' || 'false' }}
+        FMR_RECEIPT_LIMIT: ${{ inputs.receipt_limit || '100' }}
       run: |
         set -o pipefail
         count="${FMR_CATALOGUE_PROCESSES:-1}"
+        if [ "$FMR_REBUILD_XIAOMI_RECEIPTS" = true ]; then
+          if [ "$count" != 1 ] || [ "$FMR_CATALOGUE_SHARD_COUNT" != 1 ] || [ "$FMR_D1_WRITES_PAUSED" = true ]; then
+            echo 'Receipt reconciliation requires one active process and one shard.' >&2
+            exit 1
+          fi
+          python -u -m fmr_ingest_stock.xiaomi_ack_rebuild --limit "$FMR_RECEIPT_LIMIT"
+          exit $?
+        fi
         if [ "$FMR_CATALOGUE_PUBLISH_MAX_RECORDS" != 0 ] && [ "$count" != 1 ]; then
           echo 'A capped publish must use one process.' >&2
           exit 1
