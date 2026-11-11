@@ -18,6 +18,13 @@ from .oem_sources import canonical_code,download_origin
 class FirmwareIdentityPending(RuntimeError):pass
 
 
+STOCK_COLUMNS = (
+    'public_token,extract_status,original_official_url,fast_cdn_url,'
+    'md5_or_sha256,android_version,published_date,file_size_str,model_code'
+)
+
+
+
 DIRECT_BRANDS={'xiaomi','google','samsung','oneplus','motorola','sony','oppo','vivo','realme','asus','nothing'}
 
 
@@ -26,7 +33,7 @@ def xiaomi_legacy_rows(db,device,code,region,version,kind,base=None):
     root=str(device.get('codename') or device['upstream_id'])
     models=[root]+[root+'_'+suffix for suffix in ('global','eea','in','id','ru','tr','tw','jp','sg')]
     if base:models=[model_key(model,base) for model in models]
-    return db.query("SELECT public_token,extract_status,original_official_url,fast_cdn_url,md5_or_sha256 FROM stock_firmwares WHERE device_codename=? AND region_code=? AND version_str=? AND package_type=? AND LOWER(COALESCE(NULLIF(model_code,''),device_codename)) IN ("+','.join('?' for _ in models)+") ORDER BY id LIMIT 12",
+    return db.query("SELECT "+STOCK_COLUMNS+" FROM stock_firmwares WHERE device_codename=? AND region_code=? AND version_str=? AND package_type=? AND LOWER(COALESCE(NULLIF(model_code,''),device_codename)) IN ("+','.join('?' for _ in models)+") ORDER BY id LIMIT 12",
                     (code,region,build_version(version_key(version,base)),kind,*[m.lower() for m in models]))
 
 
@@ -40,7 +47,7 @@ def publish_unavailable(db,device,release,reason):
     from .metadata_publish import publish
     for row in candidates:
         if filename(row['original_official_url'])==filename(release['download_url']):
-            publish(db,row['public_token'],device,{**release,'availability':'unavailable','unavailable_reason':reason})
+            publish(db,row['public_token'],device,{**release,'availability':'unavailable','unavailable_reason':reason},current=row)
     return {'status':'unavailable_recorded'}
 
 
@@ -82,14 +89,19 @@ def publish_device(db,device):
     models=str(device.get('models') or '')
     if not models and vendor=='asus':models=','.join(re.findall(r'\b(?:AI\d{4}[A-Z]?|ZS\d{3}[A-Z]{2})\b',str(device.get('name') or ''),re.I))
     notes=None
+    params=(code,brand,name,json.dumps([v.strip() for v in models.split(',') if v.strip()]),notes,
+            'boot' if int(device.get('android_release') or 13)<13 else 'init_boot')
+    cache=getattr(db,'_publication_device_cache',None)
+    if cache is not None and cache.get(code)==params:
+        return code
     db.execute('''INSERT INTO devices(codename,brand_id,marketing_name,model_numbers_json,flashing_notes_md,boot_partition_type)
         VALUES (?,?,?,?,?,?) ON CONFLICT(codename) DO UPDATE SET
         brand_id=excluded.brand_id,marketing_name=excluded.marketing_name,
         model_numbers_json=CASE WHEN excluded.model_numbers_json='[]' THEN devices.model_numbers_json ELSE excluded.model_numbers_json END
         WHERE devices.brand_id!=excluded.brand_id OR devices.marketing_name!=excluded.marketing_name
-        OR (excluded.model_numbers_json!='[]' AND devices.model_numbers_json!=excluded.model_numbers_json)''',(code,brand,name,
-        json.dumps([v.strip() for v in models.split(',') if v.strip()]),notes or None,
-        'boot' if int(device.get('android_release') or 13)<13 else 'init_boot'))
+        OR (excluded.model_numbers_json!='[]' AND devices.model_numbers_json!=excluded.model_numbers_json)''',params)
+    if cache is not None:
+        cache[code]=params
     return code
 
 
@@ -113,8 +125,8 @@ def publish_release(db,device,release):
         return {'status':'requires_download_refresh'}
     from fmr_core.firmware_metadata_schema import ensure as ensure_metadata_schema
     ensure_metadata_schema(db,apply=getattr(db,'mode',None)=='sqlite')
-    code=publish_device(db,device)
     vendor=device['vendor']
+    code=device.get('canonical_code') or canonical_code(vendor,device.get('codename') or device['upstream_id'])
     raw_version=str(release['version'])
     region=str(release.get('region') or 'Global').strip()[:64]
     if vendor=='google':
@@ -138,7 +150,7 @@ def publish_release(db,device,release):
         if physical_code(device['upstream_id'],filename(url))!=device['upstream_id'] or not official(url) or expected!=region or not matches(device['upstream_id'],filename(url),release.get('variant_id')):
             raise FirmwareIdentityPending('Xiaomi archive market or edition disagrees with descriptor; retain pending')
         if release.get('variant_id'):model=model_key(model,release['variant_id'])
-    existing=db.query("SELECT public_token,extract_status,original_official_url,fast_cdn_url,md5_or_sha256 FROM stock_firmwares WHERE device_codename=? AND region_code=? AND version_str=? AND package_type=? AND COALESCE(NULLIF(model_code,''),device_codename)=?",
+    existing=db.query("SELECT "+STOCK_COLUMNS+" FROM stock_firmwares WHERE device_codename=? AND region_code=? AND version_str=? AND package_type=? AND COALESCE(NULLIF(model_code,''),device_codename)=?",
                  (code,region,version,kind,model))
     if vendor=='xiaomi':
         if canonical_version(release['version'],filename(url))!=release['version']:
@@ -155,7 +167,7 @@ def publish_release(db,device,release):
                     version=build_version(version_key(release['version'],'standard'))
                     model=model_key(str(device.get('codename') or device['upstream_id']),'standard')
                     release={**release,'variant_id':'standard','variant_label':'Standard edition'}
-                    existing=db.query("SELECT public_token,extract_status,original_official_url,fast_cdn_url,md5_or_sha256 FROM stock_firmwares WHERE device_codename=? AND region_code=? AND version_str=? AND package_type=? AND COALESCE(NULLIF(model_code,''),device_codename)=?",(code,region,version,kind,model))
+                    existing=db.query("SELECT "+STOCK_COLUMNS+" FROM stock_firmwares WHERE device_codename=? AND region_code=? AND version_str=? AND package_type=? AND COALESCE(NULLIF(model_code,''),device_codename)=?",(code,region,version,kind,model))
     if vendor=='google' and not existing:
         # Match the old caption-derived identity, then require the exact same official file.
         # Never change historical URLs, tokens, region keys or signatures.
@@ -165,7 +177,7 @@ def publish_release(db,device,release):
         if block and old_region=='Global':
             editions=[v.strip() for v in block[1].split(',')[1:] if v.strip() and not re.fullmatch(r'(?:[A-Za-z]{3,9}\.?\s+\d{4}|\d{4}-\d{2}(?:-\d{2})?)',v.strip())]
             if editions:old_region=' · '.join(editions)[:64]
-        legacy_rows=db.query("SELECT public_token,extract_status,original_official_url,fast_cdn_url,md5_or_sha256 FROM stock_firmwares WHERE device_codename=? AND region_code=? AND version_str=? AND package_type=? AND COALESCE(NULLIF(model_code,''),device_codename)=?",
+        legacy_rows=db.query("SELECT "+STOCK_COLUMNS+" FROM stock_firmwares WHERE device_codename=? AND region_code=? AND version_str=? AND package_type=? AND COALESCE(NULLIF(model_code,''),device_codename)=?",
             (code,old_region,build_version(legacy[1] if legacy else release['version']),kind,model))
         existing=[r for r in legacy_rows if r['original_official_url']==url]
         if legacy_rows and not existing:raise FirmwareIdentityPending('Google legacy file differs; keep pending')
@@ -190,18 +202,25 @@ def publish_release(db,device,release):
         checksum_conflict=bool(digest and old.get('md5_or_sha256') and digest.lower()!=old['md5_or_sha256'].lower())
         if not same_file or checksum_conflict:
             raise FirmwareIdentityPending('Xiaomi existing identity points to another file; retain pending for review')
+    publish_device(db,device)
     token=None
     if not existing:
         token=generate_public_token('fw')
         signature=sign_firmware(token,fast,private_key())
         status='pending' if extraction_eligible(vendor,kind,fast) else 'skipped'
-        db.execute('''INSERT OR IGNORE INTO stock_firmwares(public_token,device_codename,region_code,model_code,
+        version_match=re.match(r'^\d+(?:\.\d+)*',str(release.get('android_version') or ''))
+        android=version_match[0] if version_match else str(release.get('android_version') or 'unknown')
+        inserted=db.execute('''INSERT OR IGNORE INTO stock_firmwares(public_token,device_codename,region_code,model_code,
             version_str,android_version,package_type,file_size_str,md5_or_sha256,original_official_url,fast_cdn_url,
             published_date,ed25519_signature,extract_status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
             (token,code,region,model,version,
-             (re.match(r'^\d+(?:\.\d+)*',str(release.get('android_version') or ''))[0] if re.match(r'^\d+(?:\.\d+)*',str(release.get('android_version') or '')) else str(release.get('android_version') or 'unknown')),kind,release.get('size'),digest.lower() if digest else None,
+             android,kind,release.get('size'),digest.lower() if digest else None,
              url,fast,release.get('date'),signature,status))
-    row=db.query("SELECT public_token,extract_status,original_official_url,fast_cdn_url,md5_or_sha256 FROM stock_firmwares WHERE device_codename=? AND region_code=? AND version_str=? AND package_type=? AND COALESCE(NULLIF(model_code,''),device_codename)=?",
+        if inserted.get('changes')==1:
+            existing=[dict(public_token=token,extract_status=status,original_official_url=url,
+                           fast_cdn_url=fast,android_version=android,published_date=release.get('date'),
+                           file_size_str=release.get('size'),model_code=model)]
+    row=db.query("SELECT "+STOCK_COLUMNS+" FROM stock_firmwares WHERE device_codename=? AND region_code=? AND version_str=? AND package_type=? AND COALESCE(NULLIF(model_code,''),device_codename)=?",
                  (code,region,version,kind,model)) if not existing else existing
     if not row:raise FirmwareIdentityPending('Model identity conflict; retain pending metadata without modifying another model')
     row=row[0]
@@ -221,7 +240,7 @@ def publish_release(db,device,release):
         db.execute('''INSERT OR IGNORE INTO crawler_sources(device_codename,source_kind,source_target,last_cursor_val,last_checked_at)
             VALUES ('__global__','sony_bundle',?,?,strftime('%s','now'))''',(bundle_hash,json.dumps({'manifest':release['bundle'],'public_token':row['public_token']},sort_keys=True,separators=(',',':'))))
     from .metadata_publish import publish as publish_metadata
-    metadata_changed=publish_metadata(db,row['public_token'],device,release)
+    metadata_changed=publish_metadata(db,row['public_token'],device,release,current=row)
     return {'metadata_changed':metadata_changed,'status':'published_new' if row['public_token']==token else 'preserved_existing',
             'public_token':row['public_token'],'codename':code,'package_type':kind,
             'origin_kind':origin,'image_status':'not_verified'}

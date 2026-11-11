@@ -36,6 +36,30 @@ def source():
     return {'vendor':'oneplus','upstream_id':'sample','codename':'sample','name':'Sample','page':'https://fwatlas.com/oneplus/sample'}, {'version':'CPH1234_15.0.1(EX01)','region':'EU','android_version':'OxygenOS 15','kind':'full_ota','date':'2025-01-01','size':'1 GB','download_url':'https://ota.oneplus.net/sample.zip','origin_kind':'oem','resolution':'resolved'}
 
 
+def test_batch_reuses_device_and_stock_reads_without_skipping_metadata(env):
+    db, _ = env
+    device, release = source()
+    db._publication_device_cache = {}
+    publish_release(db, device, release)
+    sql = []
+    db._get_sqlite_conn().set_trace_callback(sql.append)
+    result = publish_release(db, device, {**release, 'version': 'BUILD.2'})
+    assert result['status'] == 'published_new' and result['metadata_changed']
+    assert not any(q.lstrip().startswith('INSERT INTO devices') for q in sql)
+    assert sum(q.startswith('SELECT') and 'FROM stock_firmwares' in q for q in sql) == 1
+    sql.clear()
+    result = publish_release(db, device, {**release, 'version': 'BUILD.2'})
+    assert result['status'] == 'preserved_existing' and not result['metadata_changed']
+    assert sum(q.startswith('SELECT') and 'FROM stock_firmwares' in q for q in sql) == 1
+    assert not any(q.lstrip().startswith(('INSERT', 'UPDATE')) for q in sql)
+    sql.clear()
+    result = publish_release(db, device, {**release, 'version': 'BUILD.2', 'size': '2 GB'})
+    assert result['metadata_changed']
+    updates = [q for q in sql if q.startswith('UPDATE stock_firmwares')]
+    assert len(updates) == 1 and 'SET file_size_str=' in updates[0]
+    assert 'published_date' not in updates[0]
+
+
 def test_metadata_updates_preserve_identity_signatures_and_retry_is_noop(env):
     db,_=env;device,release=source()
     result=publish_release(db,device,release)

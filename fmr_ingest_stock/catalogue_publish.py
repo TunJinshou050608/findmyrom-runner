@@ -133,6 +133,7 @@ def main():
                 print('今日发布预算已满；采集继续，未发布队列保留，下一 UTC 日恢复。',flush=True);return 0
             from fmr_core.schema_migrations import ensure_schema
             ensure_schema(db)
+            db._publication_device_cache = {}
             # Existing production brands are already bootstrapped. Never rewrite
             # brand names/anchor and cache counters on every sync.
             attempted=0;consecutive_errors=0

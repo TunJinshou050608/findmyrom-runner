@@ -5,9 +5,10 @@ from .release_metadata import normalize
 from fmr_core.firmware_metadata_schema import ensure
 
 
-def publish(db, token, device, release):
+def publish(db, token, device, release, *, current=None):
     ensure(db, apply=getattr(db, 'mode', None) == 'sqlite')
-    current = db.query('SELECT android_version,published_date,file_size_str,original_official_url,md5_or_sha256,model_code FROM stock_firmwares WHERE public_token=?', (token,))[0]
+    if current is None:
+        current = db.query('SELECT android_version,published_date,file_size_str,original_official_url,md5_or_sha256,model_code FROM stock_firmwares WHERE public_token=?', (token,))[0]
     if device['vendor']=='xiaomi':
         from .xiaomi_variants import filename,android_version,canonical_version,edition,label,matches
         from .xiaomi_delivery import missing,available
@@ -48,8 +49,13 @@ def publish(db, token, device, release):
     body = json.dumps(metadata, sort_keys=True, separators=(',',':'))
     # One atomic batch: failed metadata writes cannot acknowledge a partial update.
     statements = [('INSERT INTO firmware_metadata(public_token,metadata_json,content_hash) VALUES (?,?,?) ON CONFLICT(public_token) DO UPDATE SET metadata_json=excluded.metadata_json,content_hash=excluded.content_hash,updated_at=strftime(\'%s\',\'now\') WHERE firmware_metadata.content_hash!=excluded.content_hash', (token,body,fingerprint))]
-    if android != current['android_version'] or date != current['published_date'] or size != current['file_size_str']:
-        statements.append(('UPDATE stock_firmwares SET android_version=?,published_date=?,file_size_str=? WHERE public_token=?', (android,date,size,token)))
+    changed = [(column, value) for column, value in (
+        ('android_version', android), ('published_date', date), ('file_size_str', size)
+    ) if value != current[column]]
+    if changed:
+        assignments = ','.join(f'{column}=?' for column, _ in changed)
+        statements.append((f'UPDATE stock_firmwares SET {assignments} WHERE public_token=?',
+                           (*[value for _, value in changed], token)))
     db.execute_batch(statements)
     saved = db.query('SELECT content_hash FROM firmware_metadata WHERE public_token=?', (token,))
     if not saved or saved[0]['content_hash'] != fingerprint:
