@@ -36,6 +36,29 @@ def source():
     return {'vendor':'oneplus','upstream_id':'sample','codename':'sample','name':'Sample','page':'https://fwatlas.com/oneplus/sample'}, {'version':'CPH1234_15.0.1(EX01)','region':'EU','android_version':'OxygenOS 15','kind':'full_ota','date':'2025-01-01','size':'1 GB','download_url':'https://ota.oneplus.net/sample.zip','origin_kind':'oem','resolution':'resolved'}
 
 
+def test_collector_metadata_cache_changes_do_not_requeue_published_firmware(env):
+    db, _ = env
+    device, release = source()
+    store = Store(db, 'oneplus')
+    seed_releases(store, device, [release])
+    key, value = store.rows('release')[0]
+    value.update(status='resolved', metadata_dirty=True)
+    value['release']['_metadata'] = {'display_version': 'old cached label'}
+    store.put(key, value)
+    ledger = publisher.open_ledger(':memory:')
+    try:
+        item, = publisher.candidates(db, ledger, 'oneplus')
+        assert publisher.sync_one(db, ledger, 'oneplus', item)
+        value['release']['_metadata'] = {'display_version': 'recalculated cache'}
+        store.put(key, value)
+        assert list(publisher.candidates(db, ledger, 'oneplus')) == []
+        value['release']['date'] = '2025-01-02'
+        store.put(key, value)
+        assert len(list(publisher.candidates(db, ledger, 'oneplus'))) == 1
+    finally:
+        ledger.close()
+
+
 def test_batch_reuses_device_and_stock_reads_without_skipping_metadata(env):
     db, _ = env
     device, release = source()

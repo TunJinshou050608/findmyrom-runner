@@ -34,7 +34,13 @@ def candidates(local,ledger,vendor):
             unavailable=stage=='release' and vendor=='xiaomi' and value.get('status')=='unavailable'
             if stage=='release' and not unavailable and (value.get('status')!='resolved' or (value.get('published') and not value.get('metadata_dirty'))):continue
             from .release_metadata import NORMALIZATION_REVISION as REVISION
-            body=value['device'] if stage=='model' else [value['device'],value['release'],REVISION]
+            if stage == 'model':
+                body = value['device']
+            else:
+                # The publisher recalculates public metadata from the source
+                # fields. A rewritten collector cache does not change D1 data.
+                release = {k: v for k, v in value['release'].items() if k != '_metadata'}
+                body = [value['device'], release, REVISION]
             if unavailable:body=[body,'unavailable',value.get('error')]
             fingerprint=digest(body)
             old=ledger.query('SELECT hash FROM published WHERE vendor=? AND key=?',(vendor,key))
@@ -44,8 +50,14 @@ def candidates(local,ledger,vendor):
                     continue
                 # Revision 3 changed the fingerprint for every vendor. Keep
                 # those acknowledgements only for the identical release body.
-                if stage == 'release' and not unavailable and acknowledged == digest([value['device'], value['release'], 3]):
-                    continue
+                if stage == 'release':
+                    legacy = [value['device'], value['release'], REVISION]
+                    if unavailable:
+                        legacy = [legacy, 'unavailable', value.get('error')]
+                    if acknowledged == digest(legacy):
+                        continue
+                    if not unavailable and acknowledged == digest([value['device'], value['release'], 3]):
+                        continue
             # Split the actual pending work, not the whole snapshot: a skewed
             # backlog leaves most hash buckets empty.
             if SHARD_COUNT>1 and position%SHARD_COUNT!=SHARD_INDEX:
@@ -67,6 +79,10 @@ def sync_one(db,ledger,vendor,candidate,outcomes=None):
             print(json.dumps({'event':'publication_identity_pending','vendor':vendor,'key':key,'reason':str(error)}),flush=True)
             return False
     if result['status'] in ('published_new','preserved_existing','unavailable_recorded'):
+        if stage == 'release' and 0 < MAX_RECORDS <= 20 and result['status'] == 'preserved_existing' and not result.get('metadata_changed'):
+            previous = ledger.query('SELECT 1 FROM published WHERE vendor=? AND key=?', (vendor,key))
+            print(json.dumps({'event':'publication_existing_sample','vendor':vendor,'key':key,
+                              'local_ack':'fingerprint_changed' if previous else 'missing'}),flush=True)
         # Commit local acknowledgement only after the D1 transaction succeeded.
         ledger.execute('INSERT INTO published(vendor,key,hash) VALUES (?,?,?) ON CONFLICT(vendor,key) DO UPDATE SET hash=excluded.hash',(vendor,key,fingerprint))
         if outcomes is not None:
