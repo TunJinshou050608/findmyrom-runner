@@ -38,7 +38,14 @@ def candidates(local,ledger,vendor):
             if unavailable:body=[body,'unavailable',value.get('error')]
             fingerprint=digest(body)
             old=ledger.query('SELECT hash FROM published WHERE vendor=? AND key=?',(vendor,key))
-            if old and old[0]['hash']==fingerprint:continue
+            if old:
+                acknowledged = old[0]['hash']
+                if acknowledged == fingerprint:
+                    continue
+                # Revision 3 changed the fingerprint for every vendor. Keep
+                # those acknowledgements only for the identical release body.
+                if stage == 'release' and not unavailable and acknowledged == digest([value['device'], value['release'], 3]):
+                    continue
             # Split the actual pending work, not the whole snapshot: a skewed
             # backlog leaves most hash buckets empty.
             if SHARD_COUNT>1 and position%SHARD_COUNT!=SHARD_INDEX:
@@ -48,17 +55,31 @@ def candidates(local,ledger,vendor):
             yield stage,key,value,fingerprint
 
 
-def sync_one(db,ledger,vendor,candidate):
+def sync_one(db,ledger,vendor,candidate,outcomes=None):
     stage,key,value,fingerprint=candidate
     if stage=='model':publish_device(db,value['device']);result={'status':'published_new'}
     else:
         try:
             result=publish_unavailable(db,value['device'],value['release'],value.get('error')) if vendor=='xiaomi' and value.get('status')=='unavailable' else publish_release(db,value['device'],value['release'])
-        except FirmwareIdentityPending:
-            print('Firmware model identity conflict; retained pending, no acknowledgement.',flush=True);return False
+        except FirmwareIdentityPending as error:
+            if outcomes is not None:
+                outcomes['identity_pending'] += 1
+            print(json.dumps({'event':'publication_identity_pending','vendor':vendor,'key':key,'reason':str(error)}),flush=True)
+            return False
     if result['status'] in ('published_new','preserved_existing','unavailable_recorded'):
         # Commit local acknowledgement only after the D1 transaction succeeded.
         ledger.execute('INSERT INTO published(vendor,key,hash) VALUES (?,?,?) ON CONFLICT(vendor,key) DO UPDATE SET hash=excluded.hash',(vendor,key,fingerprint))
+        if outcomes is not None:
+            if stage == 'model':
+                outcomes['devices_confirmed'] += 1
+            elif result['status'] == 'published_new':
+                outcomes['new_packages'] += 1
+            elif result['status'] == 'unavailable_recorded':
+                outcomes['unavailable_recorded'] += 1
+            elif result.get('metadata_changed'):
+                outcomes['metadata_updated'] += 1
+            else:
+                outcomes['existing_confirmed'] += 1
         return True
     return False
 
@@ -72,6 +93,8 @@ def main():
     if not selected or len(set(selected))!=len(selected) or any(v not in VENDORS for v in selected):raise ValueError('Invalid publication vendor selection')
     slot_key='slot:'+','.join(sorted(selected)) if requested else 'slot'
     ROOT.mkdir(parents=True,exist_ok=True,mode=0o700);path=ROOT/'publisher.sqlite';artifacts=Artifacts();ledger=None;db=None
+    from collections import Counter
+    outcomes=Counter()
     completed=failed=0
     try:
         artifacts.restore('publisher',path,baseline=False)
@@ -119,7 +142,7 @@ def main():
                     if item is None:del active[vendor];continue
                     attempted+=1
                     try:
-                        if sync_one(db,ledger,vendor,item):completed+=1
+                        if sync_one(db,ledger,vendor,item,outcomes):completed+=1
                         else:failed+=1
                         consecutive_errors=0
                     except D1BudgetReached:raise
@@ -133,11 +156,13 @@ def main():
         ledger.execute("INSERT INTO control(key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",(slot_key,str(slot)))
         summary=f'本次新增/确认 {completed} 条，失败待重试 {failed} 条。D1 读 {db.rows_read if db else 0} 行，写 {db.rows_written if db else 0} 行。采集检查点/页面缓存不写 D1。'
         print(summary,flush=True)
+        print(json.dumps({'event':'publication_outcomes',**outcomes}),flush=True)
         if os.environ.get('GITHUB_STEP_SUMMARY'):Path(os.environ['GITHUB_STEP_SUMMARY']).write_text('# 统一 D1 增量同步\n\n'+summary+'\n\n每 10 分钟计划执行；GitHub 排队可能延后。未完成队列保留，下一批继续。\n')
         return 0
     except D1BudgetReached:
         if db and getattr(db,'provider_quota',False) and ledger:
             ledger.execute("INSERT INTO control(key,value) VALUES ('provider_quota_day',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",(datetime.now(timezone.utc).strftime('%Y-%m-%d'),))
+        print(json.dumps({'event':'publication_outcomes','budget_stop':True,**outcomes}),flush=True)
         print('本次 D1 行预算已到；已成功记录保留，剩余下次继续。',flush=True);return 0
     finally:
         # Successful D1 writes must retain their local acknowledgements even if

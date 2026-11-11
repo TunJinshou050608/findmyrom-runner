@@ -10,6 +10,28 @@ from fmr_core.firmware_metadata_schema import ensure
 from test_vendor_catalogue import env
 
 
+def test_publisher_preserves_both_revision_acknowledgements_for_unchanged_release(env):
+    from fmr_ingest_stock.catalogue_store import digest
+    db, _ = env
+    device, release = source()
+    store = Store(db, 'oneplus')
+    seed_releases(store, device, [release])
+    key, value = store.rows('release')[0]
+    value['status'] = 'resolved'
+    store.put(key, value)
+    ledger = publisher.open_ledger(':memory:')
+    try:
+        for revision in (2, 3):
+            ledger.execute('INSERT OR REPLACE INTO published VALUES (?,?,?)',
+                           ('oneplus', key, digest([device, release, revision])))
+            assert list(publisher.candidates(db, ledger, 'oneplus')) == []
+        value['release'] = {**release, 'size': '2 GB'}
+        store.put(key, value)
+        assert len(list(publisher.candidates(db, ledger, 'oneplus'))) == 1
+    finally:
+        ledger.close()
+
+
 def source():
     return {'vendor':'oneplus','upstream_id':'sample','codename':'sample','name':'Sample','page':'https://fwatlas.com/oneplus/sample'}, {'version':'CPH1234_15.0.1(EX01)','region':'EU','android_version':'OxygenOS 15','kind':'full_ota','date':'2025-01-01','size':'1 GB','download_url':'https://ota.oneplus.net/sample.zip','origin_kind':'oem','resolution':'resolved'}
 

@@ -214,7 +214,7 @@ def test_settlement_outage_still_saves_successful_publication_acknowledgements(e
         def acquire(self):return True
         def settle(self):raise RuntimeError('simulated settlement outage')
         def close(self):closed.append('database')
-    def synced(db,ledger,vendor,item):
+    def synced(db,ledger,vendor,item,outcomes=None):
         ledger.execute('INSERT INTO published(vendor,key,hash) VALUES (?,?,?)',('google','successful-remote-item','hash'))
         return True
     monkeypatch.setattr(publisher,'Artifacts',Artifacts);monkeypatch.setattr(publisher,'VENDORS',('google',))

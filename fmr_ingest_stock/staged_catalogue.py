@@ -84,8 +84,15 @@ class Artifacts:
 
     def list(self,name):
         # Server-side name filter avoids scanning artifacts from other jobs.
-        r=self.client.get(self.base+'/actions/artifacts',params={'name':name,'per_page':100});r.raise_for_status()
-        return sorted([a for a in r.json()['artifacts'] if not a['expired']],key=lambda a:a['id'],reverse=True)
+        for attempt in range(3):
+            try:
+                response=self.client.get(self.base+'/actions/artifacts',params={'name':name,'per_page':100})
+                response.raise_for_status()
+                return sorted([a for a in response.json()['artifacts'] if not a['expired']],key=lambda a:a['id'],reverse=True)
+            except httpx.TransportError:
+                if attempt==2:
+                    raise
+                time.sleep(2**attempt)
 
     def _download(self,artifact):
         """Download one artifact with retries for transient TLS/transport errors."""

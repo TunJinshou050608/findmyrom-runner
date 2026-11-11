@@ -3,7 +3,7 @@ import re
 from urllib.parse import unquote, urlsplit
 
 REVISION = 1
-NORMALIZATION_REVISION = 3
+NORMALIZATION_REVISION = 2
 
 
 def clean(value):
