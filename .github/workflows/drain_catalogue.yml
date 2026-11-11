@@ -44,6 +44,14 @@ name: D1 · 一次性清空积压
         description: '恢复模式最多检查的小米记录数'
         type: number
         default: 100
+      receipt_resume_from:
+        description: '上次恢复开始前的发布确认点 artifact ID'
+        type: number
+        default: 0
+      receipt_expected_recovered:
+        description: '上次恢复日志中的 confirmed_local 数'
+        type: number
+        default: 0
       count_only:
         type: boolean
         default: false
@@ -123,6 +131,8 @@ jobs:
         FMR_CATALOGUE_PROCESSES: ${{ inputs.processes || '1' }}
         FMR_REBUILD_XIAOMI_RECEIPTS: ${{ inputs.rebuild_xiaomi_receipts && 'true' || 'false' }}
         FMR_RECEIPT_LIMIT: ${{ inputs.receipt_limit || '100' }}
+        FMR_RECEIPT_RESUME_FROM: ${{ inputs.receipt_resume_from || '0' }}
+        FMR_RECEIPT_EXPECTED_RECOVERED: ${{ inputs.receipt_expected_recovered || '0' }}
         FMR_RECEIPT_MERGE_REQUESTED: ${{ inputs.merge_shards && 'true' || 'false' }}
       run: |
         set -o pipefail
@@ -132,7 +142,7 @@ jobs:
             echo 'Receipt reconciliation requires one process, a saved checkpoint, and no shard merge.' >&2
             exit 1
           fi
-          python -u -m fmr_ingest_stock.xiaomi_ack_rebuild --limit "$FMR_RECEIPT_LIMIT"
+          python -u -m fmr_ingest_stock.xiaomi_ack_rebuild --limit "$FMR_RECEIPT_LIMIT" --resume-from "$FMR_RECEIPT_RESUME_FROM" --expected-recovered "$FMR_RECEIPT_EXPECTED_RECOVERED"
           exit $?
         fi
         if [ "$FMR_CATALOGUE_PUBLISH_MAX_RECORDS" != 0 ] && [ "$count" != 1 ]; then

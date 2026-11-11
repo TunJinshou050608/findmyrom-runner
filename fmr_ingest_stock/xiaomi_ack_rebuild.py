@@ -3,6 +3,9 @@ import argparse
 from collections import Counter
 from itertools import islice
 import json
+import io
+import tempfile
+import zipfile
 from pathlib import Path
 
 from fmr_core.d1_client import D1Client
@@ -11,7 +14,7 @@ from fmr_ingest_stock.catalogue_sync import FirmwareIdentityPending, build_versi
 from fmr_ingest_stock.d1_budget import BudgetDB
 from fmr_ingest_stock.device_sync import ensure_base_brands_and_anchor
 from fmr_ingest_stock.oem_sources import canonical_code
-from fmr_ingest_stock.staged_catalogue import Artifacts, ROOT, encrypt_file, open_local
+from fmr_ingest_stock.staged_catalogue import Artifacts, ROOT, encrypt_file, open_local, unseal
 
 BATCH_SIZE = 80
 READ_LIMIT = 250_000
@@ -99,10 +102,10 @@ def replay(shadow, value):
         conn.execute('RELEASE receipt_probe')
 
 
-def rebuild(remote, local, ledger, limit):
+def rebuild(remote, local, ledger, limit, after=''):
     work = islice(((key,value,fingerprint)
                     for stage,key,value,fingerprint in candidates(local,ledger,'xiaomi')
-                    if stage == 'release' and value['status'] == 'resolved' and not value['release'].get('refresh_source')),
+                    if stage == 'release' and key > after and value['status'] == 'resolved' and not value['release'].get('refresh_source')),
                    limit)
     counts = Counter()
     with_shadow = ShadowDB(local_sqlite_path=':memory:')
@@ -134,10 +137,32 @@ def rebuild(remote, local, ledger, limit):
         with_shadow.close()
 
 
+def recovered_frontier(artifacts, ledger, artifact_id):
+    baseline = next((item for item in artifacts.list('catalogue-v3-publisher') if item['id']==artifact_id),None)
+    if not baseline:
+        raise RuntimeError('Requested baseline publisher checkpoint is missing')
+    with zipfile.ZipFile(io.BytesIO(artifacts._download(baseline))) as archive, tempfile.TemporaryDirectory() as directory:
+        path = Path(directory)/'baseline.sqlite'
+        path.write_bytes(unseal(archive.read('publisher.sqlite.enc'),'publisher'))
+        connection = ledger._get_sqlite_conn()
+        connection.execute('ATTACH DATABASE ? AS previous',(path.resolve().as_uri()+'?mode=ro',))
+        try:
+            number, frontier = connection.execute("""SELECT count(*),max(current.key)
+                FROM published current LEFT JOIN previous.published baseline USING(vendor,key)
+                WHERE current.vendor='xiaomi' AND current.key GLOB 'v2:xiaomi:release:*'
+                    AND current.hash IS NOT baseline.hash""").fetchone()
+        finally:
+            connection.execute('DETACH DATABASE previous')
+    return number,frontier
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--limit',type=int,required=True)
-    limit = parser.parse_args().limit
+    parser.add_argument('--resume-from',type=int,default=0)
+    parser.add_argument('--expected-recovered',type=int,default=0)
+    args = parser.parse_args()
+    limit = args.limit
     if not 1 <= limit <= 70_000:
         parser.error('--limit must be between 1 and 70000')
     artifacts = Artifacts()
@@ -153,7 +178,13 @@ def main():
         remote = ReadOnlyD1(enforce_limits=False)
         resources.append(remote)
         remote.metering = True
-        counts = rebuild(remote, local, ledger, limit)
+        after = ''
+        if args.resume_from:
+            number, after = recovered_frontier(artifacts,ledger,args.resume_from)
+            if not after or number != args.expected_recovered:
+                raise RuntimeError('Baseline delta does not match the preceding reconciliation run')
+            print(json.dumps({'event':'xiaomi_receipt_resume','baseline_artifact':args.resume_from,'previously_recovered':number}),flush=True)
+        counts = rebuild(remote, local, ledger, limit, after)
         assert remote.rows_written == 0
         print(json.dumps({'event':'xiaomi_receipts_rebuilt','rows_read':remote.rows_read,
                           'rows_written':remote.rows_written,**counts}),flush=True)
