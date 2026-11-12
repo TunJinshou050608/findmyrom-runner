@@ -196,6 +196,33 @@ def test_one_time_migration_reuses_legacy_and_v2_without_any_source_requests(env
     assert len(remote.query("SELECT * FROM crawler_sources WHERE source_kind='oem_catalogue'"))==1
 
 
+def test_shard_merge_preserves_newer_receipt_and_reuses_unchanged_shard(tmp_path):
+    from fmr_ingest_stock.merge_shards import merge_one
+
+    main = publisher.open_ledger(tmp_path/'publisher.sqlite')
+    path = tmp_path/'shard.sqlite'
+    shard = publisher.open_ledger(path)
+    try:
+        main.execute_batch(publisher.acknowledgement('xiaomi','shared','latest'))
+        stamp = main.query('SELECT confirmed_at FROM publication_ack_stamp')[0]['confirmed_at']
+        shard.execute('INSERT INTO published VALUES (?,?,?)',('xiaomi','shared','old-copy'))
+        shard.execute('INSERT INTO published VALUES (?,?,?)',('xiaomi','missing','legacy-proof'))
+        assert merge_one(main._get_sqlite_conn(),path) == 1
+        assert merge_one(main._get_sqlite_conn(),path) is None
+        assert main.query("SELECT hash FROM published WHERE key='shared'")[0]['hash'] == 'latest'
+        shard.execute_batch([
+            (publisher.ACK_SQL,('xiaomi','shared','fresh')),
+            (publisher.ACK_STAMP_SQL,('xiaomi','shared','fresh',stamp+1)),
+            (publisher.XIAOMI_REVIEW_SQL,('conflict','fingerprint',100)),
+        ])
+        merge_one(main._get_sqlite_conn(),path)
+        assert main.query("SELECT hash FROM published WHERE key='shared'")[0]['hash'] == 'fresh'
+        assert main.query('SELECT key FROM xiaomi_publication_review') == [{'key':'conflict'}]
+    finally:
+        shard.close()
+        main.close()
+
+
 def test_settlement_outage_still_saves_successful_publication_acknowledgements(env,tmp_path,monkeypatch):
     root=tmp_path/'state';root.mkdir()
     monkeypatch.setattr(publisher,'ROOT',root);monkeypatch.setattr(staged,'ROOT',root)

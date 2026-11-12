@@ -17,16 +17,35 @@ SHARD_INDEX=int(os.getenv('FMR_CATALOGUE_SHARD_INDEX','0'))
 SHARD_COUNT=int(os.getenv('FMR_CATALOGUE_SHARD_COUNT','1'))
 if not 0<=SHARD_INDEX<SHARD_COUNT:raise ValueError('Invalid publication shard')
 
+XIAOMI_REVIEW_DELAY = 86400
+XIAOMI_REVIEW_SQL = '''INSERT INTO xiaomi_publication_review(key,hash,retry_at) VALUES (?,?,?)
+    ON CONFLICT(key) DO UPDATE SET hash=excluded.hash,retry_at=excluded.retry_at'''
+ACK_SQL = '''INSERT INTO published(vendor,key,hash) VALUES (?,?,?)
+    ON CONFLICT(vendor,key) DO UPDATE SET hash=excluded.hash'''
+ACK_STAMP_SQL = '''INSERT INTO publication_ack_stamp(vendor,key,hash,confirmed_at) VALUES (?,?,?,?)
+    ON CONFLICT(vendor,key) DO UPDATE SET hash=excluded.hash,confirmed_at=excluded.confirmed_at'''
+
 
 def open_ledger(path):
     db=D1Client(local_sqlite_path=str(path))
     db.execute('CREATE TABLE IF NOT EXISTS published(vendor TEXT,key TEXT,hash TEXT,PRIMARY KEY(vendor,key))')
     db.execute('CREATE TABLE IF NOT EXISTS control(key TEXT PRIMARY KEY,value TEXT)')
+    db.execute('CREATE TABLE IF NOT EXISTS xiaomi_publication_review(key TEXT PRIMARY KEY,hash TEXT NOT NULL,retry_at INTEGER NOT NULL)')
+    db.execute('CREATE TABLE IF NOT EXISTS publication_ack_stamp(vendor TEXT,key TEXT,hash TEXT NOT NULL,confirmed_at INTEGER NOT NULL,PRIMARY KEY(vendor,key))')
     return db
 
 
-def candidates(local,ledger,vendor):
+def acknowledgement(vendor,key,fingerprint):
+    return [(ACK_SQL,(vendor,key,fingerprint)),
+            (ACK_STAMP_SQL,(vendor,key,fingerprint,time.time_ns()))]
+
+
+def candidates(local,ledger,vendor,stats=None,*,respect_review=True):
     store=Store(local,vendor)
+    acknowledged_by_key = {row['key']:row['hash'] for row in ledger.query('SELECT key,hash FROM published WHERE vendor=?',(vendor,))}
+    review = {}
+    if vendor=='xiaomi' and respect_review:
+        review = {row['key']:row['hash'] for row in ledger.query('SELECT key,hash FROM xiaomi_publication_review WHERE retry_at>?',(int(time.time()),))}
     position=0
     for stage in ('release','model'):
         for key,value in store.rows(stage):
@@ -43,9 +62,8 @@ def candidates(local,ledger,vendor):
                 body = [value['device'], release, REVISION]
             if unavailable:body=[body,'unavailable',value.get('error')]
             fingerprint=digest(body)
-            old=ledger.query('SELECT hash FROM published WHERE vendor=? AND key=?',(vendor,key))
-            if old:
-                acknowledged = old[0]['hash']
+            acknowledged = acknowledged_by_key.get(key)
+            if acknowledged:
                 if acknowledged == fingerprint:
                     continue
                 # Revision 3 changed the fingerprint for every vendor. Keep
@@ -58,6 +76,10 @@ def candidates(local,ledger,vendor):
                         continue
                     if not unavailable and acknowledged == digest([value['device'], value['release'], 3]):
                         continue
+            if stage == 'release' and review.get(key) == fingerprint:
+                if stats is not None:
+                    stats['identity_review_deferred'] += 1
+                continue
             # Split the actual pending work, not the whole snapshot: a skewed
             # backlog leaves most hash buckets empty.
             if SHARD_COUNT>1 and position%SHARD_COUNT!=SHARD_INDEX:
@@ -74,6 +96,8 @@ def sync_one(db,ledger,vendor,candidate,outcomes=None):
         try:
             result=publish_unavailable(db,value['device'],value['release'],value.get('error')) if vendor=='xiaomi' and value.get('status')=='unavailable' else publish_release(db,value['device'],value['release'])
         except FirmwareIdentityPending as error:
+            if vendor == 'xiaomi':
+                ledger.execute(XIAOMI_REVIEW_SQL,(key,fingerprint,int(time.time())+XIAOMI_REVIEW_DELAY))
             if outcomes is not None:
                 outcomes['identity_pending'] += 1
             print(json.dumps({'event':'publication_identity_pending','vendor':vendor,'key':key,'reason':str(error)}),flush=True)
@@ -84,7 +108,7 @@ def sync_one(db,ledger,vendor,candidate,outcomes=None):
             print(json.dumps({'event':'publication_existing_sample','vendor':vendor,'key':key,
                               'local_ack':'fingerprint_changed' if previous else 'missing'}),flush=True)
         # Commit local acknowledgement only after the D1 transaction succeeded.
-        ledger.execute('INSERT INTO published(vendor,key,hash) VALUES (?,?,?) ON CONFLICT(vendor,key) DO UPDATE SET hash=excluded.hash',(vendor,key,fingerprint))
+        ledger.execute_batch(acknowledgement(vendor,key,fingerprint))
         if outcomes is not None:
             if stage == 'model':
                 outcomes['devices_confirmed'] += 1
@@ -133,7 +157,7 @@ def main():
             local_path=ROOT/(vendor+'.sqlite')
             if not artifacts.restore(vendor,local_path):continue
             local=open_local(local_path,initialize=False)
-            try:work[vendor]=iter(list(candidates(local,ledger,vendor)))
+            try:work[vendor]=iter(list(candidates(local,ledger,vendor,outcomes)))
             finally:local.close()
         # Peek without losing the first record.
         import itertools

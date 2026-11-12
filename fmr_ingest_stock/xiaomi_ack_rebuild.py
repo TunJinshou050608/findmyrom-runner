@@ -3,23 +3,20 @@ import argparse
 from collections import Counter
 from itertools import islice
 import json
-import io
-import tempfile
-import zipfile
+import time
 from pathlib import Path
 
 from fmr_core.d1_client import D1Client
-from fmr_ingest_stock.catalogue_publish import candidates, open_ledger
+from fmr_ingest_stock.catalogue_publish import XIAOMI_REVIEW_DELAY, XIAOMI_REVIEW_SQL, acknowledgement, candidates, open_ledger
 from fmr_ingest_stock.catalogue_sync import FirmwareIdentityPending, build_version, package_kind, publish_release
 from fmr_ingest_stock.d1_budget import BudgetDB
 from fmr_ingest_stock.device_sync import ensure_base_brands_and_anchor
 from fmr_ingest_stock.oem_sources import canonical_code
-from fmr_ingest_stock.staged_catalogue import Artifacts, ROOT, encrypt_file, open_local, unseal
+from fmr_ingest_stock.staged_catalogue import Artifacts, ROOT, encrypt_file, open_local
 
 BATCH_SIZE = 80
 READ_LIMIT = 250_000
-ACK_SQL = """INSERT INTO published(vendor,key,hash) VALUES ('xiaomi',?,?)
-             ON CONFLICT(vendor,key) DO UPDATE SET hash=excluded.hash"""
+CURSOR = "xiaomi_receipt_rebuild_cursor"
 
 
 class ReadOnlyD1(BudgetDB):
@@ -104,7 +101,7 @@ def replay(shadow, value):
 
 def rebuild(remote, local, ledger, limit, after=''):
     work = islice(((key,value,fingerprint)
-                    for stage,key,value,fingerprint in candidates(local,ledger,'xiaomi')
+                    for stage,key,value,fingerprint in candidates(local,ledger,'xiaomi',respect_review=False)
                     if stage == 'release' and key > after and value['status'] == 'resolved' and not value['release'].get('refresh_source')),
                    limit)
     counts = Counter()
@@ -124,43 +121,29 @@ def rebuild(remote, local, ledger, limit, after=''):
                 counts['read_budget_stop'] += 1
                 break
             candidate_snapshot(remote,with_shadow,items)
-            receipts = []
+            statements = []
             for key, value, fingerprint in items:
                 outcome = replay(with_shadow, value)
                 counts[outcome] += 1
                 if outcome == 'confirmed_local':
-                    receipts.append((key,fingerprint))
-            if receipts:
-                ledger._get_sqlite_conn().executemany(ACK_SQL, receipts)
+                    statements.extend(acknowledgement('xiaomi',key,fingerprint))
+                elif outcome == 'identity_pending':
+                    statements.append((XIAOMI_REVIEW_SQL,(key,fingerprint,int(time.time())+XIAOMI_REVIEW_DELAY)))
+            # Advance by the last inspected key, even if every row needs
+            # publication or review. Persist receipts and progress together.
+            ledger.execute_batch([
+                *statements,
+                ('INSERT OR REPLACE INTO control(key,value) VALUES (?,?)', (CURSOR,items[-1][0])),
+            ])
         return dict(counts)
     finally:
         with_shadow.close()
 
 
-def recovered_frontier(artifacts, ledger, artifact_id):
-    baseline = next((item for item in artifacts.list('catalogue-v3-publisher') if item['id']==artifact_id),None)
-    if not baseline:
-        raise RuntimeError('Requested baseline publisher checkpoint is missing')
-    with zipfile.ZipFile(io.BytesIO(artifacts._download(baseline))) as archive, tempfile.TemporaryDirectory() as directory:
-        path = Path(directory)/'baseline.sqlite'
-        path.write_bytes(unseal(archive.read('publisher.sqlite.enc'),'publisher'))
-        connection = ledger._get_sqlite_conn()
-        connection.execute('ATTACH DATABASE ? AS previous',(path.resolve().as_uri()+'?mode=ro',))
-        try:
-            number, frontier = connection.execute("""SELECT count(*),max(current.key)
-                FROM published current LEFT JOIN previous.published baseline USING(vendor,key)
-                WHERE current.vendor='xiaomi' AND current.key GLOB 'v2:xiaomi:release:*'
-                    AND current.hash IS NOT baseline.hash""").fetchone()
-        finally:
-            connection.execute('DETACH DATABASE previous')
-    return number,frontier
-
-
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--limit',type=int,required=True)
-    parser.add_argument('--resume-from',type=int,default=0)
-    parser.add_argument('--expected-recovered',type=int,default=0)
+    parser.add_argument('--resume',action='store_true')
     args = parser.parse_args()
     limit = args.limit
     if not 1 <= limit <= 70_000:
@@ -179,11 +162,11 @@ def main():
         resources.append(remote)
         remote.metering = True
         after = ''
-        if args.resume_from:
-            number, after = recovered_frontier(artifacts,ledger,args.resume_from)
-            if not after or number != args.expected_recovered:
-                raise RuntimeError('Baseline delta does not match the preceding reconciliation run')
-            print(json.dumps({'event':'xiaomi_receipt_resume','baseline_artifact':args.resume_from,'previously_recovered':number}),flush=True)
+        if args.resume:
+            progress = ledger.query('SELECT value FROM control WHERE key=?',(CURSOR,))
+            if not progress:
+                raise RuntimeError('No saved receipt reconciliation cursor')
+            after = progress[0]['value']
         counts = rebuild(remote, local, ledger, limit, after)
         assert remote.rows_written == 0
         print(json.dumps({'event':'xiaomi_receipts_rebuilt','rows_read':remote.rows_read,

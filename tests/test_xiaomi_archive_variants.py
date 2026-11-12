@@ -18,7 +18,8 @@ def device(code):
 
 def test_receipt_rebuild_only_confirms_exact_d1_noops(env):
     from fmr_ingest_stock.catalogue_publish import candidates, open_ledger
-    from fmr_ingest_stock.xiaomi_ack_rebuild import rebuild
+    from fmr_ingest_stock.xiaomi_ack_rebuild import CURSOR, rebuild
+    from collections import Counter
 
     db, _ = env
     d = device('mido')
@@ -44,10 +45,18 @@ def test_receipt_rebuild_only_confirms_exact_d1_noops(env):
 
     ledger = open_ledger(':memory:')
     try:
-        assert rebuild(ReadOnlyFixture(),db,ledger,10) == {
+        first = Counter(rebuild(ReadOnlyFixture(),db,ledger,1))
+        cursor = ledger.query('SELECT value FROM control WHERE key=?',(CURSOR,))[0]['value']
+        first.update(rebuild(ReadOnlyFixture(),db,ledger,10,after=cursor))
+        assert first == {
             'confirmed_local':1,'publication_needed':2,'identity_pending':1}
-        remaining = list(candidates(db,ledger,'xiaomi'))
+        remaining = list(candidates(db,ledger,'xiaomi',respect_review=False))
         assert {v['release']['version'] for _,_,v,_ in remaining} == {'7.2.23','7.3.2','7.3.3'}
+        assert {v['release']['version'] for _,_,v,_ in candidates(db,ledger,'xiaomi')} == {'7.2.23','7.3.3'}
+        key, value = next((key,v) for _,key,v,_ in remaining if v['release']['version']=='7.3.2')
+        value['release']['date']='2025-01-02'
+        store.put(key,value)
+        assert {v['release']['version'] for _,_,v,_ in candidates(db,ledger,'xiaomi')} == {'7.2.23','7.3.2','7.3.3'}
         assert db.query('SELECT * FROM stock_firmwares ORDER BY id') == before
     finally:
         ledger.close()
