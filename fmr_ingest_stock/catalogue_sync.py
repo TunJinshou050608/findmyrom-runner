@@ -20,8 +20,14 @@ class FirmwareIdentityPending(RuntimeError):pass
 
 STOCK_COLUMNS = (
     'public_token,extract_status,original_official_url,fast_cdn_url,'
-    'md5_or_sha256,android_version,published_date,file_size_str,model_code'
+    'md5_or_sha256,android_version,published_date,file_size_str,model_code,version_str,region_code'
 )
+XIAOMI_STOCK_SELECT = ('SELECT '+','.join('f.'+col for col in STOCK_COLUMNS.split(','))
+    + ',m.metadata_json AS _metadata_json,m.content_hash AS _metadata_hash'
+      ' FROM stock_firmwares f LEFT JOIN firmware_metadata m USING(public_token) WHERE ')
+STOCK_SELECT = 'SELECT '+STOCK_COLUMNS+' FROM stock_firmwares WHERE '
+STOCK_IDENTITY = ("device_codename=? AND region_code=? AND version_str=? AND package_type=? "
+                  "AND COALESCE(NULLIF(model_code,''),device_codename)=?")
 
 
 
@@ -33,13 +39,15 @@ def xiaomi_legacy_rows(db,device,code,region,version,kind,base=None):
     root=str(device.get('codename') or device['upstream_id'])
     models=[root]+[root+'_'+suffix for suffix in ('global','eea','in','id','ru','tr','tw','jp','sg')]
     if base:models=[model_key(model,base) for model in models]
-    return db.query("SELECT "+STOCK_COLUMNS+" FROM stock_firmwares WHERE device_codename=? AND region_code=? AND version_str=? AND package_type=? AND LOWER(COALESCE(NULLIF(model_code,''),device_codename)) IN ("+','.join('?' for _ in models)+") ORDER BY id LIMIT 12",
-                    (code,region,build_version(version_key(version,base)),kind,*[m.lower() for m in models]))
+    return db.query(XIAOMI_STOCK_SELECT+"device_codename=? AND region_code=? AND version_str=? AND package_type=? AND LOWER(COALESCE(NULLIF(model_code,''),device_codename)) IN ("+','.join('?' for _ in models)+") ORDER BY (COALESCE(NULLIF(model_code,''),device_codename)=?) DESC,f.id LIMIT 12",
+                    (code,region,build_version(version_key(version,base)),kind,*[m.lower() for m in models],models[0]))
 
 
 def publish_unavailable(db,device,release,reason):
+    from fmr_core.firmware_metadata_schema import ensure
     from .xiaomi_variants import filename,platform_parts
     if device['vendor']!='xiaomi':raise ValueError('Unsupported unavailable source')
+    ensure(db,apply=getattr(db,'mode',None)=='sqlite')
     code=device.get('canonical_code') or device['upstream_id']
     parts=platform_parts(release.get('variant_id'))
     base=parts[0] if parts else release.get('variant_id')
@@ -150,15 +158,22 @@ def publish_release(db,device,release):
         if physical_code(device['upstream_id'],filename(url))!=device['upstream_id'] or not official(url) or expected!=region or not matches(device['upstream_id'],filename(url),release.get('variant_id')):
             raise FirmwareIdentityPending('Xiaomi archive market or edition disagrees with descriptor; retain pending')
         if release.get('variant_id'):model=model_key(model,release['variant_id'])
-    existing=db.query("SELECT "+STOCK_COLUMNS+" FROM stock_firmwares WHERE device_codename=? AND region_code=? AND version_str=? AND package_type=? AND COALESCE(NULLIF(model_code,''),device_codename)=?",
-                 (code,region,version,kind,model))
+    select_stock=(XIAOMI_STOCK_SELECT if vendor=='xiaomi' else STOCK_SELECT)+STOCK_IDENTITY
+    legacy_candidates=None
+    if vendor=='xiaomi' and not release.get('variant_id'):
+        # An ordinary release and its historical regional model aliases share
+        # the same indexed D1 key. Read that key once.
+        legacy_candidates=xiaomi_legacy_rows(db,device,code,region,release['version'],kind)
+        existing=[row for row in legacy_candidates if (row['model_code'] or code)==model]
+    else:
+        existing=db.query(select_stock,(code,region,version,kind,model))
     if vendor=='xiaomi':
         if canonical_version(release['version'],filename(url))!=release['version']:
             raise FirmwareIdentityPending('Xiaomi filename has a different patch build')
         if not existing:
             parts=platform_parts(release.get('variant_id'))
             base=parts[0] if parts else release.get('variant_id')
-            candidates=xiaomi_legacy_rows(db,device,code,region,release['version'],kind,base)
+            candidates=legacy_candidates if legacy_candidates is not None else xiaomi_legacy_rows(db,device,code,region,release['version'],kind,base)
             existing=[r for r in candidates if filename(r['original_official_url'])==filename(url)]
             if not existing and not release.get('variant_id'):
                 from .xiaomi_delivery import missing
@@ -167,7 +182,7 @@ def publish_release(db,device,release):
                     version=build_version(version_key(release['version'],'standard'))
                     model=model_key(str(device.get('codename') or device['upstream_id']),'standard')
                     release={**release,'variant_id':'standard','variant_label':'Standard edition'}
-                    existing=db.query("SELECT "+STOCK_COLUMNS+" FROM stock_firmwares WHERE device_codename=? AND region_code=? AND version_str=? AND package_type=? AND COALESCE(NULLIF(model_code,''),device_codename)=?",(code,region,version,kind,model))
+                    existing=db.query(select_stock,(code,region,version,kind,model))
     if vendor=='google' and not existing:
         # Match the old caption-derived identity, then require the exact same official file.
         # Never change historical URLs, tokens, region keys or signatures.
@@ -210,6 +225,9 @@ def publish_release(db,device,release):
         status='pending' if extraction_eligible(vendor,kind,fast) else 'skipped'
         version_match=re.match(r'^\d+(?:\.\d+)*',str(release.get('android_version') or ''))
         android=version_match[0] if version_match else str(release.get('android_version') or 'unknown')
+        if vendor=='xiaomi':
+            from .xiaomi_variants import android_version
+            android=android_version(filename(url)) or android
         inserted=db.execute('''INSERT OR IGNORE INTO stock_firmwares(public_token,device_codename,region_code,model_code,
             version_str,android_version,package_type,file_size_str,md5_or_sha256,original_official_url,fast_cdn_url,
             published_date,ed25519_signature,extract_status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
@@ -219,9 +237,9 @@ def publish_release(db,device,release):
         if inserted.get('changes')==1:
             existing=[dict(public_token=token,extract_status=status,original_official_url=url,
                            fast_cdn_url=fast,android_version=android,published_date=release.get('date'),
-                           file_size_str=release.get('size'),model_code=model)]
-    row=db.query("SELECT "+STOCK_COLUMNS+" FROM stock_firmwares WHERE device_codename=? AND region_code=? AND version_str=? AND package_type=? AND COALESCE(NULLIF(model_code,''),device_codename)=?",
-                 (code,region,version,kind,model)) if not existing else existing
+                           file_size_str=release.get('size'),model_code=model,version_str=version,region_code=region,
+                           **({'_metadata_json':None} if vendor=='xiaomi' else {}))]
+    row=existing or db.query(select_stock,(code,region,version,kind,model))
     if not row:raise FirmwareIdentityPending('Model identity conflict; retain pending metadata without modifying another model')
     row=row[0]
     # Repair only a proven expiring URL for the same build/region/type. Keep the

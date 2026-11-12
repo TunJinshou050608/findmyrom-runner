@@ -13,8 +13,14 @@ CURRENT=6
 
 def ensure_schema(db, *, allow_migration=False, through=5):
     if getattr(db,'_fmr_schema_ready',0)>=through:return
-    rows=db.query("SELECT name FROM sqlite_master WHERE type='table' AND name='fmr_schema_migrations'")
-    applied={r['version']:r['sha256'] for r in db.query('SELECT version,sha256 FROM fmr_schema_migrations')} if rows else {}
+    try:
+        applied={r['version']:r['sha256'] for r in db.query('SELECT version,sha256 FROM fmr_schema_migrations WHERE version<=?',(through,))}
+    except Exception as error:
+        if 'no such table: fmr_schema_migrations' not in str(error).lower():
+            raise
+        if not allow_migration:
+            raise RuntimeError('D1 schema migration required before publication') from error
+        applied={}
     for path in sorted(ROOT.glob('*.sql')):
         version=int(path.name.split('_',1)[0])
         if version>through:continue

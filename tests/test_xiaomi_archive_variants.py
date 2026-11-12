@@ -16,6 +16,24 @@ def device(code):
     return {'vendor':'xiaomi','upstream_id':code,'codename':code,'name':code}
 
 
+def test_plain_xiaomi_package_uses_one_identity_read_and_no_metadata_write(env):
+    from fmr_core.firmware_metadata_schema import ensure
+    db,_ = env
+    ensure(db,apply=True)
+    sql=[]
+    db._get_sqlite_conn().set_trace_callback(sql.append)
+    d=device('mido')
+    release={'version':'7.2.16','region':'Global','kind':'full_ota',
+             'download_url':'https://bigota.d.miui.com/7.2.16/miui_HMNote4XGlobal_7.2.16_e6eed016d8_6.0.zip'}
+    out=publish_release(db,d,release)
+    assert out['status']=='published_new' and not out['metadata_changed']
+    assert sum(q.startswith('SELECT') and 'FROM stock_firmwares' in q for q in sql)==1
+    assert not any(q.lstrip().startswith(('INSERT INTO firmware_metadata','UPDATE stock_firmwares')) for q in sql)
+    assert db.query('SELECT android_version FROM stock_firmwares')==[{'android_version':'6.0'}]
+    assert publish_release(db,d,{**release,'security_patch':'2017-02-01'})['metadata_changed']
+    assert db.query('SELECT metadata_json FROM firmware_metadata')
+
+
 def test_receipt_rebuild_only_confirms_exact_d1_noops(env):
     from fmr_ingest_stock.catalogue_publish import candidates, open_ledger
     from fmr_ingest_stock.xiaomi_ack_rebuild import CURSOR, rebuild

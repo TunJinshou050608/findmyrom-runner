@@ -173,6 +173,9 @@ def main():
                 print('今日发布预算已满；采集继续，未发布队列保留，下一 UTC 日恢复。',flush=True);return 0
             from fmr_core.schema_migrations import ensure_schema
             ensure_schema(db)
+            sample_costs = 0 < MAX_RECORDS <= 20
+            if sample_costs:
+                print(json.dumps({'event':'publication_schema_cost','rows_read':db.rows_read,'rows_written':db.rows_written}),flush=True)
             db._publication_device_cache = {}
             # Existing production brands are already bootstrapped. Never rewrite
             # brand names/anchor and cache counters on every sync.
@@ -182,6 +185,9 @@ def main():
                     item=next(active[vendor],None)
                     if item is None:del active[vendor];continue
                     attempted+=1
+                    if sample_costs:
+                        before_reads,before_writes=db.rows_read,db.rows_written
+                        before_outcomes=outcomes.copy()
                     try:
                         if sync_one(db,ledger,vendor,item,outcomes):completed+=1
                         else:failed+=1
@@ -192,6 +198,10 @@ def main():
                         print(vendor+': '+type(exc).__name__+'；留待下次同步。',flush=True);failed+=1
                         consecutive_errors+=1
                         if consecutive_errors>=3:raise RuntimeError('PublicationCircuitOpen') from exc
+                    if sample_costs:
+                        outcome=next(iter(outcomes-before_outcomes),'unconfirmed')
+                        print(json.dumps({'event':'publication_sample_cost','outcome':outcome,
+                                          'rows_read':db.rows_read-before_reads,'rows_written':db.rows_written-before_writes}),flush=True)
                     if attempted%20==0:print(f'已同步 {completed} 条；失败待重试 {failed}；D1 读 {db.rows_read} 行 / 写 {db.rows_written} 行。',flush=True)
                     if MAX_RECORDS and attempted>=MAX_RECORDS:break
         ledger.execute("INSERT INTO control(key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",(slot_key,str(slot)))

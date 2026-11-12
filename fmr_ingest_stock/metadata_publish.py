@@ -8,7 +8,7 @@ from fmr_core.firmware_metadata_schema import ensure
 def publish(db, token, device, release, *, current=None):
     ensure(db, apply=getattr(db, 'mode', None) == 'sqlite')
     if current is None:
-        current = db.query('SELECT android_version,published_date,file_size_str,original_official_url,md5_or_sha256,model_code FROM stock_firmwares WHERE public_token=?', (token,))[0]
+        current = db.query('SELECT android_version,published_date,file_size_str,original_official_url,md5_or_sha256,model_code,version_str,region_code FROM stock_firmwares WHERE public_token=?', (token,))[0]
     if device['vendor']=='xiaomi':
         from .xiaomi_variants import filename,android_version,canonical_version,edition,label,matches
         from .xiaomi_delivery import missing,available
@@ -22,7 +22,10 @@ def publish(db, token, device, release, *, current=None):
             release.update(variant_id=variant,variant_label=label(variant,device['upstream_id']))
         if missing(release):release.update(availability='unavailable',unavailable_reason='DownloadMirrorUnavailable')
     metadata = normalize(device, release)
-    old = db.query('SELECT metadata_json,content_hash FROM firmware_metadata WHERE public_token=?', (token,))
+    if '_metadata_json' in current:
+        old = [{'metadata_json':current['_metadata_json'],'content_hash':current['_metadata_hash']}] if current['_metadata_json'] is not None else []
+    else:
+        old = db.query('SELECT metadata_json,content_hash FROM firmware_metadata WHERE public_token=?', (token,))
     if old:
         prior = json.loads(old[0]['metadata_json'])
         if device['vendor']=='xiaomi' and prior.get('availability')=='unavailable' and not available(release):
@@ -48,7 +51,18 @@ def publish(db, token, device, release, *, current=None):
     size = metadata.get('file_size') or current['file_size_str']
     body = json.dumps(metadata, sort_keys=True, separators=(',',':'))
     # One atomic batch: failed metadata writes cannot acknowledge a partial update.
-    statements = [('INSERT INTO firmware_metadata(public_token,metadata_json,content_hash) VALUES (?,?,?) ON CONFLICT(public_token) DO UPDATE SET metadata_json=excluded.metadata_json,content_hash=excluded.content_hash,updated_at=strftime(\'%s\',\'now\') WHERE firmware_metadata.content_hash!=excluded.content_hash', (token,body,fingerprint))]
+    # Plain Xiaomi versions already render from the stock row. Preserve an
+    # existing metadata row and anything the stock columns cannot represent.
+    needs_metadata = not (
+        device['vendor']=='xiaomi' and not old
+        and metadata['display_version']==current.get('version_str')
+        and metadata['region']==current.get('region_code')
+        and not any(metadata.get(k) for k in ('availability','variant_label','os_name','os_version','security_patch','vendor_fields'))
+        and not any(release.get(k) for k in ('archive_revisions','filename','metadata_source','source_reference','_official_metadata'))
+    )
+    statements = []
+    if needs_metadata:
+        statements.append(('INSERT INTO firmware_metadata(public_token,metadata_json,content_hash) VALUES (?,?,?) ON CONFLICT(public_token) DO UPDATE SET metadata_json=excluded.metadata_json,content_hash=excluded.content_hash,updated_at=strftime(\'%s\',\'now\') WHERE firmware_metadata.content_hash!=excluded.content_hash', (token,body,fingerprint)))
     changed = [(column, value) for column, value in (
         ('android_version', android), ('published_date', date), ('file_size_str', size)
     ) if value != current[column]]
@@ -56,7 +70,11 @@ def publish(db, token, device, release, *, current=None):
         assignments = ','.join(f'{column}=?' for column, _ in changed)
         statements.append((f'UPDATE stock_firmwares SET {assignments} WHERE public_token=?',
                            (*[value for _, value in changed], token)))
+    if not statements:
+        return False
     db.execute_batch(statements)
+    if not needs_metadata:
+        return True
     saved = db.query('SELECT content_hash FROM firmware_metadata WHERE public_token=?', (token,))
     if not saved or saved[0]['content_hash'] != fingerprint:
         raise RuntimeError('Metadata update not persisted')
