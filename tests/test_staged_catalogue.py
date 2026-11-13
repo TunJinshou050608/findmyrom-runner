@@ -235,7 +235,6 @@ def test_settlement_outage_still_saves_successful_publication_acknowledgements(e
 def test_metadata_runner_routing_keeps_binary_and_pr_jobs_off_local_host():
     import yaml
     root=Path(__file__).parents[1]/'.github/workflows'
-    originals=json.loads((root.parents[1]/'ops/d1_maintenance_restore_workflows.json').read_text())
     for path in root.glob('catalogue_*.yml'):
         for job_name,job in yaml.safe_load(path.read_text())['jobs'].items():
             if job_name=='schema':
@@ -244,17 +243,16 @@ def test_metadata_runner_routing_keeps_binary_and_pr_jobs_off_local_host():
             if job_name=='telegram':
                 assert job['runs-on']==['self-hosted','findmyrom-metadata']
                 continue
-            condition=yaml.safe_load(originals[str(path.relative_to(root.parents[1]))])['jobs'][job_name]['if']
             assert 'FMR_CATALOGUE_RUNNER' in job['runs-on']
             if path.name in ('catalogue_huawei.yml','catalogue_honor.yml'):
-                assert condition=="github.ref == 'refs/heads/main' && false"
+                assert job['if']=="github.ref == 'refs/heads/main' && false"
             elif path.name=='catalogue_publish.yml' and job_name=='samsung':
-                assert condition=="github.ref == 'refs/heads/main' && vars.FMR_D1_WRITES_PAUSED == 'true' && vars.FMR_SAMSUNG_D1_WRITES_PAUSED != 'true' && inputs.scope != 'tg'"
+                assert job['if']=="github.ref == 'refs/heads/main' && vars.FMR_D1_WRITES_PAUSED == 'true' && vars.FMR_SAMSUNG_D1_WRITES_PAUSED != 'true' && inputs.scope != 'tg'"
                 assert job['env']['FMR_CATALOGUE_PUBLISH_VENDORS']=='samsung'
                 assert job['concurrency']['group']=='catalogue-d1-publisher'
             elif path.name=='catalogue_publish.yml':
-                assert condition=="github.ref == 'refs/heads/main' && vars.FMR_D1_WRITES_PAUSED != 'true' && github.event_name != 'push' && inputs.scope != 'tg'"
-            else:assert condition=="github.ref == 'refs/heads/main'"
+                assert job['if']=="github.ref == 'refs/heads/main' && vars.FMR_D1_WRITES_PAUSED != 'true' && github.event_name != 'push' && inputs.scope != 'tg'"
+            else:assert job['if']=="github.ref == 'refs/heads/main'"
     for name in ('ci.yml','telegram_fetch.yml','telegram_clean.yml','services.yml'):
         assert 'FMR_CATALOGUE_RUNNER' not in (root/name).read_text()
 
