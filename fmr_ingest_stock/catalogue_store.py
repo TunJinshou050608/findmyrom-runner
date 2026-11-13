@@ -19,6 +19,7 @@ class Store:
         self.prefix='v2:'+vendor+':'
         self.cursors={}
         self._counts=None
+        self._publication_ready=False
 
     def key(self,stage,identity=''):
         return self.prefix+stage+(':'+digest(identity) if identity!='' else '')
@@ -74,6 +75,93 @@ class Store:
         return [(r['source_target'],json.loads(r['last_cursor_val'])) for r in self.db.query(
             "SELECT source_target,last_cursor_val FROM crawler_sources WHERE device_codename='__global__' AND source_kind=? AND source_target GLOB ? ORDER BY source_target",
             (KIND,self.prefix+stage+':*'))]
+
+    def publication_rows(self,stage):
+        # Local-only change queue. Installing triggers and seeding existing keys
+        # in one transaction prevents a collector update escaping the queue.
+        if not self._publication_ready:
+            installed=self.db.query("SELECT name FROM sqlite_master WHERE type='table' AND name='publication_queue_state'")
+            if not installed:
+                self._install_publication_queue()
+            from .release_metadata import NORMALIZATION_REVISION
+            version=self.db.query("SELECT revision FROM publication_queue_state WHERE id=1")
+            if version[0]['revision']!=NORMALIZATION_REVISION:
+                self.db.execute_batch([
+                    ("""INSERT INTO publication_changes
+                        SELECT source_target,1 FROM crawler_sources
+                        WHERE source_kind=? AND source_target GLOB ?
+                        ON CONFLICT(key) DO UPDATE SET revision=revision+1""",
+                     (KIND,self.prefix+'release:*')),
+                    ("UPDATE publication_queue_state SET revision=? WHERE id=1",
+                     (NORMALIZATION_REVISION,))])
+            self._publication_ready=True
+        yield from self._publication_rows(stage)
+
+    def _install_publication_queue(self):
+        self.db.execute_script("""
+        CREATE TABLE IF NOT EXISTS publication_changes(
+            key TEXT PRIMARY KEY, revision INTEGER NOT NULL);
+        CREATE TABLE IF NOT EXISTS publication_queue_state(
+            id INTEGER PRIMARY KEY, revision INTEGER NOT NULL);
+        CREATE TRIGGER IF NOT EXISTS publication_change_insert
+        AFTER INSERT ON crawler_sources
+        WHEN NEW.source_kind='oem_incremental_v2'
+          AND (NEW.source_target GLOB 'v2:*:model:*' OR NEW.source_target GLOB 'v2:*:release:*')
+        BEGIN
+            INSERT INTO publication_changes VALUES(NEW.source_target,1)
+            ON CONFLICT(key) DO UPDATE SET revision=revision+1;
+        END;
+        CREATE TRIGGER IF NOT EXISTS publication_change_update
+        AFTER UPDATE OF last_cursor_val ON crawler_sources
+        WHEN NEW.source_kind='oem_incremental_v2'
+          AND (NEW.source_target GLOB 'v2:*:model:*' OR NEW.source_target GLOB 'v2:*:release:*')
+          AND NEW.last_cursor_val IS NOT OLD.last_cursor_val
+        BEGIN
+            INSERT INTO publication_changes VALUES(NEW.source_target,1)
+            ON CONFLICT(key) DO UPDATE SET revision=revision+1;
+        END;
+        INSERT OR IGNORE INTO publication_changes
+        SELECT source_target,1 FROM crawler_sources
+        WHERE source_kind='oem_incremental_v2'
+          AND (source_target GLOB 'v2:*:model:*' OR source_target GLOB 'v2:*:release:*')
+          AND NOT EXISTS(SELECT 1 FROM publication_queue_state WHERE id=1);
+        INSERT OR IGNORE INTO publication_queue_state VALUES(1,1);
+        """)
+    def _publication_rows(self,stage):
+        after=self.prefix+stage+':'
+        upper=after[:-1]+';'
+        while True:
+            rows=self.db.query(
+                """SELECT c.key,c.revision,s.last_cursor_val
+                   FROM publication_changes c JOIN crawler_sources s
+                   ON s.device_codename='__global__' AND s.source_kind=?
+                   AND s.source_target=c.key
+                   WHERE c.key>? AND c.key<? ORDER BY c.key LIMIT 128""",
+                (KIND,after,upper))
+            for row in rows:
+                yield row['key'],json.loads(row['last_cursor_val']),row['revision']
+            if len(rows)<128:return
+            after=rows[-1]['key']
+
+    def acknowledge_change(self,key,revision):
+        self.db.execute(
+            "DELETE FROM publication_changes WHERE key=? AND revision=?",
+            (key,revision))
+
+    def iter_rows(self,stage,page_size=128):
+        prefix=self.prefix+stage+':'
+        after=prefix
+        upper=prefix[:-1]+';'
+        while True:
+            rows=self.db.query(
+                "SELECT source_target,last_cursor_val FROM crawler_sources "
+                "WHERE device_codename='__global__' AND source_kind=? "
+                "AND source_target>? AND source_target<? ORDER BY source_target LIMIT ?",
+                (KIND,after,upper,page_size))
+            for row in rows:
+                yield row['source_target'],json.loads(row['last_cursor_val'])
+            if len(rows)<page_size:return
+            after=rows[-1]['source_target']
 
     def _load_counts(self):
         if self._counts is not None:return self._counts

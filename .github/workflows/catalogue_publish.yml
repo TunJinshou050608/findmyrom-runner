@@ -39,7 +39,10 @@ permissions:
 jobs:
   schema:
     name: D1 · 版本化兼容检查与增量迁移
-    if: github.ref == 'refs/heads/main' && github.event_name != 'push'
+    if: >-
+      github.ref == 'refs/heads/main' && github.event_name != 'push' &&
+      (vars.FMR_TG_D1_WRITES_PAUSED != 'true' ||
+       (inputs.scope != 'tg' && (vars.FMR_D1_WRITES_PAUSED != 'true' || vars.FMR_SAMSUNG_D1_WRITES_PAUSED != 'true')))
     runs-on: ${{ fromJSON(vars.FMR_PUBLISH_RUNNER || vars.FMR_CATALOGUE_RUNNER || '["self-hosted","findmyrom-metadata"]') }}
     timeout-minutes: 10
     environment: production
@@ -124,7 +127,7 @@ jobs:
       run: |
         python -c 'from fmr_ingest_stock.staged_catalogue import Artifacts; a=Artifacts(); a.prune("publisher"); a.close()'
     - name: 交接下一驻留执行器；cron保留作故障恢复
-      if: success() && steps.snapshot.outcome == 'success' && inputs.once != 'true'
+      if: ${{ !cancelled() && steps.snapshot.outcome == 'success' && inputs.once != 'true' }}
       env:
         GH_TOKEN: ${{ github.token }}
         GH_REPO: ${{ github.repository }}
@@ -186,7 +189,7 @@ jobs:
       run: |
         python -c 'from fmr_ingest_stock.staged_catalogue import Artifacts; a=Artifacts(); a.prune("publisher"); a.close()'
     - name: 交接下一三星驻留发布执行器；cron保留作故障恢复
-      if: success() && steps.snapshot.outcome == 'success'
+      if: ${{ !cancelled() && steps.snapshot.outcome == 'success' }}
       env:
         GH_TOKEN: ${{ github.token }}
         GH_REPO: ${{ github.repository }}

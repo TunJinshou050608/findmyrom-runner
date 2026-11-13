@@ -1,4 +1,5 @@
 """Single ten-minute D1 writer. Collectors and their caches stay off D1."""
+from contextlib import ExitStack
 from datetime import datetime,timezone
 import json
 import os
@@ -42,16 +43,19 @@ def acknowledgement(vendor,key,fingerprint):
 
 def candidates(local,ledger,vendor,stats=None,*,respect_review=True):
     store=Store(local,vendor)
-    acknowledged_by_key = {row['key']:row['hash'] for row in ledger.query('SELECT key,hash FROM published WHERE vendor=?',(vendor,))}
     review = {}
     if vendor=='xiaomi' and respect_review:
         review = {row['key']:row['hash'] for row in ledger.query('SELECT key,hash FROM xiaomi_publication_review WHERE retry_at>?',(int(time.time()),))}
     position=0
     for stage in ('release','model'):
-        for key,value in store.rows(stage):
-            if value.get('status')=='excluded' or value['device'].get('catalogue_scope')=='non_android':continue
+        for key,value,change_revision in store.publication_rows(stage):
+            if value.get('status')=='excluded' or value['device'].get('catalogue_scope')=='non_android':
+                store.acknowledge_change(key,change_revision)
+                continue
             unavailable=stage=='release' and vendor=='xiaomi' and value.get('status')=='unavailable'
-            if stage=='release' and not unavailable and (value.get('status')!='resolved' or (value.get('published') and not value.get('metadata_dirty'))):continue
+            if stage=='release' and not unavailable and (value.get('status')!='resolved' or (value.get('published') and not value.get('metadata_dirty'))):
+                store.acknowledge_change(key,change_revision)
+                continue
             from .release_metadata import NORMALIZATION_REVISION as REVISION
             if stage == 'model':
                 body = value['device']
@@ -62,9 +66,11 @@ def candidates(local,ledger,vendor,stats=None,*,respect_review=True):
                 body = [value['device'], release, REVISION]
             if unavailable:body=[body,'unavailable',value.get('error')]
             fingerprint=digest(body)
-            acknowledged = acknowledged_by_key.get(key)
+            saved=ledger.query('SELECT hash FROM published WHERE vendor=? AND key=?',(vendor,key))
+            acknowledged=saved[0]['hash'] if saved else None
             if acknowledged:
                 if acknowledged == fingerprint:
+                    store.acknowledge_change(key,change_revision)
                     continue
                 # Revision 3 changed the fingerprint for every vendor. Keep
                 # those acknowledgements only for the identical release body.
@@ -73,8 +79,10 @@ def candidates(local,ledger,vendor,stats=None,*,respect_review=True):
                     if unavailable:
                         legacy = [legacy, 'unavailable', value.get('error')]
                     if acknowledged == digest(legacy):
+                        store.acknowledge_change(key,change_revision)
                         continue
                     if not unavailable and acknowledged == digest([value['device'], value['release'], 3]):
+                        store.acknowledge_change(key,change_revision)
                         continue
             if stage == 'release' and review.get(key) == fingerprint:
                 if stats is not None:
@@ -135,7 +143,8 @@ def main():
     ROOT.mkdir(parents=True,exist_ok=True,mode=0o700);path=ROOT/'publisher.sqlite';artifacts=Artifacts();ledger=None;db=None
     from collections import Counter
     outcomes=Counter()
-    completed=failed=0
+    completed=failed=errors=0
+    snapshots=ExitStack()
     try:
         artifacts.restore('publisher',path,baseline=False)
         ledger=open_ledger(path)
@@ -157,8 +166,8 @@ def main():
             local_path=ROOT/(vendor+'.sqlite')
             if not artifacts.restore(vendor,local_path):continue
             local=open_local(local_path,initialize=False)
-            try:work[vendor]=iter(list(candidates(local,ledger,vendor,outcomes)))
-            finally:local.close()
+            snapshots.callback(local.close)
+            work[vendor]=candidates(local,ledger,vendor,outcomes)
         # Peek without losing the first record.
         import itertools
         active={}
@@ -183,17 +192,21 @@ def main():
             while active and (MAX_RECORDS==0 or attempted<MAX_RECORDS):
                 for vendor in list(active):
                     item=next(active[vendor],None)
-                    if item is None:del active[vendor];continue
+                    if item is None:
+                        del active[vendor]
+                        continue
                     attempted+=1
                     if sample_costs:
                         before_reads,before_writes=db.rows_read,db.rows_written
                         before_outcomes=outcomes.copy()
                     try:
                         if sync_one(db,ledger,vendor,item,outcomes):completed+=1
-                        else:failed+=1
+                        else:
+                            failed+=1
                         consecutive_errors=0
                     except D1BudgetReached:raise
                     except Exception as exc:
+                        errors+=1
                         # Safe aggregate errors, no URLs or package identifiers.
                         print(vendor+': '+type(exc).__name__+'；留待下次同步。',flush=True);failed+=1
                         consecutive_errors+=1
@@ -209,12 +222,12 @@ def main():
         print(summary,flush=True)
         print(json.dumps({'event':'publication_outcomes',**outcomes}),flush=True)
         if os.environ.get('GITHUB_STEP_SUMMARY'):Path(os.environ['GITHUB_STEP_SUMMARY']).write_text('# 统一 D1 增量同步\n\n'+summary+'\n\n每 10 分钟计划执行；GitHub 排队可能延后。未完成队列保留，下一批继续。\n')
-        return 0
+        return int(errors>0)
     except D1BudgetReached:
         if db and getattr(db,'provider_quota',False) and ledger:
             ledger.execute("INSERT INTO control(key,value) VALUES ('provider_quota_day',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",(datetime.now(timezone.utc).strftime('%Y-%m-%d'),))
         print(json.dumps({'event':'publication_outcomes','budget_stop':True,**outcomes}),flush=True)
-        print('本次 D1 行预算已到；已成功记录保留，剩余下次继续。',flush=True);return 0
+        print('本次 D1 行预算已到；已成功记录保留，剩余下次继续。',flush=True);return int(errors>0)
     finally:
         # Successful D1 writes must retain their local acknowledgements even if
         # budget settlement fails. Otherwise the next runner replays them.
@@ -229,7 +242,9 @@ def main():
                     finally:
                         if os.getenv('FMR_CATALOGUE_SKIP_EXPORT')!='true':
                             encrypt_file('publisher',path)
-            finally:artifacts.close()
+            finally:
+                try:snapshots.close()
+                finally:artifacts.close()
 
 
 if __name__=='__main__':raise SystemExit(main())
