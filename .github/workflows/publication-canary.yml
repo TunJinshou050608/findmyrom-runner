@@ -21,7 +21,7 @@ jobs:
       FMR_CATALOGUE_STATE_DIR: ${{ vars.FMR_CATALOGUE_STATE_DIR || '/var/lib/findmyrom/catalogue-v3'
         }}
       SIGN_PRIVATE_KEY_HEX: ${{ secrets.SIGN_PRIVATE_KEY_HEX }}
-      FMR_D1_WRITES_PAUSED: ${{ vars.FMR_D1_WRITES_PAUSED }}
+      FMR_D1_WRITES_PAUSED: 'false'
       FMR_CATALOGUE_PUBLISH_MAX_RECORDS: '5'
       FMR_CATALOGUE_PUBLISH_ONCE: 'true'
       FMR_CATALOGUE_PUBLISH_VENDORS: xiaomi
