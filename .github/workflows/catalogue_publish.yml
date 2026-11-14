@@ -313,3 +313,4 @@ jobs:
     defaults:
       run:
         working-directory: publisher-code
+# Final bounded acceptance of receipt compatibility and conflict deferral.

@@ -10,7 +10,8 @@ from fmr_core.firmware_metadata_schema import ensure
 from test_vendor_catalogue import env
 
 
-def test_publisher_preserves_both_revision_acknowledgements_for_unchanged_release(env):
+@pytest.mark.parametrize('revision',[2,3])
+def test_publisher_preserves_both_revision_acknowledgements_for_unchanged_release(env,revision):
     from fmr_ingest_stock.catalogue_store import digest
     db, _ = env
     device, release = source()
@@ -21,10 +22,9 @@ def test_publisher_preserves_both_revision_acknowledgements_for_unchanged_releas
     store.put(key, value)
     ledger = publisher.open_ledger(':memory:')
     try:
-        for revision in (2, 3):
-            ledger.execute('INSERT OR REPLACE INTO published VALUES (?,?,?)',
-                           ('oneplus', key, digest([device, release, revision])))
-            assert list(publisher.candidates(db, ledger, 'oneplus')) == []
+        ledger.execute('INSERT OR REPLACE INTO published VALUES (?,?,?)',
+                       ('oneplus', key, digest([device, release, revision])))
+        assert list(publisher.candidates(db, ledger, 'oneplus')) == []
         value['release'] = {**release, 'size': '2 GB'}
         store.put(key, value)
         assert len(list(publisher.candidates(db, ledger, 'oneplus'))) == 1
@@ -260,3 +260,23 @@ def test_samsung_repeated_ap_dates_do_not_discard_other_official_builds():
     assert result['A716U1UEU6DVA1']['android']=='11'
     assert result['A716U1UEU6DVA1']['date'] is None
     assert result['A716U1UEU6DVA1']['patch']=='2022-01-01'
+
+
+def test_future_normalization_revision_does_not_reuse_retired_receipt(env,monkeypatch):
+    from fmr_ingest_stock import release_metadata
+    from fmr_ingest_stock.catalogue_store import digest
+    db,_=env
+    device,release=source()
+    store=Store(db,'oneplus')
+    key=store.key('release','revision-upgrade')
+    store.put(key,{'device':device,'release':release,'status':'resolved'})
+    ledger=publisher.open_ledger(':memory:')
+    try:
+        ledger.execute(publisher.ACK_SQL,('oneplus',key,digest([device,release,3])))
+        assert list(publisher.candidates(db,ledger,'oneplus'))==[]
+        monkeypatch.setattr(release_metadata,'NORMALIZATION_REVISION',4)
+        pending=list(publisher.candidates(db,ledger,'oneplus'))
+        assert len(pending)==1 and pending[0][1]==key
+        assert pending[0][3]==digest([device,release,4])
+        assert store.get(key)['release']==release
+    finally:ledger.close()

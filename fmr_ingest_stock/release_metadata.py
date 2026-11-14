@@ -3,6 +3,8 @@ import re
 from urllib.parse import unquote, urlsplit
 
 REVISION = 1
+# Revision 3 was retired as equivalent to 2. Reserve it permanently;
+# the next semantic normalization change must use revision 4 or higher.
 NORMALIZATION_REVISION = 2
 
 

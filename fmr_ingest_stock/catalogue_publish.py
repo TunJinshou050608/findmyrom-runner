@@ -97,7 +97,7 @@ def candidates(local,ledger,vendor,stats=None,*,respect_review=True):
                         if acknowledged == digest(legacy):
                             acknowledge(key,change_revision)
                             continue
-                        if not unavailable and acknowledged == digest([value['device'], value['release'], 3]):
+                        if REVISION == 2 and not unavailable and acknowledged == digest([value['device'], value['release'], 3]):
                             acknowledge(key,change_revision)
                             continue
                 if stage == 'release' and review.get(key) == fingerprint:
