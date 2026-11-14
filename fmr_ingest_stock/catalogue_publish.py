@@ -18,8 +18,10 @@ SHARD_INDEX=int(os.getenv('FMR_CATALOGUE_SHARD_INDEX','0'))
 SHARD_COUNT=int(os.getenv('FMR_CATALOGUE_SHARD_COUNT','1'))
 if not 0<=SHARD_INDEX<SHARD_COUNT:raise ValueError('Invalid publication shard')
 
-XIAOMI_REVIEW_DELAY = 86400
-XIAOMI_REVIEW_SQL = '''INSERT INTO xiaomi_publication_review(key,hash,retry_at) VALUES (?,?,?)
+# Keep the legacy table name so existing encrypted checkpoints remain reusable.
+# Keys already contain the vendor; the same review queue serves every publisher.
+IDENTITY_REVIEW_DELAY = 86400
+IDENTITY_REVIEW_SQL = '''INSERT INTO xiaomi_publication_review(key,hash,retry_at) VALUES (?,?,?)
     ON CONFLICT(key) DO UPDATE SET hash=excluded.hash,retry_at=excluded.retry_at'''
 ACK_SQL = '''INSERT INTO published(vendor,key,hash) VALUES (?,?,?)
     ON CONFLICT(vendor,key) DO UPDATE SET hash=excluded.hash'''
@@ -44,8 +46,10 @@ def acknowledgement(vendor,key,fingerprint):
 def candidates(local,ledger,vendor,stats=None,*,respect_review=True):
     store=Store(local,vendor)
     review = {}
-    if vendor=='xiaomi' and respect_review:
-        review = {row['key']:row['hash'] for row in ledger.query('SELECT key,hash FROM xiaomi_publication_review WHERE retry_at>?',(int(time.time()),))}
+    if respect_review:
+        review = {row['key']:row['hash'] for row in ledger.query(
+            'SELECT key,hash FROM xiaomi_publication_review WHERE key GLOB ? AND retry_at>?',
+            ('v2:'+vendor+':release:*',int(time.time())))}
     acknowledged_changes=[]
     def flush_acknowledgements():
         if acknowledged_changes:
@@ -118,8 +122,7 @@ def sync_one(db,ledger,vendor,candidate,outcomes=None):
         try:
             result=publish_unavailable(db,value['device'],value['release'],value.get('error')) if vendor=='xiaomi' and value.get('status')=='unavailable' else publish_release(db,value['device'],value['release'])
         except FirmwareIdentityPending as error:
-            if vendor == 'xiaomi':
-                ledger.execute(XIAOMI_REVIEW_SQL,(key,fingerprint,int(time.time())+XIAOMI_REVIEW_DELAY))
+            ledger.execute(IDENTITY_REVIEW_SQL,(key,fingerprint,int(time.time())+IDENTITY_REVIEW_DELAY))
             if outcomes is not None:
                 outcomes['identity_pending'] += 1
             print(json.dumps({'event':'publication_identity_pending','vendor':vendor,'key':key,'reason':str(error)}),flush=True)

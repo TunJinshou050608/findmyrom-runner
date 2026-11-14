@@ -7,7 +7,7 @@ import time
 from pathlib import Path
 
 from fmr_core.d1_client import D1Client
-from fmr_ingest_stock.catalogue_publish import XIAOMI_REVIEW_DELAY, XIAOMI_REVIEW_SQL, acknowledgement, candidates, open_ledger
+from fmr_ingest_stock.catalogue_publish import IDENTITY_REVIEW_DELAY, IDENTITY_REVIEW_SQL, acknowledgement, candidates, open_ledger
 from fmr_ingest_stock.catalogue_sync import FirmwareIdentityPending, build_version, package_kind, publish_release
 from fmr_ingest_stock.d1_budget import BudgetDB
 from fmr_ingest_stock.device_sync import ensure_base_brands_and_anchor
@@ -128,7 +128,7 @@ def rebuild(remote, local, ledger, limit, after=''):
                 if outcome == 'confirmed_local':
                     statements.extend(acknowledgement('xiaomi',key,fingerprint))
                 elif outcome == 'identity_pending':
-                    statements.append((XIAOMI_REVIEW_SQL,(key,fingerprint,int(time.time())+XIAOMI_REVIEW_DELAY)))
+                    statements.append((IDENTITY_REVIEW_SQL,(key,fingerprint,int(time.time())+IDENTITY_REVIEW_DELAY)))
             # Advance by the last inspected key, even if every row needs
             # publication or review. Persist receipts and progress together.
             ledger.execute_batch([

@@ -266,7 +266,7 @@ jobs:
       FMR_D1_WRITES_PAUSED: 'false'
       FMR_CATALOGUE_PUBLISH_MAX_RECORDS: '5'
       FMR_CATALOGUE_PUBLISH_ONCE: 'true'
-      FMR_CATALOGUE_PUBLISH_VENDORS: xiaomi,google
+      FMR_CATALOGUE_PUBLISH_VENDORS: google,samsung
     steps:
     - uses: actions/checkout@v4
       with:

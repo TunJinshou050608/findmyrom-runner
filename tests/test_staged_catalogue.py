@@ -248,7 +248,7 @@ def test_metadata_runner_routing_keeps_binary_and_pr_jobs_off_local_host():
                 assert '[publication-canary]' in job['if']
                 assert job['env']['FMR_CATALOGUE_PUBLISH_MAX_RECORDS']=='5'
                 assert job['env']['FMR_CATALOGUE_PUBLISH_ONCE']=='true'
-                assert job['env']['FMR_CATALOGUE_PUBLISH_VENDORS']=='xiaomi,google'
+                assert job['env']['FMR_CATALOGUE_PUBLISH_VENDORS']=='google,samsung'
                 assert not any('workflow run' in step.get('run','') for step in job['steps'])
                 continue
             if job_name=='telegram':
@@ -530,7 +530,7 @@ def test_shard_merge_preserves_newer_receipt_and_reuses_unchanged_shard(tmp_path
         shard.execute_batch([
             (publisher.ACK_SQL,('xiaomi','shared','fresh')),
             (publisher.ACK_STAMP_SQL,('xiaomi','shared','fresh',stamp+1)),
-            (publisher.XIAOMI_REVIEW_SQL,('conflict','fingerprint',100)),
+            (publisher.IDENTITY_REVIEW_SQL,('conflict','fingerprint',100)),
         ])
         merge_one(main._get_sqlite_conn(),path)
         assert main.query("SELECT hash FROM published WHERE key='shared'")[0]['hash'] == 'fresh'
@@ -564,4 +564,36 @@ def test_acknowledged_queue_cleanup_is_batched_and_flushes_when_batch_stops(env,
     cleanup=[n for n in batches if n==128 or n==3]
     assert cleanup==[128,128,3]
     assert ledger.query('SELECT COUNT(*) AS n FROM published')==[{'n':259}]
+    ledger.close()
+
+
+@pytest.mark.parametrize('vendor',['google','samsung','xiaomi'])
+def test_identity_conflict_defers_unchanged_payload_but_not_corrections(env,tmp_path,monkeypatch,vendor):
+    from collections import Counter
+    local,_=env
+    ledger=publisher.open_ledger(tmp_path/'publisher.sqlite')
+    store=Store(local,vendor)
+    key=store.key('release','one')
+    value={'status':'resolved','device':{'vendor':vendor,'codename':'sample'},
+           'release':{'version':'1','download_url':'https://example.test/one.zip'}}
+    store.put(key,value)
+    candidate=list(publisher.candidates(local,ledger,vendor))[0]
+    monkeypatch.setattr(publisher.time,'time',lambda:1000)
+    def conflict(*args):
+        raise publisher.FirmwareIdentityPending('Different file')
+    monkeypatch.setattr(publisher,'publish_release',conflict)
+    assert publisher.sync_one(None,ledger,vendor,candidate) is False
+    stats=Counter()
+    assert list(publisher.candidates(local,ledger,vendor,stats))==[]
+    assert stats['identity_review_deferred']==1
+    assert ledger.query('SELECT * FROM published')==[]
+    assert len(list(publisher.candidates(local,ledger,vendor,respect_review=False)))==1
+    value['release']['download_url']='https://example.test/corrected.zip'
+    store.put(key,value)
+    assert len(list(publisher.candidates(local,ledger,vendor)))==1
+    value['release']['download_url']='https://example.test/one.zip'
+    store.put(key,value)
+    assert list(publisher.candidates(local,ledger,vendor))==[]
+    monkeypatch.setattr(publisher.time,'time',lambda:1001+publisher.IDENTITY_REVIEW_DELAY)
+    assert len(list(publisher.candidates(local,ledger,vendor)))==1
     ledger.close()
