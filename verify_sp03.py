@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Self-contained SP03 offline DoD; no real ROM or GitHub requests."""
 
+import argparse
 import json
 import os
 import re
@@ -23,11 +24,12 @@ def run(args, env, expected=0):
     return result.stdout
 
 
-def main():
+def main(*, run_unit_tests=True):
     env = {**os.environ, "FMR_TEST_NO_SLEEP": "1"}
-    output = run([sys.executable, "-m", "pytest", "-v"], env)
-    if re.search(r"\b[1-9]\d*\s+skipped\b", output, re.I):
-        raise AssertionError("No skips allowed")
+    if run_unit_tests:
+        output = run([sys.executable, "-m", "pytest", "-v"], env)
+        if re.search(r"\b[1-9]\d*\s+skipped\b", output, re.I):
+            raise AssertionError("No skips allowed")
     with tempfile.TemporaryDirectory(prefix="fmr-sp03-dod-") as temp:
         env.update(
             SIGN_PRIVATE_KEY_HEX="11" * 32,
@@ -92,4 +94,6 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--skip-unit-tests", action="store_true", help="Run acceptance checks after an already successful test suite")
+    main(run_unit_tests=not parser.parse_args().skip_unit_tests)
