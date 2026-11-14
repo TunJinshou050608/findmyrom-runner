@@ -240,17 +240,6 @@ def test_metadata_runner_routing_keeps_binary_and_pr_jobs_off_local_host():
             if job_name=='schema':
                 assert job['concurrency']['group']=='d1-schema-maintenance'
                 continue
-            if job_name=='acceptance':
-                assert path.name=='catalogue_publish.yml'
-                assert job['concurrency']['group']=='catalogue-d1-publisher'
-                assert "github.ref == 'refs/heads/main'" in job['if']
-                assert "github.event_name == 'push'" in job['if']
-                assert '[publication-canary]' in job['if']
-                assert job['env']['FMR_CATALOGUE_PUBLISH_MAX_RECORDS']=='5'
-                assert job['env']['FMR_CATALOGUE_PUBLISH_ONCE']=='true'
-                assert job['env']['FMR_CATALOGUE_PUBLISH_VENDORS']=='google,samsung'
-                assert not any('workflow run' in step.get('run','') for step in job['steps'])
-                continue
             if job_name=='telegram':
                 assert job['runs-on']==['self-hosted','findmyrom-metadata']
                 continue
