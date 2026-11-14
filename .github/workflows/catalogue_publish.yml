@@ -272,7 +272,6 @@ jobs:
       with:
         persist-credentials: false
         path: publisher-code
-        ref: d1f95a9b60f8056dff8a65fa6fae8baa83a80487
     - name: Prepare isolated Python environment
       shell: bash
       run: 'python3 -m venv "$RUNNER_TEMP/fmr-python"

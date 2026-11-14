@@ -220,7 +220,7 @@ def test_settlement_outage_still_saves_successful_publication_acknowledgements(e
         return True
     monkeypatch.setattr(publisher,'Artifacts',Artifacts);monkeypatch.setattr(publisher,'VENDORS',('google',))
     monkeypatch.setattr(publisher,'open_local',lambda *a,**kw:Local())
-    monkeypatch.setattr(publisher,'candidates',lambda *_:iter([('synthetic',)]))
+    monkeypatch.setattr(publisher,'candidates',lambda *_:(item for item in [('synthetic',)]))
     monkeypatch.setattr(publisher,'BudgetDB',DB);monkeypatch.setattr(publisher,'sync_one',synced)
     for name in ('CF_ACCOUNT_ID','CF_API_TOKEN','CF_D1_DATABASE_ID'):monkeypatch.setenv(name,'synthetic')
     with pytest.raises(RuntimeError,match='settlement outage'):publisher.main()
@@ -539,3 +539,29 @@ def test_shard_merge_preserves_newer_receipt_and_reuses_unchanged_shard(tmp_path
         shard.close()
         main.close()
 
+
+
+def test_acknowledged_queue_cleanup_is_batched_and_flushes_when_batch_stops(env,tmp_path):
+    local,_=env
+    ledger=publisher.open_ledger(tmp_path/'publisher.sqlite')
+    store=Store(local,'google')
+    device={'vendor':'google','codename':'pixel'}
+    keys=sorted(store.key('model',str(i)) for i in range(260))
+    for key in keys:
+        store.put(key,{'device':device})
+    ledger.execute_batch([(publisher.ACK_SQL,('google',key,publisher.digest(device))) for key in keys[:-1]])
+    batches=[]
+    execute_batch=local.execute_batch
+    def tracked(statements):
+        batches.append(len(statements))
+        return execute_batch(statements)
+    local.execute_batch=tracked
+    stream=publisher.candidates(local,ledger,'google')
+    assert next(stream)[1]==keys[-1]
+    # Closing at the record limit flushes the last partial group before SQLite closes.
+    stream.close()
+    assert local.query('SELECT key FROM publication_changes')==[{'key':keys[-1]}]
+    cleanup=[n for n in batches if n==128 or n==3]
+    assert cleanup==[128,128,3]
+    assert ledger.query('SELECT COUNT(*) AS n FROM published')==[{'n':259}]
+    ledger.close()

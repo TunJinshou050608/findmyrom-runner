@@ -46,55 +46,69 @@ def candidates(local,ledger,vendor,stats=None,*,respect_review=True):
     review = {}
     if vendor=='xiaomi' and respect_review:
         review = {row['key']:row['hash'] for row in ledger.query('SELECT key,hash FROM xiaomi_publication_review WHERE retry_at>?',(int(time.time()),))}
-    position=0
-    for stage in ('release','model'):
-        for key,value,change_revision in store.publication_rows(stage):
-            if value.get('status')=='excluded' or value['device'].get('catalogue_scope')=='non_android':
-                store.acknowledge_change(key,change_revision)
-                continue
-            unavailable=stage=='release' and vendor=='xiaomi' and value.get('status')=='unavailable'
-            if stage=='release' and not unavailable and (value.get('status')!='resolved' or (value.get('published') and not value.get('metadata_dirty'))):
-                store.acknowledge_change(key,change_revision)
-                continue
-            from .release_metadata import NORMALIZATION_REVISION as REVISION
-            if stage == 'model':
-                body = value['device']
-            else:
-                # The publisher recalculates public metadata from the source
-                # fields. A rewritten collector cache does not change D1 data.
-                release = {k: v for k, v in value['release'].items() if k != '_metadata'}
-                body = [value['device'], release, REVISION]
-            if unavailable:body=[body,'unavailable',value.get('error')]
-            fingerprint=digest(body)
-            saved=ledger.query('SELECT hash FROM published WHERE vendor=? AND key=?',(vendor,key))
-            acknowledged=saved[0]['hash'] if saved else None
-            if acknowledged:
-                if acknowledged == fingerprint:
-                    store.acknowledge_change(key,change_revision)
+    acknowledged_changes=[]
+    def flush_acknowledgements():
+        if acknowledged_changes:
+            local.execute_batch([
+                ("DELETE FROM publication_changes WHERE key=? AND revision=?", item)
+                for item in acknowledged_changes])
+            acknowledged_changes.clear()
+    def acknowledge(key,revision):
+        acknowledged_changes.append((key,revision))
+        if len(acknowledged_changes)>=128:
+            flush_acknowledgements()
+    try:
+        position=0
+        for stage in ('release','model'):
+            for key,value,change_revision in store.publication_rows(stage):
+                if value.get('status')=='excluded' or value['device'].get('catalogue_scope')=='non_android':
+                    acknowledge(key,change_revision)
                     continue
-                # Revision 3 changed the fingerprint for every vendor. Keep
-                # those acknowledgements only for the identical release body.
-                if stage == 'release':
-                    legacy = [value['device'], value['release'], REVISION]
-                    if unavailable:
-                        legacy = [legacy, 'unavailable', value.get('error')]
-                    if acknowledged == digest(legacy):
-                        store.acknowledge_change(key,change_revision)
+                unavailable=stage=='release' and vendor=='xiaomi' and value.get('status')=='unavailable'
+                if stage=='release' and not unavailable and (value.get('status')!='resolved' or (value.get('published') and not value.get('metadata_dirty'))):
+                    acknowledge(key,change_revision)
+                    continue
+                from .release_metadata import NORMALIZATION_REVISION as REVISION
+                if stage == 'model':
+                    body = value['device']
+                else:
+                    # The publisher recalculates public metadata from the source
+                    # fields. A rewritten collector cache does not change D1 data.
+                    release = {k: v for k, v in value['release'].items() if k != '_metadata'}
+                    body = [value['device'], release, REVISION]
+                if unavailable:body=[body,'unavailable',value.get('error')]
+                fingerprint=digest(body)
+                saved=ledger.query('SELECT hash FROM published WHERE vendor=? AND key=?',(vendor,key))
+                acknowledged=saved[0]['hash'] if saved else None
+                if acknowledged:
+                    if acknowledged == fingerprint:
+                        acknowledge(key,change_revision)
                         continue
-                    if not unavailable and acknowledged == digest([value['device'], value['release'], 3]):
-                        store.acknowledge_change(key,change_revision)
-                        continue
-            if stage == 'release' and review.get(key) == fingerprint:
-                if stats is not None:
-                    stats['identity_review_deferred'] += 1
-                continue
-            # Split the actual pending work, not the whole snapshot: a skewed
-            # backlog leaves most hash buckets empty.
-            if SHARD_COUNT>1 and position%SHARD_COUNT!=SHARD_INDEX:
+                    # Revision 3 changed the fingerprint for every vendor. Keep
+                    # those acknowledgements only for the identical release body.
+                    if stage == 'release':
+                        legacy = [value['device'], value['release'], REVISION]
+                        if unavailable:
+                            legacy = [legacy, 'unavailable', value.get('error')]
+                        if acknowledged == digest(legacy):
+                            acknowledge(key,change_revision)
+                            continue
+                        if not unavailable and acknowledged == digest([value['device'], value['release'], 3]):
+                            acknowledge(key,change_revision)
+                            continue
+                if stage == 'release' and review.get(key) == fingerprint:
+                    if stats is not None:
+                        stats['identity_review_deferred'] += 1
+                    continue
+                # Split the actual pending work, not the whole snapshot: a skewed
+                # backlog leaves most hash buckets empty.
+                if SHARD_COUNT>1 and position%SHARD_COUNT!=SHARD_INDEX:
+                    position+=1
+                    continue
                 position+=1
-                continue
-            position+=1
-            yield stage,key,value,fingerprint
+                yield stage,key,value,fingerprint
+    finally:
+        flush_acknowledgements()
 
 
 def sync_one(db,ledger,vendor,candidate,outcomes=None):
@@ -168,6 +182,7 @@ def main():
             local=open_local(local_path,initialize=False)
             snapshots.callback(local.close)
             work[vendor]=candidates(local,ledger,vendor,outcomes)
+            snapshots.callback(work[vendor].close)
         # Peek without losing the first record.
         import itertools
         active={}
