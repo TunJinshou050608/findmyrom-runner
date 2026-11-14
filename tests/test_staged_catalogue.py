@@ -1,3 +1,4 @@
+import sqlite3
 """Real SQLite + crypto with fake source/network: cross-job durability and D1 isolation."""
 import io
 import json
@@ -196,33 +197,6 @@ def test_one_time_migration_reuses_legacy_and_v2_without_any_source_requests(env
     assert len(remote.query("SELECT * FROM crawler_sources WHERE source_kind='oem_catalogue'"))==1
 
 
-def test_shard_merge_preserves_newer_receipt_and_reuses_unchanged_shard(tmp_path):
-    from fmr_ingest_stock.merge_shards import merge_one
-
-    main = publisher.open_ledger(tmp_path/'publisher.sqlite')
-    path = tmp_path/'shard.sqlite'
-    shard = publisher.open_ledger(path)
-    try:
-        main.execute_batch(publisher.acknowledgement('xiaomi','shared','latest'))
-        stamp = main.query('SELECT confirmed_at FROM publication_ack_stamp')[0]['confirmed_at']
-        shard.execute('INSERT INTO published VALUES (?,?,?)',('xiaomi','shared','old-copy'))
-        shard.execute('INSERT INTO published VALUES (?,?,?)',('xiaomi','missing','legacy-proof'))
-        assert merge_one(main._get_sqlite_conn(),path) == 1
-        assert merge_one(main._get_sqlite_conn(),path) is None
-        assert main.query("SELECT hash FROM published WHERE key='shared'")[0]['hash'] == 'latest'
-        shard.execute_batch([
-            (publisher.ACK_SQL,('xiaomi','shared','fresh')),
-            (publisher.ACK_STAMP_SQL,('xiaomi','shared','fresh',stamp+1)),
-            (publisher.XIAOMI_REVIEW_SQL,('conflict','fingerprint',100)),
-        ])
-        merge_one(main._get_sqlite_conn(),path)
-        assert main.query("SELECT hash FROM published WHERE key='shared'")[0]['hash'] == 'fresh'
-        assert main.query('SELECT key FROM xiaomi_publication_review') == [{'key':'conflict'}]
-    finally:
-        shard.close()
-        main.close()
-
-
 def test_settlement_outage_still_saves_successful_publication_acknowledgements(env,tmp_path,monkeypatch):
     root=tmp_path/'state';root.mkdir()
     monkeypatch.setattr(publisher,'ROOT',root);monkeypatch.setattr(staged,'ROOT',root)
@@ -265,6 +239,17 @@ def test_metadata_runner_routing_keeps_binary_and_pr_jobs_off_local_host():
         for job_name,job in yaml.safe_load(path.read_text())['jobs'].items():
             if job_name=='schema':
                 assert job['concurrency']['group']=='d1-schema-maintenance'
+                continue
+            if job_name=='acceptance':
+                assert path.name=='catalogue_publish.yml'
+                assert job['concurrency']['group']=='catalogue-d1-publisher'
+                assert "github.ref == 'refs/heads/main'" in job['if']
+                assert "github.event_name == 'push'" in job['if']
+                assert '[publication-canary]' in job['if']
+                assert job['env']['FMR_CATALOGUE_PUBLISH_MAX_RECORDS']=='5'
+                assert job['env']['FMR_CATALOGUE_PUBLISH_ONCE']=='true'
+                assert job['env']['FMR_CATALOGUE_PUBLISH_VENDORS']=='xiaomi,google'
+                assert not any('workflow run' in step.get('run','') for step in job['steps'])
                 continue
             if job_name=='telegram':
                 assert job['runs-on']==['self-hosted','findmyrom-metadata']
@@ -410,3 +395,147 @@ def test_completed_migration_marker_prevents_reimport_when_baseline_expires(env,
     output=tmp_path/'output';monkeypatch.setenv('GITHUB_OUTPUT',str(output))
     exec(compile(code,'bootstrap-check','exec'),{})
     assert output.read_text()=='needed=false\n'
+
+
+def test_publish_snapshot_pages_preserve_existing_key_order(env):
+    db, _ = env
+    store = Store(db, 'google')
+    for number in range(7):
+        store.put(store.key('release', str(number)), {'status': 'resolved'})
+    store.put(store.key('model', 'pixel'), {'status': 'ok'})
+    other = Store(db, 'xiaomi')
+    other.put(other.key('release', 'other'), {'status': 'resolved'})
+    assert list(store.iter_rows('release', page_size=2)) == store.rows('release')
+
+
+
+def test_unchanged_snapshot_skips_history_and_new_row_reopens_it(env,tmp_path,monkeypatch):
+    local,_=env
+    root=tmp_path/'state';root.mkdir()
+    path=root/'google.sqlite'
+    with sqlite3.connect(path) as snapshot:
+        local._get_sqlite_conn().backup(snapshot)
+    store=Store(publisher.open_local(path,initialize=False),'google')
+    ledger=publisher.open_ledger(root/'publisher.sqlite')
+    device={'vendor':'google','codename':'pixel'}
+    for number in range(32):
+        key=store.key('model',str(number))
+        store.put(key,{'device':device})
+        ledger.execute(publisher.ACK_SQL,('google',key,publisher.digest(device)))
+    store.db.close();ledger.close()
+    class Artifacts:
+        def restore(self,*args,**kwargs):return True
+        def close(self):pass
+    monkeypatch.setattr(publisher,'Artifacts',Artifacts)
+    monkeypatch.setattr(publisher,'ROOT',root)
+    monkeypatch.setattr(publisher,'VENDORS',('google',))
+    monkeypatch.setenv('FMR_CATALOGUE_PUBLISH_FORCE','true')
+    monkeypatch.setenv('FMR_CATALOGUE_SKIP_EXPORT','true')
+    opened=[]
+    original=publisher.open_local
+    def open_snapshot(*args,**kwargs):
+        opened.append(1)
+        return original(*args,**kwargs)
+    monkeypatch.setattr(publisher,'open_local',open_snapshot)
+    calls=[]
+    def remote(**kwargs):
+        calls.append(1)
+        raise ConnectionError('simulated D1 unavailable')
+    monkeypatch.setattr(publisher,'BudgetDB',remote)
+    for name in ('CF_ACCOUNT_ID','CF_API_TOKEN','CF_D1_DATABASE_ID'):
+        monkeypatch.setenv(name,'synthetic')
+    assert publisher.main()==0
+    assert publisher.main()==0
+    assert len(opened)==2 and not calls
+    changed=Store(original(path,initialize=False),'google')
+    new_key=changed.key('model','new')
+    changed.put(new_key,{'device':device})
+    changed.db.close()
+    for _ in range(2):
+        with pytest.raises(ConnectionError,match='simulated D1 unavailable'):
+            publisher.main()
+    assert len(opened)==4 and len(calls)==2
+    class SmallBatch:
+        rows_read=rows_written=0
+        _fmr_schema_ready=5
+        def __init__(self,**kwargs):pass
+        def acquire(self):return True
+        def settle(self):pass
+        def close(self):pass
+    published=[]
+    def publish_device(db, payload):
+        published.append(payload)
+    monkeypatch.setattr(publisher,'BudgetDB',SmallBatch)
+    monkeypatch.setattr(publisher,'publish_device',publish_device)
+    assert publisher.main()==0
+    assert published==[device]
+    assert publisher.main()==0
+    assert len(opened)==6 and published==[device]
+    ledger=publisher.open_ledger(root/'publisher.sqlite')
+    try:
+        assert ledger.query('SELECT key FROM published WHERE key=?',(new_key,))==[{'key':new_key}]
+        assert ledger.query('SELECT COUNT(*) AS n FROM published')==[{'n':33}]
+    finally:ledger.close()
+
+
+def test_change_queue_reads_only_changed_keys_and_preserves_concurrent_update(env,tmp_path):
+    local,_=env
+    store=Store(local,'google')
+    device={'vendor':'google','codename':'pixel'}
+    for i in range(32):
+        store.put(store.key('model',str(i)),{'device':device})
+    initial=list(store.publication_rows('model'))
+    assert len(initial)==32
+    for key,_,revision in initial:store.acknowledge_change(key,revision)
+    assert list(store.publication_rows('model'))==[]
+    key=initial[0][0]
+    store.put(key,{'device':dict(device,name='changed')})
+    changed=list(store.publication_rows('model'))
+    assert len(changed)==1 and changed[0][0]==key
+    store.put(key,{'device':dict(device,name='changed again')})
+    store.acknowledge_change(key,changed[0][2])
+    remaining=list(store.publication_rows('model'))
+    assert len(remaining)==1 and remaining[0][1]['device']['name']=='changed again'
+
+
+def test_change_queue_normalization_upgrade_reuses_existing_records(env,monkeypatch):
+    local,_=env
+    from fmr_ingest_stock import release_metadata
+    store=Store(local,'google')
+    key=store.key('release','build')
+    store.put(key,{'device':{'vendor':'google'},'release':{'version':'one'},'status':'resolved'})
+    row=list(store.publication_rows('release'))[0]
+    store.acknowledge_change(row[0],row[2])
+    assert list(Store(local,'google').publication_rows('release'))==[]
+    monkeypatch.setattr(release_metadata,'NORMALIZATION_REVISION',release_metadata.NORMALIZATION_REVISION+1)
+    rows=list(Store(local,'google').publication_rows('release'))
+    assert len(rows)==1 and rows[0][0]==key
+    assert store.get(key)['release']['version']=='one'
+
+
+def test_shard_merge_preserves_newer_receipt_and_reuses_unchanged_shard(tmp_path):
+    from fmr_ingest_stock.merge_shards import merge_one
+
+    main = publisher.open_ledger(tmp_path/'publisher.sqlite')
+    path = tmp_path/'shard.sqlite'
+    shard = publisher.open_ledger(path)
+    try:
+        main.execute_batch(publisher.acknowledgement('xiaomi','shared','latest'))
+        stamp = main.query('SELECT confirmed_at FROM publication_ack_stamp')[0]['confirmed_at']
+        shard.execute('INSERT INTO published VALUES (?,?,?)',('xiaomi','shared','old-copy'))
+        shard.execute('INSERT INTO published VALUES (?,?,?)',('xiaomi','missing','legacy-proof'))
+        assert merge_one(main._get_sqlite_conn(),path) == 1
+        assert merge_one(main._get_sqlite_conn(),path) is None
+        assert main.query("SELECT hash FROM published WHERE key='shared'")[0]['hash'] == 'latest'
+        shard.execute_batch([
+            (publisher.ACK_SQL,('xiaomi','shared','fresh')),
+            (publisher.ACK_STAMP_SQL,('xiaomi','shared','fresh',stamp+1)),
+            (publisher.XIAOMI_REVIEW_SQL,('conflict','fingerprint',100)),
+        ])
+        merge_one(main._get_sqlite_conn(),path)
+        assert main.query("SELECT hash FROM published WHERE key='shared'")[0]['hash'] == 'fresh'
+        assert main.query('SELECT key FROM xiaomi_publication_review') == [{'key':'conflict'}]
+    finally:
+        shard.close()
+        main.close()
+
