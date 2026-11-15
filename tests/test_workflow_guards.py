@@ -132,7 +132,7 @@ def test_publisher_and_schema_workflows_are_decoupled_and_serialized():
     pub_text = (WORKFLOWS / 'catalogue_publish.yml').read_text(encoding='utf-8')
     pub = load('catalogue_publish.yml')
     assert pub['permissions'] == {'contents': 'read'}
-    assert {s['cron'] for s in pub['on']['schedule']} == {'7,22,37,52 * * * *'}
+    assert {s['cron'] for s in pub['on']['schedule']} == {'0 22 * * *'}
     assert set(pub['jobs']) == {'publish', 'telegram'}
     for forbidden in (
         'catalogue_publish_monitor',
@@ -146,7 +146,7 @@ def test_publisher_and_schema_workflows_are_decoupled_and_serialized():
 
     publish_job = pub['jobs']['publish']
     assert publish_job['environment'] == 'production'
-    assert publish_job['timeout-minutes'] == 15
+    assert publish_job['timeout-minutes'] == 45
     assert publish_job['concurrency'] == {
         'group': 'catalogue-d1-publisher',
         'cancel-in-progress': False,
