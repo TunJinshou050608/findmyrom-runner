@@ -503,7 +503,7 @@ def test_publisher_quota_exceeded_preserves_prejournaled_token_and_migrates_lega
 def test_vendors_yaml_and_cli_max_devices() -> None:
     configs = load_vendor_configs()
     expected_active = {
-        "google": 80,
+        "google": 25,
         "samsung": 15,
         "xiaomi": 40,
         "oneplus": 25,
@@ -512,6 +512,7 @@ def test_vendors_yaml_and_cli_max_devices() -> None:
         "asus": 60,
         "vivo": 60,
     }
+    assert configs["google"].verify_workers == 1
     for vid, expected_max in expected_active.items():
         assert configs[vid].enabled is True
         assert configs[vid].max_devices == expected_max

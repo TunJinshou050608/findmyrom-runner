@@ -1,7 +1,10 @@
 """Guard production workflow topology and trust boundaries."""
+import os
 from pathlib import Path
 import re
 import shlex
+import stat
+import subprocess
 import yaml
 
 from fmr_ingest_stock.pipeline import cli as pipeline_cli
@@ -308,3 +311,24 @@ def test_workflow_pipeline_cli_args_never_drift(monkeypatch, tmp_path: Path):
     assert captured_publish[0]['batch_size'] == 40
     assert captured_publish[0]['private_key_hex'] == '11' * 32
     assert captured_publish[0]['db'].closed is True
+
+
+def test_local_collect_script_and_vendors_yaml_contract():
+    script = ROOT / 'ops' / 'run_local_collect.sh'
+    assert script.is_file(), 'ops/run_local_collect.sh must exist'
+    mode = stat.S_IMODE(script.stat().st_mode)
+    assert mode == 0o755, f'Expected mode 0o755, got {oct(mode)}'
+
+    syntax = subprocess.run(['bash', '-n', str(script)], capture_output=True, text=True)
+    assert syntax.returncode == 0, syntax.stderr
+
+    text = script.read_text(encoding='utf-8')
+    assert 'flock' in text
+    assert 'FMR_STAGING_V4_DIR' in text
+
+    vendors_data = yaml.safe_load((ROOT / 'config' / 'vendors.yaml').read_text(encoding='utf-8'))
+    vendors = vendors_data['vendors']
+    assert vendors['google']['verify_workers'] == 1
+    assert vendors['google']['max_devices'] == 25
+    enabled = {vid for vid, cfg in vendors.items() if cfg.get('enabled') is True}
+    assert enabled == {'google', 'samsung', 'xiaomi', 'oneplus', 'oppo', 'realme', 'asus', 'vivo'}

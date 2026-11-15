@@ -10,8 +10,8 @@ vendors:
     tier: official
     bucket: 0
     max_collect_seconds: 600
-    verify_workers: 4
-    max_devices: 80
+    verify_workers: 1
+    max_devices: 25
     display_name: Google
 
   samsung:
