@@ -279,3 +279,32 @@ def test_workflow_pipeline_cli_args_never_drift(monkeypatch, tmp_path: Path):
     assert captured_collect[0]['vendor_id'] == 'google'
     assert captured_collect[0]['state_dir'] == tmp_path
     assert captured_collect[0]['max_collect_seconds'] == 600
+
+    # End-to-end main() dispatch for publish accepts SIGN_PRIVATE_KEY_HEX from catalogue_publish.yml
+    assert 'SIGN_PRIVATE_KEY_HEX' in publish_wf['jobs']['publish']['env']
+    monkeypatch.delenv('ED25519_PRIVATE_KEY_HEX', raising=False)
+    monkeypatch.delenv('FMR_ED25519_PRIVATE_KEY', raising=False)
+    monkeypatch.setenv('SIGN_PRIVATE_KEY_HEX', '11' * 32)
+    captured_publish: list[dict] = []
+
+    class DummyD1:
+        def __init__(self, local_sqlite_path=None):
+            self.local_sqlite_path = local_sqlite_path
+            self.closed = False
+
+        def close(self):
+            self.closed = True
+
+    def fake_run_publisher(**kwargs):
+        captured_publish.append(kwargs)
+        return {'status': 'ok', 'published': 0}
+
+    monkeypatch.setattr(pipeline_cli, 'D1Client', DummyD1)
+    monkeypatch.setattr(pipeline_cli, 'run_publisher', fake_run_publisher)
+    rc_pub = pipeline_cli.main(['publish', '--state-dir', str(tmp_path), '--batch-size', '40'])
+    assert rc_pub == 0
+    assert len(captured_publish) == 1
+    assert captured_publish[0]['state_dir'] == tmp_path
+    assert captured_publish[0]['batch_size'] == 40
+    assert captured_publish[0]['private_key_hex'] == '11' * 32
+    assert captured_publish[0]['db'].closed is True

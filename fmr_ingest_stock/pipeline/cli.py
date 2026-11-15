@@ -62,7 +62,7 @@ def build_parser() -> argparse.ArgumentParser:
     publish_p.add_argument("--sqlite-path", default=None, help="Optional local SQLite path for D1Client.")
     publish_p.add_argument(
         "--private-key-env",
-        default="ED25519_PRIVATE_KEY_HEX",
+        default="SIGN_PRIVATE_KEY_HEX",
         help="Environment variable holding the 64-hex Ed25519 signing key.",
     )
 
@@ -118,9 +118,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
 
     if args.command == "publish":
-        priv_key = os.environ.get(args.private_key_env, "").strip()
-        if not priv_key:
-            priv_key = os.environ.get("FMR_ED25519_PRIVATE_KEY", "").strip()
+        priv_key = ""
+        for env_name in (
+            args.private_key_env,
+            "SIGN_PRIVATE_KEY_HEX",
+            "ED25519_PRIVATE_KEY_HEX",
+            "FMR_ED25519_PRIVATE_KEY",
+        ):
+            priv_key = os.environ.get(env_name, "").strip()
+            if priv_key:
+                break
         if not priv_key:
             parser.error(
                 f"Missing Ed25519 private key in environment variable {args.private_key_env!r}"
