@@ -7,7 +7,7 @@ FMR_VENVS_DIR="${FMR_VENVS_DIR:-/opt/fmr-venvs}"
 FMR_REPO_URL="${FMR_REPO_URL:-https://github.com/TunJinshou050608/findmyrom-runner.git}"
 
 mkdir -p "$FMR_STAGING_V4_DIR/locks"
-LOCK_FILE="$FMR_STAGING_V4_DIR/locks/local-collect-timer.lock"
+LOCK_FILE="$FMR_STAGING_V4_DIR/locks/local-collect-daemon.lock"
 
 exec 8>"$LOCK_FILE"
 if ! flock -n 8; then
@@ -44,77 +44,11 @@ if [[ ! -x "$VENV_DIR/bin/python" ]]; then
 fi
 
 PYTHON_BIN="$VENV_DIR/bin/python"
-
-ENABLED_VENDORS=()
-while IFS= read -r vendor; do
-  if [[ -n "$vendor" ]]; then
-    ENABLED_VENDORS+=("$vendor")
-  fi
-done < <("$PYTHON_BIN" - "$FMR_RUNNER_DIR/config/vendors.yaml" <<'PY'
-import sys
-import yaml
-
-with open(sys.argv[1], "r", encoding="utf-8") as fh:
-    data = yaml.safe_load(fh) or {}
-
-for vid, cfg in (data.get("vendors") or {}).items():
-    if isinstance(cfg, dict) and cfg.get("enabled") is True:
-        print(vid)
-PY
-)
-
-if [[ ${#ENABLED_VENDORS[@]} -eq 0 ]]; then
-  echo "ERROR: No enabled vendors found in $FMR_RUNNER_DIR/config/vendors.yaml" >&2
-  exit 1
-fi
-
-RUN_TMP="$(mktemp -d)"
-trap 'rm -rf "$RUN_TMP"' EXIT
+export FMR_RUNNER_DIR FMR_STAGING_V4_DIR FMR_VENVS_DIR FMR_REPO_URL
+export FMR_DAEMON_LOCK_HELD=1
 
 cd "$FMR_RUNNER_DIR"
-
-PIDS=()
-for v in "${ENABLED_VENDORS[@]}"; do
-  "$PYTHON_BIN" -m fmr_ingest_stock.pipeline.cli collect \
-    --vendor "$v" \
-    --state-dir "$FMR_STAGING_V4_DIR" \
-    >"$RUN_TMP/${v}.stdout" 2>"$RUN_TMP/${v}.stderr" &
-  PIDS+=("$!")
-done
-
-FAILED=0
-for idx in "${!ENABLED_VENDORS[@]}"; do
-  v="${ENABLED_VENDORS[$idx]}"
-  pid="${PIDS[$idx]}"
-  rc=0
-  wait "$pid" || rc=$?
-  if [[ -s "$RUN_TMP/${v}.stderr" ]]; then
-    sed "s/^/[$v stderr] /" "$RUN_TMP/${v}.stderr" >&2
-  fi
-  if [[ $rc -ne 0 ]]; then
-    printf '[%s] FAILED (exit=%s)\n' "$v" "$rc" >&2
-    if [[ -s "$RUN_TMP/${v}.stdout" ]]; then
-      cat "$RUN_TMP/${v}.stdout" >&2
-    fi
-    FAILED=1
-  else
-    "$PYTHON_BIN" - "$v" "$RUN_TMP/${v}.stdout" <<'PY' || true
-import json
-import pathlib
-import sys
-
-vendor = sys.argv[1]
-raw = pathlib.Path(sys.argv[2]).read_text(encoding="utf-8").strip()
-try:
-    data = json.loads(raw)
-    results = data.get("results") or [data]
-    for item in results:
-        print(json.dumps(item, separators=(",", ":"), sort_keys=True))
-except Exception:
-    if raw:
-        print(f"[{vendor}] {raw}")
-PY
-  fi
-done
-
-exit "$FAILED"
+exec "$PYTHON_BIN" "$FMR_RUNNER_DIR/ops/local_collect_daemon.py" \
+  --runner-dir "$FMR_RUNNER_DIR" \
+  --state-dir "$FMR_STAGING_V4_DIR" \
+  "$@"

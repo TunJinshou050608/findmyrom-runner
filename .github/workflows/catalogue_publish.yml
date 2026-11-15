@@ -31,7 +31,7 @@ jobs:
     if: github.ref == 'refs/heads/main' && inputs.scope != 'tg' && vars.FMR_D1_WRITES_PAUSED != 'true'
     runs-on: ${{ fromJSON(vars.FMR_PUBLISH_RUNNER || vars.FMR_CATALOGUE_RUNNER || '["self-hosted","findmyrom-publisher"]') }}
     environment: production
-    timeout-minutes: 45
+    timeout-minutes: 360
     concurrency:
       group: catalogue-d1-publisher
       cancel-in-progress: false
@@ -76,7 +76,8 @@ jobs:
       run: |
         python -m fmr_ingest_stock.pipeline.cli publish \
           --state-dir "$FMR_STAGING_V4_DIR" \
-          --batch-size "${{ inputs.batch_size || '40' }}"
+          --batch-size "${{ inputs.batch_size || '40' }}" \
+          --stop-before-utc-midnight 60
     - name: Clean fallback isolated runtime
       if: always()
       shell: bash

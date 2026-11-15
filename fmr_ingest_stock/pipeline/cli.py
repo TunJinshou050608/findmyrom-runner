@@ -65,6 +65,12 @@ def build_parser() -> argparse.ArgumentParser:
         default="SIGN_PRIVATE_KEY_HEX",
         help="Environment variable holding the 64-hex Ed25519 signing key.",
     )
+    publish_p.add_argument(
+        "--stop-before-utc-midnight",
+        type=int,
+        default=0,
+        help="Gracefully pause before 00:00 UTC rollover when within N seconds of UTC midnight (0 disables).",
+    )
 
     status_p = sub.add_parser("status", help="Output JSON status of Outbox, Ledger, and Collectors.")
     _add_common_args(status_p, suppress_defaults=True)
@@ -144,6 +150,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 private_key_hex=priv_key,
                 batch_size=args.batch_size,
                 brand_names=brand_names,
+                stop_before_utc_midnight_seconds=args.stop_before_utc_midnight,
             )
         finally:
             db.close()

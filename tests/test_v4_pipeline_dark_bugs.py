@@ -1115,3 +1115,158 @@ def test_remote_zip_enforces_max_3_redirects() -> None:
     with httpx.Client(transport=httpx.MockTransport(loop_handler)) as client:
         with pytest.raises(RangeNotSupportedError, match="Too many HTTP redirects"):
             RemoteZip("https://dl.google.com/ota.zip", client, max_bytes=1024 * 1024)
+
+
+# ---------------------------------------------------------------------------
+# 6. Publisher UTC Midnight Rollover Brake (08:00 CST / 00:00 UTC)
+# ---------------------------------------------------------------------------
+
+
+def _make_google_specs(count: int) -> list[PublishSpecV1]:
+    dev = AdapterDevice(
+        brand_id="google",
+        codename="husky",
+        marketing_name="Pixel 8 Pro",
+        model_numbers=("GC3VE",),
+    )
+    specs: list[PublishSpecV1] = []
+    for i in range(count):
+        url = f"https://dl.google.com/dl/android/aosp/husky-v{i}.zip"
+        specs.append(
+            AdapterRelease(
+                device_codename="husky",
+                model_code="husky",
+                region_code="GLOBAL",
+                version_str=f"AP4A.250205.{i:03d}",
+                android_version="15",
+                package_type="factory_zip",
+                original_official_url=url,
+                fast_cdn_url=url,
+                file_size_bytes=2_500_000_000,
+                file_size_str="2.33 GB",
+            ).to_publish_spec(dev)
+        )
+    return specs
+
+
+def test_publisher_utc_day_rollover_pauses_cleanly_without_blocking_new_day(
+    tmp_path: Path,
+) -> None:
+    state_dir = tmp_path / "state"
+    d1_path = tmp_path / "d1.sqlite"
+    base_db = _init_d1_sqlite(d1_path)
+    outbox = OutboxSpool(state_dir)
+    outbox.enqueue_specs("google", _make_google_specs(3), batch_size=10)
+
+    # First batch commits on 2026-11-15; when execute_batch finishes, UTC day flips to 2026-11-16
+    current_day = ["2026-11-15"]
+
+    class RolloverOnBatchClient(D1Client):
+        def execute_batch(self, statements: Sequence[tuple[str, Sequence[Any]]]) -> list[Any]:
+            res = super().execute_batch(statements)
+            current_day[0] = "2026-11-16"
+            return res
+
+    base_db.close()
+    roll_db = RolloverOnBatchClient(local_sqlite_path=str(d1_path))
+    try:
+        res = run_publisher(
+            state_dir=state_dir,
+            db=roll_db,
+            private_key_hex=TEST_PRIVATE_KEY_HEX,
+            batch_size=1,
+            utc_day_fn=lambda: current_day[0],
+            now_fn=lambda: 1763251000,  # 23:56:40 UTC
+        )
+        assert res["status"] == "paused_utc_rollover"
+        assert res["published_specs"] == 1
+        assert res["batches_committed"] == 1
+        assert res["pending_files_remaining"] == 1
+
+        # Uncommitted specs (2 of 3) were rewritten into outbox/pending/
+        pending = outbox.list_pending()
+        assert len(pending) == 1
+        remaining_specs = outbox.read_specs(pending[0])
+        assert [s.release.version_str for s in remaining_specs] == [
+            "AP4A.250205.001",
+            "AP4A.250205.002",
+        ]
+
+        # Must NOT set blocked_until_utc_day because the new UTC day has fresh quota!
+        ledger_conn = _open_ledger_db(state_dir / "publisher_ledger.sqlite")
+        try:
+            blocked_row = ledger_conn.execute(
+                "SELECT value FROM publisher_state WHERE key = 'blocked_until_utc_day'"
+            ).fetchone()
+            assert blocked_row is None
+        finally:
+            ledger_conn.close()
+
+        # Subsequent run on 2026-11-16 finishes the remaining 2 specs immediately
+        res_next = run_publisher(
+            state_dir=state_dir,
+            db=roll_db,
+            private_key_hex=TEST_PRIVATE_KEY_HEX,
+            batch_size=1,
+            utc_day_fn=lambda: "2026-11-16",
+            now_fn=lambda: 1763251300,
+        )
+        assert res_next["status"] == "ok"
+        assert res_next["published_specs"] == 2
+        assert res_next["pending_files_remaining"] == 0
+        assert len(roll_db.query("SELECT id FROM stock_firmwares")) == 3
+    finally:
+        roll_db.close()
+
+
+def test_publisher_stops_before_utc_midnight_window(tmp_path: Path) -> None:
+    import datetime as dt
+
+    state_dir = tmp_path / "state"
+    d1_path = tmp_path / "d1.sqlite"
+    base_db = _init_d1_sqlite(d1_path)
+    outbox = OutboxSpool(state_dir)
+    outbox.enqueue_specs("google", _make_google_specs(3), batch_size=10)
+
+    # Start at 23:58:50 UTC (70s before midnight -> allowed for chunk 1),
+    # then after chunk 1 commits advance clock to 23:59:05 UTC (55s before midnight <= 60s brake!).
+    t_before = int(dt.datetime(2026, 11, 15, 23, 58, 50, tzinfo=dt.timezone.utc).timestamp())
+    t_brake = int(dt.datetime(2026, 11, 15, 23, 59, 5, tzinfo=dt.timezone.utc).timestamp())
+    clock_ts = [t_before]
+
+    class AdvanceClockClient(D1Client):
+        def execute_batch(self, statements: Sequence[tuple[str, Sequence[Any]]]) -> list[Any]:
+            res = super().execute_batch(statements)
+            clock_ts[0] = t_brake
+            return res
+
+    base_db.close()
+    db = AdvanceClockClient(local_sqlite_path=str(d1_path))
+    try:
+        res = run_publisher(
+            state_dir=state_dir,
+            db=db,
+            private_key_hex=TEST_PRIVATE_KEY_HEX,
+            batch_size=1,
+            utc_day_fn=lambda: "2026-11-15",
+            now_fn=lambda: clock_ts[0],
+            stop_before_utc_midnight_seconds=60,
+        )
+        assert res["status"] == "paused_utc_rollover"
+        assert res["published_specs"] == 1
+        assert res["pending_files_remaining"] == 1
+
+        pending = outbox.list_pending()
+        assert len(pending) == 1
+        assert len(outbox.read_specs(pending[0])) == 2
+
+        ledger_conn = _open_ledger_db(state_dir / "publisher_ledger.sqlite")
+        try:
+            blocked_row = ledger_conn.execute(
+                "SELECT value FROM publisher_state WHERE key = 'blocked_until_utc_day'"
+            ).fetchone()
+            assert blocked_row is None
+        finally:
+            ledger_conn.close()
+    finally:
+        db.close()

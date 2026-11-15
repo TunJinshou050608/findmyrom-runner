@@ -82,6 +82,29 @@ def _default_utc_day() -> str:
     return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d")
 
 
+class _UtcRolloverStop(Exception):
+    """Internal control-flow signal when UTC day rolls over or approaches midnight."""
+
+    def __init__(self, bootstrapped_rows: int = 0) -> None:
+        super().__init__("UTC rollover brake triggered")
+        self.bootstrapped_rows = bootstrapped_rows
+
+
+def _should_stop_for_utc_rollover(
+    day_clock: Callable[[], str],
+    ts_clock: Callable[[], int],
+    start_utc_day: str,
+    stop_before_utc_midnight_seconds: int,
+) -> bool:
+    if day_clock() != start_utc_day:
+        return True
+    if stop_before_utc_midnight_seconds > 0:
+        remaining_in_day = 86400 - (int(ts_clock()) % 86400)
+        if remaining_in_day <= stop_before_utc_midnight_seconds:
+            return True
+    return False
+
+
 _SONY_BUNDLE_PREFIX = "https://findmyrom.com/sony/bundles/"
 _HEX64_RE = re.compile(r"^[0-9a-f]{64}$")
 
@@ -207,12 +230,15 @@ def _bootstrap_ledger_from_d1(
     db: D1Client,
     now_fn: Callable[[], int],
     bootstrap_page_size: int = BOOTSTRAP_PAGE_SIZE,
+    stop_check: Callable[[], bool] | None = None,
 ) -> int:
     """Zero-write D1 pagination populating existing `public_token`s into `ledger_entries`."""
     last_id = int(_get_state(conn, "bootstrap_last_id", "0") or "0")
     bootstrapped_rows = 0
 
     while True:
+        if stop_check is not None and stop_check():
+            raise _UtcRolloverStop(bootstrapped_rows)
         rows = db.query(
             """
             SELECT
@@ -598,10 +624,15 @@ def run_publisher(
     utc_day_fn: Callable[[], str] | None = None,
     now_fn: Callable[[], int] | None = None,
     brand_names: Mapping[str, str] | None = None,
+    stop_before_utc_midnight_seconds: int = 0,
 ) -> dict[str, Any]:
     """Drain `outbox/pending/*.jsonl` into D1 with Hit-Quota-Stop-and-Checkpoint."""
     if batch_size <= 0:
         raise ValueError(f"batch_size must be positive, got {batch_size}")
+    if stop_before_utc_midnight_seconds < 0:
+        raise ValueError(
+            f"stop_before_utc_midnight_seconds must be non-negative, got {stop_before_utc_midnight_seconds}"
+        )
 
     root = Path(state_dir)
     day_clock = utc_day_fn or _default_utc_day
@@ -619,6 +650,7 @@ def run_publisher(
                 day_clock=day_clock,
                 ts_clock=ts_clock,
                 brand_names=brand_names or DEFAULT_BRAND_DISPLAY_NAMES,
+                stop_before_utc_midnight_seconds=stop_before_utc_midnight_seconds,
             )
     except LockBusyError:
         return {
@@ -639,12 +671,14 @@ def _execute_publisher_locked(
     day_clock: Callable[[], str],
     ts_clock: Callable[[], int],
     brand_names: Mapping[str, str],
+    stop_before_utc_midnight_seconds: int = 0,
 ) -> dict[str, Any]:
     ledger_path = root / "publisher_ledger.sqlite"
     conn = _open_ledger_db(ledger_path)
     outbox = OutboxSpool(root)
 
-    current_utc_day = day_clock()
+    start_utc_day = day_clock()
+    current_utc_day = start_utc_day
     published_specs = 0
     skipped_unchanged = 0
     batches_committed = 0
@@ -677,7 +711,25 @@ def _execute_publisher_locked(
                     db=db,
                     now_fn=ts_clock,
                     bootstrap_page_size=bootstrap_page_size,
+                    stop_check=lambda: _should_stop_for_utc_rollover(
+                        day_clock,
+                        ts_clock,
+                        start_utc_day,
+                        stop_before_utc_midnight_seconds,
+                    ),
                 )
+            except _UtcRolloverStop as rstop:
+                return {
+                    "status": "paused_utc_rollover",
+                    "phase": "bootstrap",
+                    "utc_day": day_clock(),
+                    "start_utc_day": start_utc_day,
+                    "bootstrapped_rows": rstop.bootstrapped_rows,
+                    "published_specs": 0,
+                    "skipped_unchanged": 0,
+                    "batches_committed": 0,
+                    "pending_files_remaining": len(outbox.list_pending()),
+                }
             except D1QuotaExceededError as qe:
                 _set_state(conn, "blocked_until_utc_day", current_utc_day)
                 conn.commit()
@@ -730,6 +782,28 @@ def _execute_publisher_locked(
 
             try:
                 for offset in range(0, len(file_specs), batch_size):
+                    if _should_stop_for_utc_rollover(
+                        day_clock,
+                        ts_clock,
+                        start_utc_day,
+                        stop_before_utc_midnight_seconds,
+                    ):
+                        remaining_in_file = file_specs[committed_in_file:]
+                        outbox.rewrite_uncommitted(pending_path, remaining_in_file)
+                        return {
+                            "status": "paused_utc_rollover",
+                            "phase": "publish",
+                            "utc_day": day_clock(),
+                            "start_utc_day": start_utc_day,
+                            "bootstrapped_rows": bootstrapped_rows,
+                            "published_specs": published_specs,
+                            "skipped_unchanged": skipped_unchanged,
+                            "batches_committed": batches_committed,
+                            "files_completed": files_completed,
+                            "quarantined_4tuple_collisions": quarantined_4tuple_total,
+                            "pending_files_remaining": len(outbox.list_pending()),
+                        }
+
                     chunk = file_specs[offset : offset + batch_size]
 
                     # Deduplicate identical identity_keys within the same chunk (keep latest)

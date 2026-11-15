@@ -149,7 +149,7 @@ def test_publisher_and_schema_workflows_are_decoupled_and_serialized():
 
     publish_job = pub['jobs']['publish']
     assert publish_job['environment'] == 'production'
-    assert publish_job['timeout-minutes'] == 45
+    assert publish_job['timeout-minutes'] == 360
     assert publish_job['concurrency'] == {
         'group': 'catalogue-d1-publisher',
         'cancel-in-progress': False,
@@ -265,6 +265,7 @@ def test_workflow_pipeline_cli_args_never_drift(monkeypatch, tmp_path: Path):
     assert parsed_wf_publish.command == 'publish'
     assert parsed_wf_publish.state_dir == '/tmp/s'
     assert parsed_wf_publish.batch_size == 40
+    assert parsed_wf_publish.stop_before_utc_midnight == 60
 
     # End-to-end main() dispatch passes max_collect_seconds=600 and state_dir into run_collector
     captured_collect: list[dict] = []
@@ -304,11 +305,22 @@ def test_workflow_pipeline_cli_args_never_drift(monkeypatch, tmp_path: Path):
 
     monkeypatch.setattr(pipeline_cli, 'D1Client', DummyD1)
     monkeypatch.setattr(pipeline_cli, 'run_publisher', fake_run_publisher)
-    rc_pub = pipeline_cli.main(['publish', '--state-dir', str(tmp_path), '--batch-size', '40'])
+    rc_pub = pipeline_cli.main(
+        [
+            'publish',
+            '--state-dir',
+            str(tmp_path),
+            '--batch-size',
+            '40',
+            '--stop-before-utc-midnight',
+            '60',
+        ]
+    )
     assert rc_pub == 0
     assert len(captured_publish) == 1
     assert captured_publish[0]['state_dir'] == tmp_path
     assert captured_publish[0]['batch_size'] == 40
+    assert captured_publish[0]['stop_before_utc_midnight_seconds'] == 60
     assert captured_publish[0]['private_key_hex'] == '11' * 32
     assert captured_publish[0]['db'].closed is True
 
@@ -324,7 +336,20 @@ def test_local_collect_script_and_vendors_yaml_contract():
 
     text = script.read_text(encoding='utf-8')
     assert 'flock' in text
+    assert 'local-collect-daemon.lock' in text
+    assert 'local_collect_daemon.py' in text
     assert 'FMR_STAGING_V4_DIR' in text
+
+    daemon_script = ROOT / 'ops' / 'local_collect_daemon.py'
+    assert daemon_script.is_file(), 'ops/local_collect_daemon.py must exist'
+    from ops import local_collect_daemon
+
+    daemon_parser = local_collect_daemon.build_parser()
+    once_args = daemon_parser.parse_args(['--once', '--state-dir', '/tmp/s'])
+    assert once_args.once is True
+    assert once_args.daemon is False
+    default_args = daemon_parser.parse_args(['--state-dir', '/tmp/s'])
+    assert default_args.once is False
 
     vendors_data = yaml.safe_load((ROOT / 'config' / 'vendors.yaml').read_text(encoding='utf-8'))
     vendors = vendors_data['vendors']
@@ -332,3 +357,106 @@ def test_local_collect_script_and_vendors_yaml_contract():
     assert vendors['google']['max_devices'] == 25
     enabled = {vid for vid, cfg in vendors.items() if cfg.get('enabled') is True}
     assert enabled == {'google', 'samsung', 'xiaomi', 'oneplus', 'oppo', 'realme', 'asus', 'vivo'}
+
+
+def test_local_collect_daemon_adaptive_sleep_and_next_due(tmp_path: Path):
+    import sqlite3
+    from fmr_ingest_stock.pipeline.collector import _open_collector_db
+    from ops import local_collect_daemon
+
+    db_path = tmp_path / 'collectors' / 'google.sqlite'
+    conn = _open_collector_db(db_path)
+    now_ts = 10_000
+
+    try:
+        # 1. Any device with last_checked_at == 0 -> 0s sleep (immediate next pass)
+        conn.execute(
+            """
+            INSERT INTO collector_devices (
+                codename, brand_id, marketing_name, model_numbers_json,
+                boot_partition_type, device_sha256, updated_at, last_checked_at
+            ) VALUES
+                ('dev_fresh', 'google', 'Fresh', '[]', 'init_boot', 'h1', ?, ?),
+                ('dev_unseen', 'google', 'Unseen', '[]', 'init_boot', 'h2', ?, 0)
+            """,
+            (now_ts, now_ts - 100, now_ts),
+        )
+        conn.commit()
+        assert local_collect_daemon.compute_vendor_sleep_seconds(db_path, now_ts=now_ts) == 0
+
+        # 2. Any device older than freshness window (now - 1800) -> 0s sleep
+        conn.execute(
+            "UPDATE collector_devices SET last_checked_at = ? WHERE codename = 'dev_unseen'",
+            (now_ts - 1801,),
+        )
+        conn.commit()
+        assert local_collect_daemon.compute_vendor_sleep_seconds(db_path, now_ts=now_ts) == 0
+
+        # 3. 100% of devices fresh: oldest checked 1680s ago -> next due in 120s -> sleep 120s
+        conn.execute(
+            "UPDATE collector_devices SET last_checked_at = ? WHERE codename = 'dev_unseen'",
+            (now_ts - 1680,),
+        )
+        conn.commit()
+        assert local_collect_daemon.compute_vendor_sleep_seconds(db_path, now_ts=now_ts) == 120
+
+        # 4. 100% of devices checked just now (10s ago -> 1790s remaining) -> clamped to max 300s
+        conn.execute(
+            "UPDATE collector_devices SET last_checked_at = ?",
+            (now_ts - 10,),
+        )
+        conn.commit()
+        assert local_collect_daemon.compute_vendor_sleep_seconds(db_path, now_ts=now_ts) == 300
+
+        # 5. Oldest device ages in 5s -> clamped to min 30s
+        conn.execute(
+            "UPDATE collector_devices SET last_checked_at = ? WHERE codename = 'dev_unseen'",
+            (now_ts - 1795,),
+        )
+        conn.commit()
+        assert local_collect_daemon.compute_vendor_sleep_seconds(db_path, now_ts=now_ts) == 30
+
+        # 6. DEFERRED_VERIFY next_retry_at due in 90s wakes sooner than device freshness (1790s)
+        conn.execute(
+            "UPDATE collector_devices SET last_checked_at = ?",
+            (now_ts - 10,),
+        )
+        conn.execute(
+            """
+            INSERT INTO collector_releases (
+                identity_key, device_codename, model_code, region_code, version_str,
+                package_type, conflict_sig, input_sha256, verify_state,
+                failure_count, next_retry_at, updated_at
+            ) VALUES ('k1', 'dev_fresh', 'dev_fresh', 'GLOBAL', '1.0', 'factory_zip', 'c', 'i', 'DEFERRED_VERIFY', 1, ?, ?)
+            """,
+            (now_ts + 90, now_ts),
+        )
+        conn.commit()
+        assert local_collect_daemon.compute_vendor_sleep_seconds(db_path, now_ts=now_ts) == 90
+
+        # 7. Batch hit max_devices / max_collect_seconds -> 0s sleep even if SQLite shows fresh
+        assert (
+            local_collect_daemon.compute_vendor_sleep_seconds(
+                db_path,
+                now_ts=now_ts,
+                last_result={'devices_discovered': 100, 'devices_checked': 25},
+                vendor_cfg={'max_devices': 25, 'max_collect_seconds': 600},
+                elapsed_seconds=12.0,
+            )
+            == 0
+        )
+        assert (
+            local_collect_daemon.compute_vendor_sleep_seconds(
+                db_path,
+                now_ts=now_ts,
+                last_result={'devices_discovered': 25, 'devices_checked': 25},
+                vendor_cfg={'max_devices': 25, 'max_collect_seconds': 600},
+                elapsed_seconds=601.0,
+            )
+            == 0
+        )
+
+        # 8. Non-zero exit code -> min_sleep_seconds backoff
+        assert local_collect_daemon.compute_vendor_sleep_seconds(db_path, now_ts=now_ts, last_rc=1) == 30
+    finally:
+        conn.close()
