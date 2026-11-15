@@ -1,6 +1,10 @@
 """Guard production workflow topology and trust boundaries."""
 from pathlib import Path
+import re
+import shlex
 import yaml
+
+from fmr_ingest_stock.pipeline import cli as pipeline_cli
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / '.github/workflows'
@@ -176,3 +180,102 @@ def test_publisher_and_schema_workflows_are_decoupled_and_serialized():
         steps_blob = str(job['steps'])
         assert '/opt/fmr-venvs' in steps_blob
         assert 'flock' in steps_blob
+
+
+def _extract_cli_tokens_from_workflow_run(run_script: str, replacements: dict[str, str]) -> list[str]:
+    joined = run_script.replace('\\\n', ' ')
+    for key, val in replacements.items():
+        joined = joined.replace(key, val)
+    match = re.search(r'python\s+-m\s+fmr_ingest_stock\.pipeline\.cli\s+(.+)', joined)
+    assert match is not None, f'Could not locate pipeline CLI invocation in:\n{run_script}'
+    return shlex.split(match.group(1).splitlines()[0])
+
+
+def test_workflow_pipeline_cli_args_never_drift(monkeypatch, tmp_path: Path):
+    parser = pipeline_cli.build_parser()
+
+    # Exact flag orders used in _collect_vendor.yml, catalogue_publish.yml, and top-level order
+    args_collect_sub = parser.parse_args(
+        ['collect', '--vendor', 'google', '--state-dir', '/tmp/s', '--max-seconds', '600']
+    )
+    assert args_collect_sub.command == 'collect'
+    assert args_collect_sub.vendor == 'google'
+    assert args_collect_sub.state_dir == '/tmp/s'
+    assert args_collect_sub.max_seconds == 600
+
+    args_publish_sub = parser.parse_args(
+        ['publish', '--state-dir', '/tmp/s', '--batch-size', '40']
+    )
+    assert args_publish_sub.command == 'publish'
+    assert args_publish_sub.state_dir == '/tmp/s'
+    assert args_publish_sub.batch_size == 40
+
+    args_collect_top = parser.parse_args(
+        ['--state-dir', '/tmp/s', '--vendors-yaml', '/tmp/v.yaml', 'collect', '--vendor', 'google']
+    )
+    assert args_collect_top.command == 'collect'
+    assert args_collect_top.vendor == 'google'
+    assert args_collect_top.state_dir == '/tmp/s'
+    assert args_collect_top.vendors_yaml == '/tmp/v.yaml'
+    assert args_collect_top.max_seconds is None
+
+    # Subcommand flags may override top-level flags, while omitted subcommand flags must not clobber them
+    args_override = parser.parse_args(
+        ['--state-dir', '/tmp/top', '--vendors-yaml', '/tmp/v.yaml', 'collect', '--vendor', 'google', '--state-dir', '/tmp/sub']
+    )
+    assert args_override.state_dir == '/tmp/sub'
+    assert args_override.vendors_yaml == '/tmp/v.yaml'
+
+    # Parse actual commands embedded in the workflow YAML files so future workflow edits cannot drift
+    collect_wf = load('_collect_vendor.yml')
+    collect_step = next(
+        s for s in collect_wf['jobs']['collect']['steps']
+        if 'fmr_ingest_stock.pipeline.cli collect' in s.get('run', '')
+    )
+    collect_tokens = _extract_cli_tokens_from_workflow_run(
+        collect_step['run'],
+        {
+            '${{ inputs.vendor }}': 'google',
+            '${FMR_STAGING_V4_DIR:-/var/lib/findmyrom/staging-v4}': '/tmp/s',
+            '${{ inputs.max_seconds }}': '600',
+        },
+    )
+    parsed_wf_collect = parser.parse_args(collect_tokens)
+    assert parsed_wf_collect.command == 'collect'
+    assert parsed_wf_collect.vendor == 'google'
+    assert parsed_wf_collect.state_dir == '/tmp/s'
+    assert parsed_wf_collect.max_seconds == 600
+
+    publish_wf = load('catalogue_publish.yml')
+    publish_step = next(
+        s for s in publish_wf['jobs']['publish']['steps']
+        if 'fmr_ingest_stock.pipeline.cli publish' in s.get('run', '')
+    )
+    publish_tokens = _extract_cli_tokens_from_workflow_run(
+        publish_step['run'],
+        {
+            '$FMR_STAGING_V4_DIR': '/tmp/s',
+            "${{ inputs.batch_size || '40' }}": '40',
+        },
+    )
+    parsed_wf_publish = parser.parse_args(publish_tokens)
+    assert parsed_wf_publish.command == 'publish'
+    assert parsed_wf_publish.state_dir == '/tmp/s'
+    assert parsed_wf_publish.batch_size == 40
+
+    # End-to-end main() dispatch passes max_collect_seconds=600 and state_dir into run_collector
+    captured_collect: list[dict] = []
+
+    def fake_run_collector(vendor_id: str, **kwargs):
+        captured_collect.append({'vendor_id': vendor_id, **kwargs})
+        return {'vendor': vendor_id, 'status': 'ok'}
+
+    monkeypatch.setattr(pipeline_cli, 'run_collector', fake_run_collector)
+    rc = pipeline_cli.main(
+        ['collect', '--vendor', 'google', '--state-dir', str(tmp_path), '--max-seconds', '600']
+    )
+    assert rc == 0
+    assert len(captured_collect) == 1
+    assert captured_collect[0]['vendor_id'] == 'google'
+    assert captured_collect[0]['state_dir'] == tmp_path
+    assert captured_collect[0]['max_collect_seconds'] == 600

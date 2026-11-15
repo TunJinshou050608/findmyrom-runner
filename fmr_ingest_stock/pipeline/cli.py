@@ -16,35 +16,48 @@ from .outbox import DEFAULT_OUTBOX_BATCH_SIZE
 from .publisher import get_pipeline_status, run_publisher
 
 
+def _add_common_args(target: argparse.ArgumentParser, *, suppress_defaults: bool) -> None:
+    state_default = (
+        argparse.SUPPRESS
+        if suppress_defaults
+        else os.environ.get("FMR_PIPELINE_STATE_DIR", ".fmr_state")
+    )
+    vendors_default = argparse.SUPPRESS if suppress_defaults else None
+    target.add_argument(
+        "--state-dir",
+        default=state_default,
+        help="Directory for collector SQLite DBs, locks, outbox, and publisher ledger.",
+    )
+    target.add_argument(
+        "--vendors-yaml",
+        default=vendors_default,
+        help="Optional path to vendors.yaml configuration.",
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="fmr-pipeline-v4",
         description="FindMyROM v4 Official Stock Firmware Collector & Quota-Safe Publisher",
     )
-    parser.add_argument(
-        "--state-dir",
-        default=os.environ.get("FMR_PIPELINE_STATE_DIR", ".fmr_state"),
-        help="Directory for collector SQLite DBs, locks, outbox, and publisher ledger.",
-    )
-    parser.add_argument(
-        "--vendors-yaml",
-        default=None,
-        help="Optional path to vendors.yaml configuration.",
-    )
+    _add_common_args(parser, suppress_defaults=False)
 
     sub = parser.add_subparsers(dest="command", required=True)
 
     collect_p = sub.add_parser("collect", help="Run official vendor collector(s) into Outbox.")
+    _add_common_args(collect_p, suppress_defaults=True)
     group = collect_p.add_mutually_exclusive_group(required=True)
     group.add_argument("--vendor", help="Single vendor ID (e.g. google).")
     group.add_argument("--bucket", type=int, help="Run all enabled vendors in schedule bucket 0..11.")
     group.add_argument("--all-enabled", action="store_true", help="Run all enabled vendors.")
     collect_p.add_argument("--verify-workers", type=int, default=None)
     collect_p.add_argument("--max-devices", type=int, default=None, help="Maximum devices to check per vendor run.")
+    collect_p.add_argument("--max-seconds", type=int, default=None, help="Maximum wall-clock seconds for vendor collection.")
     collect_p.add_argument("--batch-size", type=int, default=DEFAULT_OUTBOX_BATCH_SIZE)
     collect_p.add_argument("--no-dns-check", action="store_true", help="Skip DNS SSRF check (offline dev).")
 
     publish_p = sub.add_parser("publish", help="Publish Outbox batches to D1 with quota checkpointing.")
+    _add_common_args(publish_p, suppress_defaults=True)
     publish_p.add_argument("--batch-size", type=int, default=DEFAULT_OUTBOX_BATCH_SIZE)
     publish_p.add_argument("--sqlite-path", default=None, help="Optional local SQLite path for D1Client.")
     publish_p.add_argument(
@@ -53,7 +66,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="Environment variable holding the 64-hex Ed25519 signing key.",
     )
 
-    sub.add_parser("status", help="Output JSON status of Outbox, Ledger, and Collectors.")
+    status_p = sub.add_parser("status", help="Output JSON status of Outbox, Ledger, and Collectors.")
+    _add_common_args(status_p, suppress_defaults=True)
     return parser
 
 
@@ -95,6 +109,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 max_devices=args.max_devices,
                 resolve_dns=not args.no_dns_check,
                 outbox_batch_size=args.batch_size,
+                max_collect_seconds=args.max_seconds,
             )
             results.append(res)
 
