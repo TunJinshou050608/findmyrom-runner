@@ -122,6 +122,8 @@ def ensure_schema(db, *, allow_migration=False, through=5):
                 raise RuntimeError('Unexpected source triggers; refuse lossy table rebuild')
             for table in db.query("SELECT name FROM sqlite_master WHERE type='table'"):
                 name = table['name']
+                if name.startswith(('_cf_', 'sqlite_')):
+                    continue
                 quoted = '"' + name.replace('"', '""') + '"'
                 for fk in db.query('PRAGMA foreign_key_list(' + quoted + ')'):
                     if fk['table'] in ('stock_firmwares', 'extracted_boot_images') and name != 'extracted_boot_images':

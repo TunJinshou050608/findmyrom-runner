@@ -147,15 +147,56 @@ def _extract_response_details(resp: Any) -> tuple[int | None, str, tuple[int, ..
     return status_code, " ".join(parts), tuple(codes), retry_after
 
 
+_NON_QUOTA_SQL_ERROR_MARKERS = (
+    "not authorized",
+    "sqlite_auth",
+    "sqlite_constraint",
+    "constraint failed",
+    "syntax error",
+    "no such table",
+    "no such column",
+    "no such index",
+    "no such trigger",
+    "datatype mismatch",
+    "already exists",
+    "sqlite_misuse",
+    "incomplete input",
+    "too many sql variables",
+    "cannot start a transaction",
+    "cannot commit",
+    "cannot rollback",
+)
+
+
+def _matches_explicit_quota_text(text: str) -> bool:
+    lower = text.lower()
+    if "daily read" in lower or "daily write" in lower:
+        return True
+    if "allocation" in lower or "quota" in lower or "rate limit" in lower:
+        return True
+    if "too many requests" in lower or _RE_HTTP_429.search(text):
+        return True
+    if "exceeded" in lower and any(tok in lower for tok in ("rows", "queries", "limit")):
+        return True
+    return False
+
+
+def _matches_non_quota_sql_error(text: str) -> bool:
+    lower = text.lower()
+    if not any(marker in lower for marker in _NON_QUOTA_SQL_ERROR_MARKERS):
+        return False
+    return not _matches_explicit_quota_text(lower)
+
+
 def _matches_hard_quota_text(text: str) -> bool:
     lower = text.lower()
-    if _RE_CODE_7500.search(lower):
-        return True
     if "daily read" in lower or "daily write" in lower:
         return True
     if "allocation" in lower or "quota" in lower:
         return True
     if "exceeded" in lower and any(tok in lower for tok in ("rows", "queries", "limit")):
+        return True
+    if _RE_CODE_7500.search(lower) and not _matches_non_quota_sql_error(text):
         return True
     return False
 
@@ -189,15 +230,19 @@ def is_d1_quota_error(
                 extra_text = resp_text
             all_codes.extend(resp_codes)
 
-    if 7500 in all_codes:
+    combined = f"{message_or_exc} {extra_text}".strip()
+    if 7500 in all_codes and not _matches_non_quota_sql_error(combined):
         return True
     if status_code == 429:
         return True
 
-    combined = f"{message_or_exc} {extra_text}".strip()
     if _matches_hard_quota_text(combined):
         return True
-    if "too many requests" in combined.lower() or _RE_HTTP_429.search(combined):
+    if (
+        "rate limit" in combined.lower()
+        or "too many requests" in combined.lower()
+        or _RE_HTTP_429.search(combined)
+    ):
         return True
     return False
 
@@ -908,8 +953,10 @@ class D1Client:
                 effective_status = status_code or 0
                 combined_msg = f"{http_err} {body_text}".strip()
 
-                # Never sleep-retry on 7500 or daily/hard quota exhaustion!
-                if 7500 in codes or _matches_hard_quota_text(combined_msg):
+                # Never sleep-retry on 7500 (unless it is a non-quota SQL error) or daily/hard quota exhaustion!
+                if (
+                    7500 in codes and not _matches_non_quota_sql_error(combined_msg)
+                ) or _matches_hard_quota_text(combined_msg):
                     raise D1QuotaExceededError(
                         f"Cloudflare D1 quota exhausted (HTTP {effective_status}): {combined_msg}",
                         failed_sql=sql_hint,
@@ -937,7 +984,7 @@ class D1Client:
 
                 if 400 <= effective_status < 500:
                     raise RuntimeError(
-                        f"Cloudflare D1 HTTP {effective_status} client error: {http_err}"
+                        f"Cloudflare D1 HTTP {effective_status} client error: {combined_msg}"
                     ) from http_err
 
                 last_error = http_err

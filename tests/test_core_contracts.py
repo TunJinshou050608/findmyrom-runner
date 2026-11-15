@@ -307,6 +307,68 @@ def test_is_d1_quota_error_detection():
 
     assert is_d1_quota_error("UNIQUE constraint failed: stock_firmwares.public_token") is False
     assert is_d1_quota_error("no such column: foo", status_code=400, error_codes=[7400]) is False
+    assert (
+        is_d1_quota_error(
+            "{'code': 7500, 'message': 'not authorized: SQLITE_AUTH'}",
+            status_code=400,
+            error_codes=[7500],
+        )
+        is False
+    )
+    assert (
+        is_d1_quota_error(
+            "{'code': 7500, 'message': 'SQLITE_CONSTRAINT: UNIQUE constraint failed'}",
+            status_code=400,
+            error_codes=[7500],
+        )
+        is False
+    )
+    assert (
+        is_d1_quota_error(
+            "{'code': 7500, 'message': 'no such table: stock_firmwares_missing'}",
+            status_code=400,
+            error_codes=[7500],
+        )
+        is False
+    )
+    assert (
+        is_d1_quota_error(
+            "{'code': 7500, 'message': 'not authorized; daily write quota exceeded'}",
+            status_code=400,
+            error_codes=[7500],
+        )
+        is True
+    )
+
+
+def test_d1_client_http_400_7500_sql_error_raises_batch_error_without_sleep_retry():
+    client = D1Client(cf_account_id="acc", cf_api_token="tok", cf_database_id="db")
+
+    resp_auth = MagicMock(status_code=400, headers={})
+    resp_auth.text = '{"messages":[],"result":[],"success":false,"errors":[{"code":7500,"message":"not authorized: SQLITE_AUTH"}]}'
+    resp_auth.json.return_value = {
+        "messages": [],
+        "result": [],
+        "success": False,
+        "errors": [{"code": 7500, "message": "not authorized: SQLITE_AUTH"}],
+    }
+    resp_auth.raise_for_status.side_effect = requests.exceptions.HTTPError(
+        "400 Client Error: Bad Request", response=resp_auth
+    )
+
+    with patch("fmr_core.d1_client.time.sleep") as mock_sleep:
+        with patch.object(client.session, "post", return_value=resp_auth) as mock_post:
+            with pytest.raises(D1BatchError) as exc_info:
+                client.executemany(
+                    "INSERT OR IGNORE INTO t VALUES (?)",
+                    [(1,), (2,)],
+                )
+            assert not isinstance(exc_info.value, D1QuotaExceededError)
+            assert "SQLITE_AUTH" in str(exc_info.value)
+            assert mock_post.call_count == 1
+            assert mock_sleep.call_count == 0
+
+    client.close()
 
 
 def test_d1_client_never_sleep_retries_on_7500_or_daily_allocation():
@@ -567,4 +629,38 @@ def test_migration_mains_use_extended_d1_timeout(tmp_path: Path, monkeypatch: py
     firmware_metadata_schema.main()
 
     assert recorded_timeouts == [180.0, 180.0]
+
+
+def test_ensure_schema_skips_internal_cf_and_sqlite_tables(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    sqlite_path = tmp_path / "cf_kv.sqlite"
+    db = D1Client(local_sqlite_path=str(sqlite_path))
+    try:
+        db.execute_script((RUNNER_ROOT / "schema.sql").read_text(encoding="utf-8"))
+        ensure_base_brands_and_anchor(db)
+        # Create an actual _cf_KV table so it appears in sqlite_master alongside sqlite_* tables
+        db.execute("CREATE TABLE _cf_KV (key TEXT PRIMARY KEY, value BLOB)")
+
+        orig_query = db.query
+
+        def guarded_query(sql: str, params=()):
+            normalized = sql.strip().lower()
+            if normalized == "select name from sqlite_master where type='table'":
+                rows = orig_query(sql, params)
+                names = {r["name"] for r in rows}
+                if "sqlite_sequence" not in names:
+                    rows = list(rows) + [{"name": "sqlite_sequence"}]
+                return rows
+            if "pragma foreign_key_list" in normalized and (
+                '"_cf_kv"' in normalized or '"sqlite_sequence"' in normalized
+            ):
+                raise RuntimeError("not authorized: SQLITE_AUTH")
+            return orig_query(sql, params)
+
+        monkeypatch.setattr(db, "query", guarded_query)
+
+        ensure_schema(db, allow_migration=True, through=7)
+        versions = [r["version"] for r in orig_query("SELECT version FROM fmr_schema_migrations ORDER BY version")]
+        assert versions == [4, 5, 6, 7]
+    finally:
+        db.close()
 
