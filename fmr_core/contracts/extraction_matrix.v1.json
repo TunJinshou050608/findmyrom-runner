@@ -1,0 +1,191 @@
+{
+  "schema_version": 1,
+  "batch_vault": {
+    "brands": [
+      "asus",
+      "google",
+      "motorola",
+      "nothing",
+      "oneplus",
+      "oppo",
+      "realme",
+      "rog",
+      "vivo",
+      "xiaomi"
+    ],
+    "packages": [
+      "factory_zip",
+      "fastboot_zip",
+      "recovery_zip"
+    ],
+    "partitions": [
+      "init_boot",
+      "boot",
+      "vendor_boot",
+      "vbmeta"
+    ]
+  },
+  "on_demand": {
+    "brands": [
+      "google",
+      "oneplus",
+      "oppo",
+      "realme",
+      "samsung",
+      "vivo",
+      "xiaomi"
+    ],
+    "packages": [
+      "factory_zip",
+      "recovery_zip",
+      "samsung_encrypted",
+      "samsung_zip"
+    ],
+    "partitions": [
+      "boot",
+      "init_boot",
+      "recovery"
+    ]
+  },
+  "package_priority": [
+    "fastboot_tgz",
+    "fastboot_zip",
+    "factory_zip",
+    "recovery_zip",
+    "recovery_ozip",
+    "samsung_zip",
+    "samsung_encrypted",
+    "sony_bundle",
+    "incremental_zip"
+  ],
+  "partition_limits": {
+    "init_boot": {
+      "min_bytes": 65536,
+      "max_bytes": 67108864,
+      "magic_ascii": "ANDROID!"
+    },
+    "boot": {
+      "min_bytes": 65536,
+      "max_bytes": 201326592,
+      "magic_ascii": "ANDROID!"
+    },
+    "vendor_boot": {
+      "min_bytes": 65536,
+      "max_bytes": 201326592,
+      "magic_ascii": "VNDRBOOT"
+    },
+    "recovery": {
+      "min_bytes": 65536,
+      "max_bytes": 268435456,
+      "magic_ascii": "ANDROID!"
+    },
+    "vbmeta": {
+      "min_bytes": 4096,
+      "max_bytes": 1048576,
+      "magic_ascii": "AVB0"
+    }
+  },
+  "official_cdn_hosts": {
+    "asus": [
+      "asus.com",
+      "asus.com.cn"
+    ],
+    "google": [
+      "dl.google.com",
+      "dl.googleusercontent.com"
+    ],
+    "infinix": [
+      "android.googleapis.com"
+    ],
+    "itel": [
+      "android.googleapis.com"
+    ],
+    "motorola": [
+      "android.googleapis.com",
+      "lenovo.com",
+      "motorola.com"
+    ],
+    "nothing": [
+      "android.googleapis.com",
+      "nothing.tech"
+    ],
+    "oneplus": [
+      "allawnfs.com",
+      "allawnofs.com",
+      "allawnos.com",
+      "allawntech.com",
+      "android.googleapis.com",
+      "bbk.com",
+      "coloros.com",
+      "heytapdl.com",
+      "heytapmobile.com",
+      "myoas.com",
+      "oneplus.com",
+      "oneplus.net",
+      "oneplusmobile.com",
+      "oplusmobile.com",
+      "oppomobile.com"
+    ],
+    "oppo": [
+      "allawnfs.com",
+      "allawnofs.com",
+      "allawnos.com",
+      "allawntech.com",
+      "android.googleapis.com",
+      "bbk.com",
+      "coloros.com",
+      "heytapdl.com",
+      "heytapmobile.com",
+      "myoas.com",
+      "oplusmobile.com",
+      "oppo.com",
+      "oppomobile.com"
+    ],
+    "realme": [
+      "allawnfs.com",
+      "allawnofs.com",
+      "allawnos.com",
+      "allawntech.com",
+      "android.googleapis.com",
+      "bbk.com",
+      "coloros.com",
+      "heytapdl.com",
+      "heytapmobile.com",
+      "myoas.com",
+      "oplusmobile.com",
+      "oppomobile.com",
+      "realme.com",
+      "realme.net",
+      "realmemobile.com"
+    ],
+    "rog": [
+      "asus.com",
+      "asus.com.cn"
+    ],
+    "samsung": [
+      "ospserver.net",
+      "samsung.com",
+      "samsungmobile.com",
+      "sslcs.cdngc.net"
+    ],
+    "sony": [
+      "sony.net",
+      "sonymobile.com"
+    ],
+    "tecno": [
+      "android.googleapis.com"
+    ],
+    "vivo": [
+      "bbk.com",
+      "vivo.com",
+      "vivo.com.cn",
+      "vivoglobal.com"
+    ],
+    "xiaomi": [
+      "bkt-sgp-miui-ota-update-alisgp.oss-ap-southeast-1.aliyuncs.com",
+      "d.miui.com",
+      "miui.com",
+      "xiaomi.com"
+    ]
+  }
+}

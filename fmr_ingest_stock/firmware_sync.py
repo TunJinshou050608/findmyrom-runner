@@ -93,9 +93,6 @@ def normalize(row, brand):
         raise ValueError("Firmware must be a mapping")
     model = text(row.get("codename"))
     code = model.lower().split("_", 1)[0]
-    if brand=="xiaomi":
-        from .xiaomi_devices import base_code
-        code=base_code(model)
     version = text(row.get("version"))
     if not re.fullmatch("[a-z0-9-]{2,32}", code) or not re.fullmatch(
         "[A-Za-z0-9._-]{2,64}", version
@@ -119,11 +116,7 @@ def normalize(row, brand):
             digest = candidate
             break
     date = text(row.get("date"))
-    region=region_code(model.lower(),version)
-    variant=row.get("variant_id") if brand=="xiaomi" else None
-    if variant:
-        from .xiaomi_variants import version_key,model_key
-        version=version_key(version,variant);model=model_key(code,variant)
+    region = region_code(model.lower(), version)
     return dict(
         device_codename=code,
         region_code=region,

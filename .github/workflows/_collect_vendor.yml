@@ -1,0 +1,64 @@
+name: Stock Vendor Collector
+'on':
+  workflow_call:
+    inputs:
+      vendor:
+        type: string
+        required: true
+      max_seconds:
+        type: number
+        required: false
+        default: 600
+permissions:
+  contents: read
+jobs:
+  collect:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ${{ fromJSON(vars.FMR_CATALOGUE_RUNNER || '["self-hosted","findmyrom-metadata"]') }}
+    timeout-minutes: 20
+    concurrency:
+      group: stock-collect-${{ inputs.vendor }}
+      cancel-in-progress: false
+    env:
+      FMR_STAGING_V4_DIR: ${{ vars.FMR_STAGING_V4_DIR || '/var/lib/findmyrom/staging-v4' }}
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        persist-credentials: false
+    - name: Prepare shared or isolated Python environment
+      shell: bash
+      run: |
+        set -euo pipefail
+        REQ_HASH="$(sha256sum requirements.txt | cut -c1-16)"
+        if [ -d /opt/fmr-venvs ] && [ -w /opt/fmr-venvs ]; then
+          VENV_DIR="/opt/fmr-venvs/$REQ_HASH"
+          if [ ! -x "$VENV_DIR/bin/python" ]; then
+            (
+              flock -x 9
+              if [ ! -x "$VENV_DIR/bin/python" ]; then
+                TMP_VENV="$(mktemp -d "/opt/fmr-venvs/.tmp-${REQ_HASH}-XXXXXX")"
+                trap 'rm -rf "$TMP_VENV"' EXIT
+                python3 -m venv "$TMP_VENV"
+                "$TMP_VENV/bin/python" -m pip install --disable-pip-version-check -r requirements.txt
+                mv "$TMP_VENV" "$VENV_DIR"
+                trap - EXIT
+              fi
+            ) 9>/opt/fmr-venvs/.lock
+          fi
+        else
+          VENV_DIR="$RUNNER_TEMP/fmr-venv-${GITHUB_RUN_ID}"
+          python3 -m venv "$VENV_DIR"
+          "$VENV_DIR/bin/python" -m pip install --disable-pip-version-check -r requirements.txt
+        fi
+        printf '%s\n' "$VENV_DIR/bin" >> "$GITHUB_PATH"
+    - name: Collect stock vendor metadata into local staging outbox
+      shell: bash
+      run: |
+        python -m fmr_ingest_stock.pipeline.cli collect \
+          --vendor "${{ inputs.vendor }}" \
+          --state-dir "${FMR_STAGING_V4_DIR:-/var/lib/findmyrom/staging-v4}" \
+          --max-seconds "${{ inputs.max_seconds }}"
+    - name: Clean fallback isolated runtime
+      if: always()
+      shell: bash
+      run: rm -rf -- "$RUNNER_TEMP/fmr-venv-${GITHUB_RUN_ID}"

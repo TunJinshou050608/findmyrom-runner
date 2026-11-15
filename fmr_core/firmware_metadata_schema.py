@@ -28,7 +28,7 @@ def main():
     parser.add_argument('--apply', action='store_true')
     args = parser.parse_args()
     from .d1_client import D1Client
-    db = D1Client()
+    db = D1Client(timeout=180.0)
     try:
         ensure(db, apply=args.apply)
     finally:

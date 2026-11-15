@@ -481,16 +481,31 @@ def test_target_inventory_comes_from_the_actual_package(setup, layout):
     assert set(result) == set(expected)
 
 
-@pytest.mark.parametrize('compressed', [False, True])
-def test_factory_nested_image_zip_uses_ranges_and_refuses_compressed_parent(setup, compressed):
+@pytest.mark.parametrize('mode', ['stored', 'deflated', 'bzip2'])
+def test_factory_nested_image_zip_uses_ranges_and_refuses_compressed_parent(setup, mode):
     db, server, vault, extractor, tmp = setup
     nested = zip_bytes({'boot.img': image(), 'vbmeta.img': image('vbmeta')})
     output = io.BytesIO()
+    compress_map = {
+        'stored': zipfile.ZIP_STORED,
+        'deflated': zipfile.ZIP_DEFLATED,
+        'bzip2': zipfile.ZIP_BZIP2,
+    }
     with zipfile.ZipFile(output, 'w') as outer:
         outer.writestr('sample/image-sample-build.zip', nested,
-                       compress_type=zipfile.ZIP_DEFLATED if compressed else zipfile.ZIP_STORED)
+                       compress_type=compress_map[mode])
     server.rom = output.getvalue()
-    if compressed:
+    if mode == 'bzip2':
+        with pytest.raises(ValueError, match='forbidden full-parent'):
+            extractor('https://firmware.example.com/fw.zip', tmp / 'nested_unsupported')
+        return
+    if mode == 'deflated':
+        inventory = {}
+        extracted = extractor('https://firmware.example.com/fw.zip', tmp / 'nested_deflated', inventory=inventory)
+        assert set(extracted) == {'boot', 'vbmeta'}
+        assert inventory == {'format': 'nested_zip', 'partitions': ['boot', 'vbmeta']}
+        return
+    if False:
         with pytest.raises(ValueError, match='forbidden full-parent'):
             extractor('https://firmware.example.com/fw.zip', tmp / 'nested')
     else:

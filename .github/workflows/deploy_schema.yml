@@ -1,0 +1,71 @@
+name: D1 Schema Migrations
+'on':
+  workflow_dispatch:
+    inputs:
+      through:
+        type: string
+        required: false
+        default: '7'
+        description: Apply incremental schema migrations up through version
+  push:
+    branches:
+    - main
+    paths:
+    - fmr_core/migrations/**
+    - fmr_core/schema_migrations.py
+    - fmr_core/firmware_metadata_schema.py
+permissions:
+  contents: read
+jobs:
+  migrate:
+    name: Apply D1 schema and firmware metadata migrations
+    if: github.ref == 'refs/heads/main'
+    runs-on: ${{ fromJSON(vars.FMR_PUBLISH_RUNNER || vars.FMR_CATALOGUE_RUNNER || '["self-hosted","findmyrom-publisher"]') }}
+    environment: production
+    timeout-minutes: 15
+    concurrency:
+      group: catalogue-d1-publisher
+      cancel-in-progress: false
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        persist-credentials: false
+    - name: Prepare shared or isolated Python environment
+      shell: bash
+      run: |
+        set -euo pipefail
+        REQ_HASH="$(sha256sum requirements.txt | cut -c1-16)"
+        if [ -d /opt/fmr-venvs ] && [ -w /opt/fmr-venvs ]; then
+          VENV_DIR="/opt/fmr-venvs/$REQ_HASH"
+          if [ ! -x "$VENV_DIR/bin/python" ]; then
+            (
+              flock -x 9
+              if [ ! -x "$VENV_DIR/bin/python" ]; then
+                TMP_VENV="$(mktemp -d "/opt/fmr-venvs/.tmp-${REQ_HASH}-XXXXXX")"
+                trap 'rm -rf "$TMP_VENV"' EXIT
+                python3 -m venv "$TMP_VENV"
+                "$TMP_VENV/bin/python" -m pip install --disable-pip-version-check -r requirements.txt
+                mv "$TMP_VENV" "$VENV_DIR"
+                trap - EXIT
+              fi
+            ) 9>/opt/fmr-venvs/.lock
+          fi
+        else
+          VENV_DIR="$RUNNER_TEMP/fmr-venv-${GITHUB_RUN_ID}"
+          python3 -m venv "$VENV_DIR"
+          "$VENV_DIR/bin/python" -m pip install --disable-pip-version-check -r requirements.txt
+        fi
+        printf '%s\n' "$VENV_DIR/bin" >> "$GITHUB_PATH"
+    - name: Apply versioned D1 schema migrations
+      shell: bash
+      env:
+        CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+        CF_D1_DATABASE_ID: ${{ secrets.CF_D1_DATABASE_ID }}
+        CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+      run: |
+        python -m fmr_core.schema_migrations --apply --through "${{ inputs.through || '7' }}"
+        python -m fmr_core.firmware_metadata_schema --apply
+    - name: Clean fallback isolated runtime
+      if: always()
+      shell: bash
+      run: rm -rf -- "$RUNNER_TEMP/fmr-venv-${GITHUB_RUN_ID}"

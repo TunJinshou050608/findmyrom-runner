@@ -1,0 +1,178 @@
+# FindMyROM v4 Official Stock Firmware Vendor Configuration
+# Zero third-party mirrors or aggregator feeds permitted.
+schema_version: 4
+
+vendors:
+  google:
+    enabled: true
+    adapter: google
+    status: active_official
+    tier: official
+    bucket: 0
+    max_collect_seconds: 600
+    verify_workers: 4
+    max_devices: 80
+    display_name: Google
+
+  samsung:
+    enabled: true
+    adapter: samsung
+    status: active_official
+    tier: official
+    bucket: 2
+    max_collect_seconds: 600
+    verify_workers: 4
+    max_devices: 15
+    display_name: Samsung
+
+  xiaomi:
+    enabled: true
+    adapter: xiaomi
+    status: active_official
+    tier: official
+    bucket: 4
+    max_collect_seconds: 600
+    verify_workers: 4
+    max_devices: 40
+    display_name: Xiaomi
+
+  oneplus:
+    enabled: true
+    adapter: oneplus
+    status: active_official
+    tier: official
+    bucket: 6
+    max_collect_seconds: 600
+    verify_workers: 4
+    max_devices: 25
+    display_name: OnePlus
+
+  oppo:
+    enabled: true
+    adapter: oppo
+    status: active_official
+    tier: official
+    bucket: 7
+    max_collect_seconds: 600
+    verify_workers: 4
+    max_devices: 25
+    display_name: OPPO
+
+  realme:
+    enabled: true
+    adapter: realme
+    status: active_official
+    tier: official
+    bucket: 8
+    max_collect_seconds: 600
+    verify_workers: 4
+    max_devices: 25
+    display_name: Realme
+
+  asus:
+    enabled: true
+    adapter: asus
+    status: active_official
+    tier: official
+    bucket: 9
+    max_collect_seconds: 600
+    verify_workers: 4
+    max_devices: 60
+    display_name: ASUS
+
+  rog:
+    enabled: false
+    adapter: rog
+    status: covered_by_asus_adapter
+    tier: official
+    bucket: 9
+    max_collect_seconds: 600
+    verify_workers: 4
+    display_name: ROG
+
+  vivo:
+    enabled: true
+    adapter: vivo
+    status: active_official
+    tier: official
+    bucket: 10
+    max_collect_seconds: 600
+    verify_workers: 4
+    max_devices: 60
+    display_name: Vivo
+
+  motorola:
+    enabled: false
+    adapter: motorola
+    status: requires_lmsa_oauth_token
+    tier: official
+    bucket: 1
+    max_collect_seconds: 600
+    verify_workers: 4
+    display_name: Motorola
+
+  nothing:
+    enabled: false
+    adapter: nothing
+    status: requires_device_authenticated_checkin
+    tier: official
+    bucket: 3
+    max_collect_seconds: 600
+    verify_workers: 4
+    display_name: Nothing
+
+  tecno:
+    enabled: false
+    adapter: tecno
+    status: requires_device_authenticated_checkin
+    tier: official
+    bucket: 5
+    max_collect_seconds: 600
+    verify_workers: 4
+    display_name: TECNO
+
+  infinix:
+    enabled: false
+    adapter: infinix
+    status: requires_device_authenticated_checkin
+    tier: official
+    bucket: 5
+    max_collect_seconds: 600
+    verify_workers: 4
+    display_name: Infinix
+
+  itel:
+    enabled: false
+    adapter: itel
+    status: requires_device_authenticated_checkin
+    tier: official
+    bucket: 11
+    max_collect_seconds: 600
+    verify_workers: 4
+    display_name: itel
+
+  sony:
+    enabled: false
+    adapter: sony
+    status: awaiting_r2_and_cdf_seed
+    tier: official
+    bucket: 11
+    max_collect_seconds: 600
+    verify_workers: 4
+    display_name: Sony
+
+  huawei:
+    enabled: false
+    adapter: null
+    status: suppressed_closed_bootloader
+    tier: suppressed
+    bucket: null
+    display_name: Huawei
+
+  honor:
+    enabled: false
+    adapter: null
+    status: suppressed_closed_bootloader
+    tier: suppressed
+    bucket: null
+    display_name: Honor

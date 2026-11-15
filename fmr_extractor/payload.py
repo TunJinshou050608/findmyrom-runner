@@ -5,6 +5,7 @@ incremental operations are rejected: no source partition is available here.
 """
 
 import bz2
+import contextlib
 import hashlib
 import lzma
 import struct
@@ -51,18 +52,39 @@ def one(message, key, default=None):
     return message.get(key, [default])[-1]
 
 
+def _sha256_file(path):
+    digest = hashlib.sha256()
+    with path.open("rb") as source:
+        while chunk := source.read(1024 * 1024):
+            digest.update(chunk)
+    return digest.digest()
+
+
 def extract_payload(remote, base, payload_size, directory, targets, inventory=None):
-    def read(offset, length):
+    root_reader = remote
+    root_base = 0
+    while hasattr(root_reader, "parent") and hasattr(root_reader, "base"):
+        root_base += root_reader.base
+        root_reader = root_reader.parent
+    bound = getattr(root_reader, "bound_readahead", None)
+
+    def _bounded(payload_end_offset):
+        if callable(bound):
+            return bound(root_base + base + payload_end_offset)
+        return contextlib.nullcontext()
+
+    def read(offset, length, ceiling=None):
         if offset < 0 or length < 0 or offset + length > payload_size:
             raise ValueError("Payload read out of bounds")
-        remote.seek(base + offset)
-        return remote.read(length)
+        with _bounded(ceiling if ceiling is not None else offset + length):
+            remote.seek(base + offset)
+            return remote.read(length)
 
-    header = read(0, 24)
+    header = read(0, 24, ceiling=24)
     magic, version, manifest_size, signature_size = struct.unpack(">4sQQI", header)
     if magic != b"CrAU" or version != 2 or manifest_size > 16 * 1024 * 1024:
         raise ValueError("Unsupported OTA payload header")
-    manifest = fields(read(24, manifest_size))
+    manifest = fields(read(24, manifest_size, ceiling=24 + manifest_size))
     block_size = one(manifest, 3, 4096)
     if block_size != 4096:
         raise ValueError("Unsupported payload block size")
@@ -90,10 +112,19 @@ def extract_payload(remote, base, payload_size, directory, targets, inventory=No
             raise ValueError("Invalid partition image magic or size")
         path = directory / (name + ".img")
         extents = []
+        raw_ops = part.get(8, [])
+        parsed_ops = [fields(raw_op) for raw_op in raw_ops]
+        part_blob_ceiling = max(
+            (
+                blob_start + one(op_msg, 2, 0) + one(op_msg, 3, 0)
+                for op_msg in parsed_ops
+                if one(op_msg, 1) != 6
+            ),
+            default=blob_start,
+        )
         with path.open("w+b") as dest:
             dest.truncate(size)
-            for raw_operation in part.get(8, []):
-                op = fields(raw_operation)
+            for op in parsed_ops:
                 kind = one(op, 1)
                 if kind not in {0, 1, 6, 8, 14}:
                     raise ValueError("Unsupported incremental payload operation")
@@ -112,7 +143,11 @@ def extract_payload(remote, base, payload_size, directory, targets, inventory=No
                 if kind == 6:
                     data = bytes(output_size)
                 else:
-                    compressed = read(blob_start + one(op, 2, 0), one(op, 3, 0))
+                    compressed = read(
+                        blob_start + one(op, 2, 0),
+                        one(op, 3, 0),
+                        ceiling=min(payload_size, part_blob_ceiling),
+                    )
                     digest = one(op, 8)
                     if (
                         not isinstance(digest, bytes)
@@ -123,15 +158,16 @@ def extract_payload(remote, base, payload_size, directory, targets, inventory=No
                         data = compressed
                     elif kind == 14:
                         import zstandard as zstd
+                        max_window = 64 * 1024 * 1024
                         params = zstd.get_frame_parameters(compressed)
-                        if params.content_size not in (zstd.CONTENTSIZE_UNKNOWN, output_size) or params.window_size > 64 * 1024 * 1024:
+                        if params.content_size not in (zstd.CONTENTSIZE_UNKNOWN, output_size) or params.window_size > max_window:
                             raise ValueError("Zstandard frame exceeds declared partition operation")
-                        data = zstd.ZstdDecompressor(max_window_size=64 * 1024).decompress(
+                        data = zstd.ZstdDecompressor(max_window_size=max_window).decompress(
                             compressed, max_output_size=output_size + 1, allow_extra_data=False)
                         # Some bindings ignore allow_extra_data for unknown-size
                         # frames. First bound the output above, then independently
                         # require exactly one complete frame with no trailing data.
-                        validator = zstd.ZstdDecompressor(max_window_size=64 * 1024).decompressobj()
+                        validator = zstd.ZstdDecompressor(max_window_size=max_window).decompressobj()
                         checked = validator.decompress(compressed)
                         if not validator.eof or validator.unused_data or checked != data:
                             raise ValueError("Incomplete or concatenated Zstandard frame")
@@ -160,7 +196,7 @@ def extract_payload(remote, base, payload_size, directory, targets, inventory=No
                 end = stop
             if end != size:
                 raise ValueError("Incomplete payload partition")
-        if hashlib.sha256(path.read_bytes()).digest() != expected:
+        if _sha256_file(path) != expected:
             raise ValueError("Payload partition hash mismatch")
         result[name] = path
     return result

@@ -3,11 +3,12 @@ set -euo pipefail
 repo=TunJinshou050608/findmyrom-runner
 runner_user=findmyrom-actions
 base_home=/opt/findmyrom-actions
-state_home=/var/lib/findmyrom/catalogue-v3
+staging_v4_home=/var/lib/findmyrom/staging-v4
+venvs_home=/opt/fmr-venvs
 if [[ $(id -u) != 0 || $(uname -s) != Linux || ! -d /run/systemd/system ]]; then
   printf '%s\n' 'Requires root on Linux with systemd; stopped.' >&2; exit 1
 fi
-for tool in gh python3 git curl tar sha256sum runuser useradd systemctl cp; do command -v "$tool" >/dev/null || { printf 'Missing dependency: %s\n' "$tool" >&2; exit 1; }; done
+for tool in gh python3 git curl tar sha256sum flock runuser useradd systemctl cp; do command -v "$tool" >/dev/null || { printf 'Missing dependency: %s\n' "$tool" >&2; exit 1; }; done
 python3 -c 'import sys; assert sys.version_info >= (3,11), "Python 3.11+ required"'
 case $(uname -m) in x86_64) arch=x64;; aarch64|arm64) arch=arm64;; *) printf '%s\n' 'Unsupported architecture; stopped.' >&2; exit 1;; esac
 gh auth status >/dev/null
@@ -35,7 +36,17 @@ PY
 )
 if ! id "$runner_user" >/dev/null 2>&1; then useradd --system --create-home --home-dir "$base_home" --shell /bin/bash "$runner_user"; fi
 runner_group=$(id -gn "$runner_user")
-install -d -m 700 -o "$runner_user" -g "$runner_group" "$base_home" "$state_home"
+install -d -m 700 -o "$runner_user" -g "$runner_group" "$base_home"
+# Leave legacy /var/lib/findmyrom/catalogue-v3 untouched/archived on disk; provision v4 staging and shared venv cache.
+install -d -m 0750 -o "$runner_user" -g "$runner_group" \
+  "$venvs_home" \
+  "$staging_v4_home" \
+  "$staging_v4_home/locks" \
+  "$staging_v4_home/collectors" \
+  "$staging_v4_home/outbox" \
+  "$staging_v4_home/outbox/tmp" \
+  "$staging_v4_home/outbox/pending" \
+  "$staging_v4_home/outbox/done"
 runuser -u "$runner_user" -- env -i HOME="$base_home" PATH=/usr/local/bin:/usr/bin:/bin bash -s <<'CHECK'
 set -e
 checkdir=$(mktemp -d "$HOME/venv-check.XXXXXX")
@@ -113,14 +124,11 @@ PY
   sleep 5
 done
 # Route the publisher separately so catalogue backlogs cannot occupy its slot.
-gh variable set FMR_CATALOGUE_STATE_DIR --repo "$repo" --body "$state_home"
+gh variable set FMR_STAGING_V4_DIR --repo "$repo" --body "$staging_v4_home"
 gh variable set FMR_PUBLISH_RUNNER --repo "$repo" --body '["self-hosted","findmyrom-publisher"]'
 gh variable set FMR_CATALOGUE_RUNNER --repo "$repo" --body '["self-hosted","findmyrom-metadata"]'
-# Each collector restores its existing encrypted checkpoint. The historical
-# one-time D1 migration is archived and must not run on routine runner setup.
+# Legacy /var/lib/findmyrom/catalogue-v3 remains archived untouched on disk.
+gh workflow run catalogue_schedule.yml --repo "$repo" --ref main -f all_enabled=true
 gh workflow run catalogue_publish.yml --repo "$repo" --ref main
-for vendor in xiaomi google motorola oneplus nothing oppo realme asus samsung vivo sony; do
-  gh workflow run "catalogue_${vendor}.yml" --repo "$repo" --ref main -f operation=incremental
-done
-printf 'Ready: %s catalogue slots + 1 dedicated D1 publisher; shared local checkpoints.\n' "$collectors"
+printf 'Ready: %s catalogue slots + 1 dedicated D1 publisher; staging=%s; venvs=%s.\n' "$collectors" "$staging_v4_home" "$venvs_home"
 printf '%s\n' "Status: https://github.com/$repo/actions/workflows/catalogue_publish.yml"

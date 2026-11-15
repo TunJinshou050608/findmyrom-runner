@@ -11,6 +11,7 @@ LIMITS = {
     "boot": (65536, 201326592, b"ANDROID!"),
     "vendor_boot": (65536, 201326592, b"VNDRBOOT"),
     "vbmeta": (4096, 1048576, b"AVB0"),
+    "recovery": (65536, 268435456, b"ANDROID!"),
 }
 
 

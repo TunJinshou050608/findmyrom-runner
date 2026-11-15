@@ -36,8 +36,8 @@ def require(value):
 
 def read_metadata(client, url):
     parsed = urlsplit(url)
-    require(parsed.scheme == 'https' and parsed.hostname == 'raw.githubusercontent.com')
-    require(re.fullmatch(r'/XiaomiFirmwareUpdater/miui-updates-tracker/[0-9a-f]{40}/data/(devices|latest)\.yml', parsed.path) is not None)
+    require(parsed.scheme == 'https' and parsed.hostname in ('developers.google.com', 'dl.google.com'))
+    require(re.fullmatch(r'/android/(?:ota|images)/[0-9a-f]{40}/(devices|latest)\.yml', parsed.path) is not None)
     require(not parsed.query and not parsed.fragment and not parsed.username and not parsed.port)
     data = bytearray()
     with client.stream('GET', url) as response:

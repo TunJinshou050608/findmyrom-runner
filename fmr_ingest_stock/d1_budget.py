@@ -1,18 +1,19 @@
-"""Conservative project allocations; leave room for visitors and image jobs."""
+"""Frozen D1 budget compatibility module retained solely for `fmr_tg_scanner`.
+
+Zero usage in the official stock firmware ingestion or extraction pipelines.
+"""
 from contextlib import contextmanager
 from datetime import datetime,timezone
-import os
 from fmr_core.d1_client import D1Client
-from .catalogue_cache import CatalogueDeadline
 
-NOT_BEFORE=1793491200 # 2026-11-01T00:00:00Z, current user-requested quota pause
 DAILY_READ_RESERVATION=2_000_000
 DAILY_WRITE_RESERVATION=40_000
 JOB_READ_RESERVATION=100_000
 JOB_WRITE_RESERVATION=2_000
 
 
-class D1BudgetReached(CatalogueDeadline):pass
+class D1BudgetReached(RuntimeError):
+    fmr_batch_deadline = True
 
 
 def provider_quota_error(exc):

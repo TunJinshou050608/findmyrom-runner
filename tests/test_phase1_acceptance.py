@@ -36,8 +36,8 @@ def test_metadata_requires_a_pinned_recognized_source_before_fetch():
     def forbidden(request):
         raise AssertionError('Untrusted metadata must not be fetched')
     with httpx.Client(transport=httpx.MockTransport(forbidden)) as client:
-        for url in ['http://raw.githubusercontent.com/a', 'https://127.0.0.1/data/latest.yml',
-                    'https://raw.githubusercontent.com/XiaomiFirmwareUpdater/miui-updates-tracker/master/data/latest.yml']:
+        for url in ['http://dl.google.com/a', 'https://127.0.0.1/data/latest.yml',
+                    'https://developers.google.com/android/ota/unpinned/latest.yml']:
             with pytest.raises(ValueError):
                 read_metadata(client, url)
 
@@ -86,7 +86,7 @@ def test_download_checks_complete_bytes_not_just_the_hash_header():
 
 
 def test_pinned_metadata_is_read_from_a_bounded_stream():
-    url = 'https://raw.githubusercontent.com/XiaomiFirmwareUpdater/miui-updates-tracker/' + 'a' * 40 + '/data/latest.yml'
+    url = 'https://dl.google.com/android/ota/' + 'a' * 40 + '/latest.yml'
     with httpx.Client(transport=httpx.MockTransport(lambda req: httpx.Response(200,
             stream=httpx.ByteStream(b'- codename: sample\n  android: 11.0\n')))) as client:
         assert read_metadata(client, url) == [{'codename': 'sample', 'android': 11.0}]

@@ -1,0 +1,105 @@
+name: Stock Catalogue Schedule
+'on':
+  schedule:
+  - cron: '12,42 * * * *'
+  workflow_dispatch:
+    inputs:
+      vendor:
+        type: string
+        required: false
+        default: ''
+        description: Specific enabled vendor to collect, or empty for current schedule bucket
+      all_enabled:
+        type: boolean
+        required: false
+        default: false
+        description: Collect all enabled vendors regardless of current schedule bucket
+permissions:
+  contents: read
+jobs:
+  plan:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ${{ fromJSON(vars.FMR_CATALOGUE_RUNNER || '["self-hosted","findmyrom-metadata"]') }}
+    timeout-minutes: 5
+    outputs:
+      vendors: ${{ steps.select.outputs.vendors }}
+      has_vendors: ${{ steps.select.outputs.has_vendors }}
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        persist-credentials: false
+    - name: Prepare shared or isolated Python environment
+      shell: bash
+      run: |
+        set -euo pipefail
+        REQ_HASH="$(sha256sum requirements.txt | cut -c1-16)"
+        if [ -d /opt/fmr-venvs ] && [ -w /opt/fmr-venvs ]; then
+          VENV_DIR="/opt/fmr-venvs/$REQ_HASH"
+          if [ ! -x "$VENV_DIR/bin/python" ]; then
+            (
+              flock -x 9
+              if [ ! -x "$VENV_DIR/bin/python" ]; then
+                TMP_VENV="$(mktemp -d "/opt/fmr-venvs/.tmp-${REQ_HASH}-XXXXXX")"
+                trap 'rm -rf "$TMP_VENV"' EXIT
+                python3 -m venv "$TMP_VENV"
+                "$TMP_VENV/bin/python" -m pip install --disable-pip-version-check -r requirements.txt
+                mv "$TMP_VENV" "$VENV_DIR"
+                trap - EXIT
+              fi
+            ) 9>/opt/fmr-venvs/.lock
+          fi
+        else
+          VENV_DIR="$RUNNER_TEMP/fmr-venv-${GITHUB_RUN_ID}"
+          python3 -m venv "$VENV_DIR"
+          "$VENV_DIR/bin/python" -m pip install --disable-pip-version-check -r requirements.txt
+        fi
+        printf '%s\n' "$VENV_DIR/bin" >> "$GITHUB_PATH"
+    - name: Select enabled stock vendors for current bucket
+      id: select
+      shell: bash
+      env:
+        INPUT_VENDOR: ${{ inputs.vendor }}
+        INPUT_ALL_ENABLED: ${{ inputs.all_enabled }}
+      run: |
+        python - <<'PY'
+        from datetime import datetime, timezone
+        import json
+        import os
+        from pathlib import Path
+        import yaml
+
+        doc = yaml.safe_load(Path("config/vendors.yaml").read_text(encoding="utf-8")) or {}
+        vendors_cfg = doc.get("vendors") or {}
+        enabled = {name: cfg for name, cfg in vendors_cfg.items() if cfg.get("enabled") is True}
+        explicit = os.environ.get("INPUT_VENDOR", "").strip().lower()
+        all_enabled = os.environ.get("INPUT_ALL_ENABLED", "").strip().lower() == "true"
+
+        if explicit:
+            selected = [name for name in enabled if name == explicit]
+        elif all_enabled:
+            selected = list(enabled)
+        else:
+            now = datetime.now(timezone.utc)
+            bucket = (now.hour * 2 + (1 if now.minute >= 30 else 0)) % 12
+            selected = [name for name, cfg in enabled.items() if cfg.get("bucket") == bucket]
+
+        print(f"Selected stock vendors: {selected}")
+        with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as handle:
+            handle.write(f"vendors={json.dumps(selected)}\n")
+            handle.write(f"has_vendors={'true' if selected else 'false'}\n")
+        PY
+    - name: Clean fallback isolated runtime
+      if: always()
+      shell: bash
+      run: rm -rf -- "$RUNNER_TEMP/fmr-venv-${GITHUB_RUN_ID}"
+  collect:
+    needs: plan
+    if: needs.plan.outputs.has_vendors == 'true'
+    strategy:
+      fail-fast: false
+      max-parallel: 8
+      matrix:
+        vendor: ${{ fromJSON(needs.plan.outputs.vendors) }}
+    uses: ./.github/workflows/_collect_vendor.yml
+    with:
+      vendor: ${{ matrix.vendor }}

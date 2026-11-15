@@ -1,0 +1,2890 @@
+# Official Xiaomi / Redmi / POCO base codename -> MIUI/HyperOS 2-letter version tag metadata.
+# Loaded exclusively via yaml.safe_load(). Zero third-party sources.
+
+yingtian:
+  tag: "BM"
+  marketing_name: "Xiaomi Pad 9 Pro Max"
+  models:
+    - "2609BPN09C"
+    - "M367FC"
+  android_versions: [17]
+  regions: [CN]
+
+dada:
+  tag: "OC"
+  marketing_name: "Xiaomi 15"
+  models:
+    - "24129PN74C"
+    - "24129PN74G"
+    - "24129PN74I"
+  android_versions: [15, 16]
+  regions: [CN, Global, EEA, IN, ID, RU, TW]
+
+haotian:
+  tag: "OB"
+  marketing_name: "Xiaomi 15 Pro"
+  models:
+    - "2410DPN6CC"
+  android_versions: [15, 16]
+  regions: [CN]
+
+xuanyuan:
+  tag: "OA"
+  marketing_name: "Xiaomi 15 Ultra"
+  models:
+    - "25010PN30C"
+    - "25010PN30G"
+    - "25010PN30I"
+    - "25019PNF3C"
+  android_versions: [15, 16]
+  regions: [CN, Global, EEA, IN, ID, RU, TR, TW]
+
+houji:
+  tag: "NC"
+  marketing_name: "Xiaomi 14"
+  models:
+    - "23127PN0CC"
+    - "23127PN0CG"
+    - "23116PN5BC"
+  android_versions: [14, 15, 16]
+  regions: [CN, Global, EEA, IN, ID, RU, TW, TR]
+
+shennong:
+  tag: "NB"
+  marketing_name: "Xiaomi 14 Pro"
+  models:
+    - "23116PN5BC"
+    - "2311BPN23C"
+  android_versions: [14, 15, 16]
+  regions: [CN]
+
+aurora:
+  tag: "NA"
+  marketing_name: "Xiaomi 14 Ultra"
+  models:
+    - "24031PN0DC"
+    - "24030PN60G"
+    - "Xiaomi for arm64"
+  android_versions: [14, 15, 16]
+  regions: [CN, Global, EEA, IN, RU, TR, TW]
+
+fuxi:
+  tag: "MC"
+  marketing_name: "Xiaomi 13"
+  models:
+    - "2211133C"
+    - "2211133G"
+  android_versions: [13, 14, 15, 16]
+  regions: [CN, Global, EEA, IN, ID, RU, TW, TR]
+
+nuwa:
+  tag: "MB"
+  marketing_name: "Xiaomi 13 Pro"
+  models:
+    - "2210132C"
+    - "2210132G"
+  android_versions: [13, 14, 15, 16]
+  regions: [CN, Global, EEA, IN, ID, RU, TW, TR]
+
+ishtar:
+  tag: "MA"
+  marketing_name: "Xiaomi 13 Ultra"
+  models:
+    - "2304FPN6DC"
+    - "2304FPN6DG"
+  android_versions: [13, 14, 15, 16]
+  regions: [CN, Global, EEA, RU, TW]
+
+corot:
+  tag: "ML"
+  marketing_name: "Redmi K60 Ultra / Xiaomi 13T Pro"
+  models:
+    - "23078RKD5C"
+    - "23078PND5G"
+    - "23088PND5R"
+    - "A301XM"
+  android_versions: [13, 14, 15, 16]
+  regions: [CN, Global, EEA, ID, RU, TR, TW, JP]
+
+aristotle:
+  tag: "MF"
+  marketing_name: "Xiaomi 13T"
+  models:
+    - "2306EPN60G"
+  android_versions: [13, 14, 15, 16]
+  regions: [Global, EEA, ID, RU, TR, TW]
+
+rothko:
+  tag: "NN"
+  marketing_name: "Redmi K70 Ultra / Xiaomi 14T Pro"
+  models:
+    - "2407FRK8EC"
+    - "2407FPN8EG"
+    - "2407FPN8ER"
+    - "A402XM"
+  android_versions: [14, 15, 16]
+  regions: [CN, Global, EEA, ID, RU, TR, TW, JP]
+
+degas:
+  tag: "NE"
+  marketing_name: "Xiaomi 14T"
+  models:
+    - "2406APNFAG"
+  android_versions: [14, 15, 16]
+  regions: [Global, EEA, ID, RU, TR, TW]
+
+vermeer:
+  tag: "NK"
+  marketing_name: "Redmi K70 / POCO F6 Pro"
+  models:
+    - "2311DRK48C"
+    - "23113RKC6G"
+    - "23113RKC6C"
+  android_versions: [14, 15, 16]
+  regions: [CN, Global, EEA, RU, TW]
+
+manet:
+  tag: "NM"
+  marketing_name: "Redmi K70 Pro"
+  models:
+    - "23117RK66C"
+  android_versions: [14, 15, 16]
+  regions: [CN]
+
+duchamp:
+  tag: "NL"
+  marketing_name: "Redmi K70E / POCO X6 Pro"
+  models:
+    - "2311DRK48C"
+    - "2311DRK48G"
+    - "2311DRK48I"
+  android_versions: [14, 15, 16]
+  regions: [CN, Global, EEA, IN, ID, RU, TR, TW]
+
+garnet:
+  tag: "NR"
+  marketing_name: "Redmi Note 13 Pro 5G"
+  models:
+    - "2312DRA50C"
+    - "2312DRA50G"
+    - "2312DRA50I"
+    - "23122PCD1G"
+    - "23122PCD1I"
+    - "2312CRAD3C"
+  android_versions: [13, 14, 15, 16]
+  regions: [CN, Global, EEA, IN, ID, RU, TR, TW]
+
+zircon:
+  tag: "NO"
+  marketing_name: "Redmi Note 13 Pro+ 5G"
+  models:
+    - "23090RA98C"
+    - "23090RA98G"
+    - "23090RA98I"
+    - "24040RA98R"
+  android_versions: [13, 14, 15, 16]
+  regions: [CN, Global, EEA, IN, ID, RU, TR, TW, JP]
+
+peridot:
+  tag: "NP"
+  marketing_name: "Redmi Turbo 3 / POCO F6"
+  models:
+    - "24069RA21C"
+    - "24069PC21G"
+    - "24069PC21I"
+  android_versions: [14, 15, 16]
+  regions: [CN, Global, EEA, IN, ID, RU, TW]
+
+rodin:
+  tag: "OJ"
+  marketing_name: "Redmi Turbo 4 / POCO X7 Pro"
+  models:
+    - "24129RT7CC"
+    - "2412DPC0AG"
+    - "2412DPC0AI"
+  android_versions: [15, 16]
+  regions: [CN, Global, EEA, IN, ID, RU, TW, TR]
+
+miro:
+  tag: "OK"
+  marketing_name: "Redmi K80"
+  models:
+    - "24117RK2CC"
+    - "24122RKC7G"
+    - "24122RKC7C"
+  android_versions: [15, 16]
+  regions: [CN, Global, EEA, ID, RU, TR, TW]
+
+zorn:
+  tag: "OM"
+  marketing_name: "Redmi K80 Pro"
+  models:
+    - "24122RKC7C"
+    - "24117RK2CG"
+    - "24117RK2CC"
+  android_versions: [15, 16]
+  regions: [CN, Global, EEA, ID, RU, TR, TW]
+
+mondrian:
+  tag: "MN"
+  marketing_name: "Redmi K60 / POCO F5 Pro"
+  models:
+    - "23013RK75C"
+    - "23013PC75G"
+  android_versions: [13, 14, 15, 16]
+  regions: [CN, Global, EEA, RU, TR, TW]
+
+marble:
+  tag: "MR"
+  marketing_name: "Redmi Note 12 Turbo / POCO F5"
+  models:
+    - "23049RAD8C"
+    - "23049PCD8G"
+    - "23049PCD8I"
+  android_versions: [13, 14, 15, 16]
+  regions: [CN, Global, EEA, IN, ID, RU, TR, TW]
+  aliases: ["marblein"]
+
+agate:
+  tag: "KW"
+  marketing_name: "Xiaomi 11T"
+  models:
+    - "21081111RG"
+  android_versions: [11, 12, 13, 14, 15, 16]
+  regions: [Global, EEA, ID, RU, TR, TW]
+  aliases: ["amber"]
+
+air:
+  tag: "GQ"
+  marketing_name: "Redmi 13R 5G / 13C 5G"
+  models:
+    - "23124RN87I"
+    - "23124RN87G"
+  android_versions: [13, 14, 15, 16]
+  regions: [CN, Global, EEA, IN, TW]
+  aliases: ["atmos"]
+
+alioth:
+  tag: "KH"
+  marketing_name: "Redmi K40"
+  models:
+    - "M2012K11AG"
+    - "M2012K11AC"
+  android_versions: [11, 12, 13]
+  regions: [CN, Global, EEA, IN, ID, RU, TR, TW]
+
+amethyst:
+  tag: "OP"
+  marketing_name: "Redmi Note 14 Pro+ 5G"
+  models:
+    - "24115RA8EC"
+    - "24115RA8EG"
+    - "24115RA8EI"
+  android_versions: [14, 15, 16]
+  regions: [CN, Global, EEA, IN, ID, RU, TR, TW]
+
+andromeda:
+  tag: "EM"
+  marketing_name: "Mi MIX 3 5G"
+  models:
+    - "Mi MIX 3 5G"
+  android_versions: [9]
+  regions: [CN, Global, EEA]
+
+angelica:
+  tag: "CR"
+  marketing_name: "Redmi 9C"
+  models:
+    - "M2006C3MG"
+    - "angelica"
+  android_versions: [10, 11]
+  regions: [Global, EEA, ID, TR]
+
+angelicain:
+  tag: "CR"
+  marketing_name: "POCO C3"
+  models:
+    - "M2006C3MI"
+    - "211033MI"
+  android_versions: [10, 11]
+  regions: [IN]
+
+angelican:
+  tag: "CS"
+  marketing_name: "Redmi 9C NFC"
+  models:
+    - "M2006C3MNG"
+    - "angelican"
+  android_versions: [10, 11]
+  regions: [Global, EEA, RU]
+
+annibale:
+  tag: "PK"
+  marketing_name: "Redmi K90"
+  models:
+    - "2510DPC44G"
+    - "2510DRK44C"
+  android_versions: [16, 17]
+  regions: [CN, Global, EEA, ID, RU, TR, TW]
+
+apollo:
+  tag: "JD"
+  marketing_name: "Redmi K30S Ultra"
+  models:
+    - "M2007J3SC"
+    - "M2007J3SP"
+    - "M2007J3SY"
+    - "M2007J3SG"
+    - "M2007J3SI"
+  android_versions: [10, 11, 12]
+  regions: [CN, Global, EEA, IN, ID, RU, TR, TW]
+
+arctic:
+  tag: "BV"
+  marketing_name: "Redmi A7 Pro / POCO C81 / C81 Pro"
+  models:
+    - "25128PC17I"
+    - "25128PC17G"
+    - "25128PC17L"
+    - "25128PC17Y"
+    - "25128RN17A"
+    - "25128RN17I"
+    - "25128RN17L"
+    - "25128RN17Y"
+  android_versions: [16]
+  regions: [Global, EEA, IN, ID, RU, TR]
+
+ares:
+  tag: "KJ"
+  marketing_name: "Redmi K40 Gaming"
+  models:
+    - "M2104K10I"
+    - "M2012K10C"
+  android_versions: [11, 12, 13]
+  regions: [CN, IN]
+  aliases: ["aresin"]
+
+athens:
+  tag: "PI"
+  marketing_name: "Redmi K100 Pro"
+  models:
+    - "2607APCA5G"
+    - "M511CD"
+  android_versions: [16, 17]
+  regions: [CN, Global, EEA, ID, RU, TR, TW]
+
+atom:
+  tag: "JH"
+  marketing_name: "Redmi 10X 5G"
+  models:
+    - "M2004J7AC"
+    - "atom"
+  android_versions: [10, 11, 12]
+  regions: [CN]
+
+babylon:
+  tag: "MV"
+  marketing_name: "MIX Fold 3"
+  models:
+    - "2308CPXD0C"
+  android_versions: [13, 14, 15, 16]
+  regions: [CN]
+
+begonia:
+  tag: "GG"
+  marketing_name: "Redmi Note 8 Pro"
+  models:
+    - "Redmi Note 8 Pro"
+    - "begonia"
+  android_versions: [9, 10, 11]
+  regions: [CN, Global, EEA, ID, RU]
+
+begoniain:
+  tag: "GG"
+  marketing_name: "Redmi Note 8 Pro"
+  models:
+    - "Redmi Note 8 Pro"
+  android_versions: [9, 10, 11]
+  regions: [IN]
+
+beryl:
+  tag: "OQ"
+  marketing_name: "Redmi Note 14 5G"
+  models:
+    - "2409FPCC4I"
+    - "24094RAD4C"
+    - "24094RAD4I"
+    - "2409FPCC4G"
+    - "24094RAD4G"
+  android_versions: [14, 15, 16]
+  regions: [CN, Global, EEA, IN, ID, RU, TR, TW]
+  aliases: ["citrine"]
+
+beryllium:
+  tag: "EJ"
+  marketing_name: "POCO F1"
+  models:
+    - "POCOPHONE F1"
+  android_versions: [8, 9, 10]
+  regions: [Global, RU]
+
+biloba:
+  tag: "CU"
+  marketing_name: "Redmi Note 8 (2021)"
+  models:
+    - "M1908C3JGG"
+  android_versions: [11, 12, 13]
+  regions: [Global, EEA, RU]
+
+bixi:
+  tag: "OH"
+  marketing_name: "MIX Flip 2"
+  models: []
+  android_versions: [15, 16]
+  regions: [CN]
+
+blue:
+  tag: "GR"
+  marketing_name: "Redmi A3"
+  models:
+    - "2312BPC51H"
+    - "2312BPC51X"
+    - "23129RN51H"
+    - "23129RN51X"
+    - "2312CRNCCL"
+  android_versions: [14, 15, 16]
+  regions: [Global, EEA, IN, ID, RU]
+
+bomb:
+  tag: "JL"
+  marketing_name: "Redmi 10X Pro"
+  models:
+    - "M2004J7BC"
+    - "bomb"
+  android_versions: [10, 11, 12]
+  regions: [CN]
+
+breeze:
+  tag: "NU"
+  marketing_name: "Redmi Note 13R"
+  models:
+    - "24066PC95I"
+    - "2406ERN9CI"
+    - "2406ERN9CC"
+  android_versions: [14, 15, 16]
+  regions: [CN, IN]
+
+brussels:
+  tag: "DR"
+  marketing_name: "Redmi Note 17 Pro Max 5G"
+  models:
+    - "2609FPC74I"
+    - "2609FRA74G"
+    - "2609FRA74I"
+  android_versions: [16]
+  regions: [Global, EEA, IN, ID, RU, TR, TW, JP]
+
+byron:
+  tag: "AF"
+  marketing_name: "Xiaomi 17 Max"
+  models:
+    - "2605EPN8EC"
+  android_versions: [16, 17]
+  regions: [CN]
+
+cactus:
+  tag: "CB"
+  marketing_name: "Redmi 6A"
+  models:
+    - "Redmi 6A"
+  android_versions: [8, 9]
+  regions: [CN, Global, RU]
+
+camellia:
+  tag: "KS"
+  marketing_name: "Redmi Note 10 5G / Redmi Note 11SE"
+  models:
+    - "M2103K19PI"
+    - "M2103K19C"
+    - "M2103K19I"
+    - "TBD"
+  android_versions: [11, 12, 13]
+  regions: [CN, IN]
+
+camellian:
+  tag: "KS"
+  marketing_name: "Redmi Note 10 5G"
+  models:
+    - "M2103K19PG"
+    - "M2103K19G"
+    - "M2103K19Y"
+  android_versions: [11, 12, 13]
+  regions: [Global, EEA, ID, RU, TR, TW]
+
+cannon:
+  tag: "JE"
+  marketing_name: "Redmi Note 9 5G"
+  models:
+    - "M2007J22C"
+  android_versions: [10, 11, 12]
+  regions: [CN]
+
+cannong:
+  tag: "JE"
+  marketing_name: "Redmi Note 9T"
+  models:
+    - "A001XM"
+    - "M2007J22G"
+  android_versions: [10, 11, 12]
+  regions: [Global, EEA, RU, TR, TW]
+
+cappu:
+  tag: "CI"
+  marketing_name: "Mi Pad 3"
+  models:
+    - "MI PAD 3"
+  android_versions: [7]
+  regions: [CN]
+
+capricorn:
+  tag: "AG"
+  marketing_name: "Mi 5s"
+  models:
+    - "MI 5s"
+  android_versions: [6, 7, 8]
+  regions: [CN, Global]
+
+cas:
+  tag: "JJ"
+  marketing_name: "Mi 10 Ultra"
+  models:
+    - "M2007J1SC"
+  android_versions: [10, 11, 12, 13]
+  regions: [CN]
+
+cattail:
+  tag: "CT"
+  marketing_name: "Redmi 9 / 9 Activ"
+  models:
+    - "M2006C3MII"
+    - "cattail"
+  android_versions: [10, 11]
+  regions: [IN]
+
+cepheus:
+  tag: "FA"
+  marketing_name: "Mi 9"
+  models:
+    - "MI 9"
+  android_versions: [9, 10, 11]
+  regions: [CN, Global, EEA, RU]
+
+cereus:
+  tag: "CG"
+  marketing_name: "Redmi 6"
+  models:
+    - "Redmi 6"
+  android_versions: [8, 9]
+  regions: [CN, Global, RU]
+
+cetus:
+  tag: "JT"
+  marketing_name: "Mi MIX Fold"
+  models:
+    - "M2011J18C"
+  android_versions: [11, 12, 13]
+  regions: [CN]
+
+cezanne:
+  tag: "JN"
+  marketing_name: "Redmi K30 Ultra"
+  models:
+    - "M2006J10C"
+  android_versions: [10, 11, 12]
+  regions: [CN]
+
+chagall:
+  tag: "PT"
+  marketing_name: "Xiaomi 17T"
+  models:
+    - "2602DPT53G"
+    - "2602DPT53I"
+    - "M531DA"
+  android_versions: [16, 17]
+  regions: [CN, Global, EEA, IN, ID, RU, TR, TW]
+
+charoite:
+  tag: "PF"
+  marketing_name: "Redmi Note 15 Pro 4G"
+  models:
+    - "25100RA69G"
+  android_versions: [15, 16]
+  regions: [Global, EEA, RU, TR]
+
+chenfeng:
+  tag: "NJ"
+  marketing_name: "Xiaomi Civi 4 Pro"
+  models:
+    - "24053PY09I"
+    - "24053PY09C"
+  android_versions: [14, 15, 16]
+  regions: [CN, IN]
+
+chiron:
+  tag: "DE"
+  marketing_name: "Mi MIX 2"
+  models:
+    - "MIX 2"
+    - "Mi MIX 2"
+  android_versions: [7, 8, 9]
+  regions: [CN, Global]
+
+chopin:
+  tag: "KP"
+  marketing_name: "Redmi Note 10 Pro 5G"
+  models:
+    - "21061110AG"
+    - "M2104K10AC"
+  android_versions: [11, 12, 13]
+  regions: [CN, Global, ID, TR]
+
+citrus:
+  tag: "JF"
+  marketing_name: "POCO M3"
+  models:
+    - "M2010J19CG"
+    - "M2010J19CI"
+  android_versions: [10, 11, 12]
+  regions: [Global, EEA, IN, ID, RU, TR, TW]
+
+clover:
+  tag: "DJ"
+  marketing_name: "Mi Pad 4 (Plus)"
+  models:
+    - "MI PAD 4"
+  android_versions: [8]
+  regions: [CN]
+
+cmi:
+  tag: "JA"
+  marketing_name: "Mi 10 Pro"
+  models:
+    - "Cmi"
+    - "Mi 10 Pro"
+  android_versions: [10, 11, 12, 13]
+  regions: [CN, Global, EEA]
+
+courbet:
+  tag: "KQ"
+  marketing_name: "Mi 11 Lite 4G"
+  models:
+    - "M2101K9AG"
+    - "M2101K9AI"
+  android_versions: [11, 12, 13]
+  regions: [Global, EEA, IN, ID, RU, TR]
+  aliases: ["courbetin"]
+
+creek:
+  tag: "BO"
+  marketing_name: "Redmi 15 / POCO M7"
+  models:
+    - "25062PC34E"
+    - "25062PC34G"
+    - "25062RN2DE"
+    - "25062RN2DL"
+    - "25062RN2DY"
+  android_versions: [15, 16]
+  regions: [Global, EEA, ID, RU, TR, TW]
+
+crux:
+  tag: "FX"
+  marketing_name: "Mi 9 Pro 5G"
+  models:
+    - "Mi9 Pro 5G"
+  android_versions: [9, 10, 11]
+  regions: [CN]
+
+cupid:
+  tag: "LC"
+  marketing_name: "Xiaomi 12"
+  models:
+    - "2201123C"
+    - "2201123G"
+  android_versions: [12, 13, 14, 15, 16]
+  regions: [CN, Global, EEA, ID, RU, TR, TW]
+
+curtana:
+  tag: "JW"
+  marketing_name: "Redmi Note 9S"
+  models:
+    - "Redmi Note 9 Pro"
+    - "curtana"
+    - "Redmi Note 9S"
+  android_versions: [10, 11, 12]
+  regions: [Global, EEA, IN, RU, TR]
+
+dagu:
+  tag: "LZ"
+  marketing_name: "Xiaomi Pad 5 Pro 12.4"
+  models:
+    - "22081281AC"
+  android_versions: [12, 13, 14, 15, 16]
+  regions: [CN]
+
+daisy:
+  tag: "DL"
+  marketing_name: "Mi A2 Lite"
+  models: []
+  android_versions: [8, 9, 10]
+  regions: [Global]
+
+dali:
+  tag: "ON"
+  marketing_name: "Redmi K80 Ultra"
+  models:
+    - "25060RK16C"
+  android_versions: [15, 16]
+  regions: [CN]
+
+dandelion:
+  tag: "CD"
+  marketing_name: "Redmi 9A"
+  models:
+    - "220233L2C"
+    - "220233L2G"
+    - "220233L2I"
+    - "M2006C3LC"
+    - "M2006C3LG"
+    - "M2006C3LI"
+    - "M2006C3LVG"
+    - "dandelion"
+  android_versions: [10, 11]
+  regions: [CN, Global, EEA, IN, ID, RU, TR, TW]
+
+darwin:
+  tag: "ET"
+  marketing_name: "POCO X8s"
+  models: []
+  android_versions: [16]
+  regions: [Global, EEA, RU, TR]
+
+dash:
+  tag: "PL"
+  marketing_name: "Redmi Turbo 5 Max"
+  models:
+    - "2602BPC18G"
+    - "2602BPC18I"
+    - "2602BRT18C"
+  android_versions: [16, 17]
+  regions: [CN, Global, EEA, IN, ID, RU, TR, TW]
+
+daumier:
+  tag: "LG"
+  marketing_name: "Xiaomi 12 Pro Dimensity"
+  models:
+    - "2207122MC"
+  android_versions: [12, 13, 14, 15, 16]
+  regions: [CN]
+
+davinci:
+  tag: "FJ"
+  marketing_name: "Redmi K20"
+  models:
+    - "Mi 9T"
+    - "Redmi K20"
+  android_versions: [9, 10, 11]
+  regions: [CN, Global, EEA, RU]
+
+davinciin:
+  tag: "FJ"
+  marketing_name: "Redmi K20"
+  models:
+    - "Redmi K20"
+  android_versions: [9, 10, 11]
+  regions: [IN]
+
+dew:
+  tag: "BN"
+  marketing_name: "Redmi 15C / POCO C85"
+  models:
+    - "25078PC3EE"
+    - "25078PC3EG"
+    - "25078RA3EA"
+    - "25078RA3EE"
+    - "25078RA3EL"
+    - "25078RA3EY"
+  android_versions: [15, 16]
+  regions: [Global, EEA, ID, RU, TR, TW]
+
+dijun:
+  tag: "OD"
+  marketing_name: "Xiaomi 15S Pro"
+  models:
+    - "25042PN24C"
+  android_versions: [15, 16]
+  regions: [CN]
+
+dipper:
+  tag: "EA"
+  marketing_name: "Mi 8"
+  models:
+    - "MI 8"
+  android_versions: [8, 9, 10]
+  regions: [CN, Global, RU]
+
+diting:
+  tag: "LF"
+  marketing_name: "Redmi K50 Ultra"
+  models:
+    - "22081212C"
+    - "22081212R"
+    - "22081212UG"
+    - "22200414R"
+    - "A201XM"
+  android_versions: [12, 13, 14, 15, 16]
+  regions: [CN, Global, EEA, RU, TR, TW, JP]
+
+dizi:
+  tag: "NS"
+  marketing_name: "Redmi Pad Pro"
+  models:
+    - "2405CPCFBG"
+    - "2405CRPFDC"
+    - "2405CRPFDG"
+    - "2405CRPFDI"
+  android_versions: [14, 15, 16]
+  regions: [CN, Global, EEA, IN, ID, RU, TR, TW]
+
+earth:
+  tag: "CV"
+  marketing_name: "Redmi 12C"
+  models:
+    - "22127PC95I"
+    - "22120RN86G"
+    - "22120RN86I"
+    - "2212ARNC4L"
+    - "22126RN91Y"
+  android_versions: [12, 13, 14, 15, 16]
+  regions: [CN, Global, EEA, IN, ID, RU, TR, TW]
+  aliases: ["aether"]
+
+elish:
+  tag: "KY"
+  marketing_name: "Xiaomi Pad 5 Pro Wi-Fi"
+  models:
+    - "M2105K81AC"
+  android_versions: [11, 12, 13]
+  regions: [CN]
+
+emerald:
+  tag: "NF"
+  marketing_name: "Redmi Note 13 Pro 4G / POCO M6 Pro"
+  models:
+    - "2312FPCA6G"
+    - "23117RA68G"
+    - "2502FRA65G"
+  android_versions: [13, 14, 15, 16]
+  regions: [Global, EEA, ID, RU, TR]
+
+emeraldr:
+  tag: "FO"
+  marketing_name: "Redmi Note 14S"
+  models: []
+  android_versions: [14, 15, 16]
+  regions: [Global, EEA, RU, TR]
+
+enuma:
+  tag: "KZ"
+  marketing_name: "Xiaomi Pad 5 Pro 5G"
+  models:
+    - "M2105K81C"
+  android_versions: [11, 12, 13]
+  regions: [CN]
+
+equuleus:
+  tag: "EC"
+  marketing_name: "Mi 8 Pro"
+  models:
+    - "MI 8 Pro"
+    - "MI 8 UD"
+    - "equuleus"
+  android_versions: [8, 9, 10]
+  regions: [CN, Global, RU]
+
+erhu:
+  tag: "DO"
+  marketing_name: "Redmi Pad 2 SE 4G"
+  models:
+    - "2604ERP4DG"
+    - "2604ERP4DC"
+  android_versions: [16]
+  regions: [CN, Global, ID, RU, TW]
+
+evergo:
+  tag: "GB"
+  marketing_name: "Redmi Note 11 5G"
+  models:
+    - "21091116AC"
+    - "21091116AI"
+  android_versions: [11, 12, 13]
+  regions: [CN, IN]
+
+evergreen:
+  tag: "GB"
+  marketing_name: "POCO M4 Pro 5G"
+  models:
+    - "21091116AG"
+  android_versions: [11, 12, 13]
+  regions: [Global, EEA, RU, TR, TW]
+
+excalibur:
+  tag: "JX"
+  marketing_name: "Redmi Note 9 Pro Max"
+  models:
+    - "Redmi Note 9 Pro Max"
+  android_versions: [10, 11, 12]
+  regions: [IN]
+
+fire:
+  tag: "MX"
+  marketing_name: "Redmi 12"
+  models:
+    - "23053RN02A"
+    - "23053RN02I"
+    - "23053RN02L"
+    - "23053RN02Y"
+  android_versions: [13, 14, 15, 16]
+  regions: [Global, EEA, IN, ID, RU, TR]
+  aliases: ["heat"]
+
+flame:
+  tag: "GU"
+  marketing_name: "Redmi 14R 5G"
+  models:
+    - "24108PCE2I"
+    - "2411DRN47I"
+  android_versions: [14, 15, 16]
+  regions: [CN, IN]
+
+flare:
+  tag: "HX"
+  marketing_name: "Redmi Pad SE 8.7 5G"
+  models:
+    - "24075RP89G"
+  android_versions: [14, 15, 16]
+  regions: [Global, EEA, ID, RU, TR, TW]
+
+fleur:
+  tag: "KE"
+  marketing_name: "Redmi Note 11S 4G / POCO M4 Pro 4G"
+  models:
+    - "2201117PG"
+    - "2201117SY"
+    - "2201117PI"
+    - "2201117SG"
+    - "2201117SI"
+    - "2201117SL"
+  android_versions: [11, 12, 13]
+  regions: [Global, EEA, IN, ID, RU, TR, TW]
+  aliases: ["miel"]
+
+flourite:
+  tag: "PR"
+  marketing_name: "Redmi Note 15 Pro+ 5G"
+  models:
+    - "2510EPC8BG"
+    - "25104RADAC"
+    - "2510ERA8BC"
+    - "2510ERA8BG"
+    - "2510ERA8BI"
+  android_versions: [15, 16]
+  regions: [CN, Global, EEA, IN, ID, RU, TR, TW]
+
+flute:
+  tag: "PW"
+  marketing_name: "Redmi Pad 2 Pro"
+  models:
+    - "2509ARPBDG"
+    - "25099RP13C"
+    - "25099RP13G"
+    - "25099RP13I"
+  android_versions: [15, 16]
+  regions: [CN, Global, EEA, IN, ID, RU, TR, TW]
+
+fog:
+  tag: "GE"
+  marketing_name: "Redmi 10C"
+  models:
+    - "220333QBI"
+    - "220333QAG"
+    - "220333QNY"
+    - "220333QL"
+  android_versions: [11, 12, 13]
+  regions: [Global, EEA, IN, ID, RU, TR, TW]
+  aliases: ["rain", "wind"]
+
+frost:
+  tag: "GF"
+  marketing_name: "POCO C40"
+  models: []
+  android_versions: [11]
+  regions: [Global, EEA, ID, RU, TR, TW]
+
+gale:
+  tag: "GP"
+  marketing_name: "Redmi 13C / POCO C65"
+  models:
+    - "2310FPCA4I"
+    - "23100RN82L"
+    - "23106RN0DA"
+    - "2311DRN14I"
+    - "2310FPCA4G"
+    - "23108RN04Y"
+  android_versions: [13, 14, 15, 16]
+  regions: [Global, EEA, IN, ID, RU, TR, TW]
+  aliases: ["gust"]
+
+gauguin:
+  tag: "JS"
+  marketing_name: "Redmi Note 9 Pro 5G"
+  models:
+    - "M2007J17C"
+    - "M2007J17G"
+    - "M2007J17I"
+  android_versions: [10, 11, 12]
+  regions: [CN, Global, EEA, IN, TR, TW]
+  aliases: ["gauguininpro", "gauguinpro"]
+
+gemini:
+  tag: "AA"
+  marketing_name: "MI 5"
+  models:
+    - "MI 5"
+  android_versions: [6, 7, 8]
+  regions: [CN, Global]
+
+ginkgo:
+  tag: "CO"
+  marketing_name: "Redmi Note 8"
+  models:
+    - "GINKGO"
+    - "Redmi Note 8"
+  android_versions: [9, 10, 11]
+  regions: [CN, Global, EEA, IN, ID, RU]
+
+goku:
+  tag: "NV"
+  marketing_name: "MIX Fold 4"
+  models:
+    - "24072PX77C"
+    - "Xiaomi for arm64"
+  android_versions: [14, 15, 16]
+  regions: [CN]
+
+gold:
+  tag: "NQ"
+  marketing_name: "Redmi Note 13 5G / 13R Pro"
+  models:
+    - "2312DRAABC"
+    - "2312DRAABI"
+    - "2311FRAFDC"
+    - "2312DRAABG"
+  android_versions: [13, 14, 15, 16]
+  regions: [CN, Global, EEA, IN, ID, TR, TW]
+  aliases: ["iron"]
+
+goya:
+  tag: "OE"
+  marketing_name: "Xiaomi 15T"
+  models:
+    - "25069PTEBG"
+  android_versions: [15, 16]
+  regions: [Global, EEA, ID, RU, TR, TW]
+
+gram:
+  tag: "JP"
+  marketing_name: "POCO M2 Pro"
+  models:
+    - "POCO M2 Pro"
+  android_versions: [10, 11, 12]
+  regions: [IN]
+
+grus:
+  tag: "FB"
+  marketing_name: "Mi 9 SE"
+  models:
+    - "MI 9 SE"
+    - "Mi 9 SE"
+  android_versions: [9, 10, 11]
+  regions: [CN, Global, EEA, RU]
+
+guitar:
+  tag: "DN"
+  marketing_name: "Redmi Pad 2 SE / Pad 2 9.7 / POCO Pad C1"
+  models:
+    - "2603APC14G"
+    - "2603ARP14G"
+    - "2603ARP14C"
+  android_versions: [16]
+  regions: [CN, Global, EEA, ID, RU, TR, TW]
+
+haydn:
+  tag: "KK"
+  marketing_name: "Redmi K40 Pro / Pro+"
+  models:
+    - "M2012K11C"
+    - "M2012K11G"
+    - "M2012K11I"
+  android_versions: [11, 12, 13, 14, 15, 16]
+  regions: [CN, Global, EEA, IN]
+  aliases: ["haydnin"]
+
+helium:
+  tag: "BD"
+  marketing_name: "Mi Max Prime"
+  models:
+    - "MI MAX"
+  android_versions: [6, 7]
+  regions: [CN, Global]
+
+hongkong:
+  tag: "FR"
+  marketing_name: "Xiaomi 18 Pro"
+  models:
+    - "M610BB"
+  android_versions: [17]
+  regions: [CN]
+
+hydrogen:
+  tag: "BC"
+  marketing_name: "Mi Max"
+  models:
+    - "MI MAX"
+  android_versions: [6, 7]
+  regions: [CN, Global]
+
+ice:
+  tag: "GM"
+  marketing_name: "Redmi A1 / POCO C50"
+  models:
+    - "220733SPI"
+    - "220733SFG"
+    - "220743FI"
+    - "220733SG"
+    - "220733SI"
+    - "220733SL"
+  android_versions: [12]
+  regions: [Global, EEA, IN, ID, RU, TW]
+  aliases: ["snow"]
+
+ingres:
+  tag: "LJ"
+  marketing_name: "Redmi K50G"
+  models:
+    - "21121210G"
+    - "21121210C"
+  android_versions: [12, 13, 14, 15, 16]
+  regions: [CN, Global, EEA, ID, RU, TR, TW]
+
+iolite:
+  tag: "DQ"
+  marketing_name: "Redmi Note 17 Pro 5G"
+  models:
+    - "2607DPC18G"
+    - "2607DPC18I"
+    - "2607DRA18C"
+    - "2607DRA18G"
+    - "2607DRA18I"
+    - "2607DRA18T"
+  android_versions: [16]
+  regions: [CN, Global, EEA, IN, ID, RU, TR, TW]
+
+jasmine:
+  tag: "DI"
+  marketing_name: "Mi A2"
+  models: []
+  android_versions: [8, 9, 10]
+  regions: [Global]
+
+jason:
+  tag: "CH"
+  marketing_name: "Mi Note 3"
+  models:
+    - "Mi Note 3"
+  android_versions: [7, 8, 9]
+  regions: [CN, Global]
+
+jinghu:
+  tag: "OX"
+  marketing_name: "Xiaomi Pad 7 Ultra"
+  models:
+    - "25032RP42C"
+  android_versions: [15, 16]
+  regions: [CN]
+
+joyeuse:
+  tag: "JZ"
+  marketing_name: "Redmi Note 9 Pro"
+  models:
+    - "Redmi Note 9 Pro"
+  android_versions: [10, 11, 12]
+  regions: [Global, EEA, ID, RU, TR, TW]
+
+kate:
+  tag: "HR"
+  marketing_name: "Redmi Note 3 SE"
+  models:
+    - "Redmi Note 3"
+  android_versions: [6]
+  regions: [Global]
+
+kenzo:
+  tag: "HO"
+  marketing_name: "Redmi Note 3 Pro"
+  models:
+    - "Redmi Note 3"
+  android_versions: [5, 6]
+  regions: [CN, Global]
+
+klee:
+  tag: "PJ"
+  marketing_name: "Redmi Turbo 5"
+  models:
+    - "2511FPC34G"
+    - "2511FPC34I"
+    - "2606FRT34I"
+  android_versions: [16, 17]
+  regions: [CN, Global, EEA, IN, ID, RU, TR, TW]
+
+klein:
+  tag: "GS"
+  marketing_name: "Redmi A3x"
+  models:
+    - "24044RN32L"
+    - "24048RN6CG"
+    - "24048RN6CI"
+  android_versions: [14, 15, 16]
+  regions: [Global, IN, RU]
+
+klimt:
+  tag: "OS"
+  marketing_name: "Xiaomi 15T Pro"
+  models:
+    - "2506BPN68G"
+    - "2506BPN68R"
+  android_versions: [15, 16, 17]
+  regions: [Global, EEA, ID, RU, TR, TW, JP]
+
+koto:
+  tag: "OW"
+  marketing_name: "Redmi Pad 2 4G"
+  models:
+    - "2505DRP06E"
+    - "2505DRP06G"
+    - "2505DRP06I"
+  android_versions: [15, 16]
+  regions: [Global, EEA, IN, ID, RU, TW]
+
+kunzite:
+  tag: "PQ"
+  marketing_name: "Redmi Note 15 5G"
+  models:
+    - "25118PC98G"
+    - "25118PC98I"
+    - "25098RA98C"
+    - "25098RA98G"
+    - "25098RA98I"
+    - "25098RA98T"
+    - "26022PCACI"
+  android_versions: [15, 16]
+  regions: [CN, Global, EEA, IN, ID, RU, TW]
+
+lake:
+  tag: "GT"
+  marketing_name: "Redmi 14C/17C/A3 Pro/POCO C75"
+  models:
+    - "2410FPCC5G"
+    - "2409BRN2CY"
+    - "2409BRN2CA"
+    - "2409BRN2CL"
+    - "2409BRN2CG"
+  android_versions: [14, 15, 16]
+  regions: [Global, EEA, ID, RU, TR, TW]
+  aliases: ["pond"]
+
+lancelot:
+  tag: "JC"
+  marketing_name: "Redmi 9"
+  models:
+    - "M2004J19C"
+    - "galahad"
+    - "M2004J19G"
+    - "M2004J19I"
+  android_versions: [10, 11, 12]
+  regions: [CN, Global, EEA, IN, ID, RU, TR]
+  aliases: ["galahad"]
+
+land:
+  tag: "AL"
+  marketing_name: "Redmi 3S"
+  models:
+    - "Redmi 3S"
+  android_versions: [6]
+  regions: [CN, Global]
+
+lapis:
+  tag: "PP"
+  marketing_name: "Redmi Note 15 Pro 5G"
+  models:
+    - "25080RABDC"
+    - "25080RABDG"
+    - "25080RABDI"
+    - "25080RABDR"
+  android_versions: [15, 16]
+  regions: [CN, Global, EEA, IN, ID, RU, TR, TW, JP]
+
+laurel:
+  tag: "FQ"
+  marketing_name: "Mi A3"
+  models: []
+  android_versions: [9, 10, 11]
+  regions: [Global, EEA]
+
+laurus:
+  tag: "FM"
+  marketing_name: "Mi CC 9e"
+  models:
+    - "MI CC 9e"
+    - "laurus"
+  android_versions: [9, 10]
+  regions: [CN]
+
+lavender:
+  tag: "FG"
+  marketing_name: "Redmi Note 7"
+  models:
+    - "Redmi Note 7"
+  android_versions: [9, 10]
+  regions: [CN, Global, EEA, IN, RU]
+
+leedsa:
+  tag: "DT"
+  marketing_name: "Redmi 17"
+  models: []
+  android_versions: [16]
+  regions: [Global, EEA, ID, RU, TR, TW, JP]
+
+lhasa:
+  tag: "PN"
+  marketing_name: "Xiaomi 18 Fold"
+  models:
+    - "2608BPX34C"
+  android_versions: [17]
+  regions: [CN]
+
+light:
+  tag: "LS"
+  marketing_name: "Redmi Note 11E"
+  models:
+    - "22041219PI"
+    - "22041219G"
+    - "22041219I"
+    - "22041219C"
+    - "22041219PG"
+    - "22041219NY"
+  android_versions: [12, 13, 14, 15, 16]
+  regions: [CN, Global, EEA, IN, ID, RU, TR, TW]
+  aliases: ["thunder"]
+
+lightcm:
+  tag: "LS"
+  marketing_name: "Redmi Note 11R"
+  models: []
+  android_versions: [12, 13, 14, 15, 16]
+  regions: [CN]
+
+lilac:
+  tag: "KN"
+  marketing_name: "Redmi Note 10T"
+  models: []
+  android_versions: [12, 13]
+  regions: [JP]
+
+lime:
+  tag: "JQ"
+  marketing_name: "Redmi Note 9 4G"
+  models:
+    - "M2010J19SI"
+    - "M2010J19SG"
+    - "M2010J19SC"
+    - "M2010J19SY"
+    - "M2010J19SL"
+  android_versions: [10, 11, 12]
+  regions: [CN, Global, EEA, IN, ID, RU, TR, TW]
+  aliases: ["lemon", "pomelo"]
+
+lisa:
+  tag: "KO"
+  marketing_name: "Mi 11 LE"
+  models:
+    - "2107119DC"
+    - "2109119DG"
+    - "2109119DI"
+  android_versions: [11, 12, 13, 14, 15, 16]
+  regions: [CN, Global, EEA, IN, RU, TR, TW]
+
+lithium:
+  tag: "AH"
+  marketing_name: "Mi MIX"
+  models:
+    - "MIX"
+    - "lithium"
+  android_versions: [6, 7, 8]
+  regions: [CN, Global]
+
+liuqin:
+  tag: "MY"
+  marketing_name: "Xiaomi Pad 6 Pro"
+  models:
+    - "23046RP50C"
+  android_versions: [13, 14, 15, 16]
+  regions: [CN]
+
+lmi:
+  tag: "JK"
+  marketing_name: "Redmi K30 Pro"
+  models:
+    - "POCO F2 Pro"
+    - "Lmi"
+    - "Redmi K30 Pro"
+    - "Redmi K30 Pro 5G Zoom Edition"
+    - "Redmi K30 Pro 5G"
+    - "Redmi K30 Pro Zoom Edition"
+  android_versions: [10, 11, 12]
+  regions: [CN, Global, EEA, ID, RU, TR]
+  aliases: ["lmiin", "lmiinpro", "lmipro"]
+
+lotus:
+  tag: "FI"
+  marketing_name: "Mi Play"
+  models:
+    - "MI PLAY"
+    - "lotus"
+  android_versions: [8]
+  regions: [CN, Global, RU]
+
+luming:
+  tag: "OI"
+  marketing_name: "Xiaomi Civi 5 Pro"
+  models:
+    - "25067PYE3C"
+  android_versions: [15, 16]
+  regions: [CN]
+
+madrid:
+  tag: "EO"
+  marketing_name: "Xiaomi 18 Pro Max"
+  models:
+    - "M154FF"
+  android_versions: [17]
+  regions: [CN]
+
+malachite:
+  tag: "OO"
+  marketing_name: "Redmi Note 14 Pro 5G / POCO X7"
+  models:
+    - "24095PCADG"
+    - "24095PCADI"
+    - "24090RA29C"
+    - "24090RA29G"
+    - "24090RA29I"
+  android_versions: [14, 15, 16]
+  regions: [CN, Global, EEA, IN, ID, RU, TR, TW]
+
+markw:
+  tag: "BE"
+  marketing_name: "Redmi 4 Prime"
+  models:
+    - "Redmi 4"
+  android_versions: [6]
+  regions: [CN, Global]
+
+matisse:
+  tag: "LK"
+  marketing_name: "Redmi K50 Pro"
+  models:
+    - "22011211C"
+  android_versions: [12, 13, 14, 15, 16]
+  regions: [CN]
+
+mayfly:
+  tag: "LT"
+  marketing_name: "Xiaomi 12S"
+  models:
+    - "2206123SC"
+  android_versions: [12, 13, 14, 15, 16]
+  regions: [CN]
+
+meri:
+  tag: "CJ"
+  marketing_name: "Mi 5C"
+  models:
+    - "MI 5C"
+    - "Meri"
+  android_versions: [6, 7]
+  regions: [CN]
+
+merlin:
+  tag: "JO"
+  marketing_name: "Redmi 10X 4G"
+  models:
+    - "M2003J15SC"
+    - "M2003J15SI"
+    - "M2003J15SS"
+    - "M2003J15SG"
+  android_versions: [10, 11, 12]
+  regions: [CN, Global, EEA, IN, ID, RU, TR, TW]
+  aliases: ["merlinnfc"]
+
+mido:
+  tag: "CF"
+  marketing_name: "Redmi Note 4"
+  models:
+    - "Redmi Note 4"
+    - "Redmi Note 4X"
+  android_versions: [6, 7]
+  regions: [CN, Global]
+
+mist:
+  tag: "PU"
+  marketing_name: "Redmi Note 17 5G"
+  models:
+    - "26021PC18I"
+    - "26021RN18C"
+    - "26021RN18I"
+    - "26081RA18G"
+    - "26081RA18L"
+  android_versions: [16]
+  regions: [CN, Global, EEA, IN, ID, TR, TW]
+
+mojito:
+  tag: "KG"
+  marketing_name: "Redmi Note 10"
+  models:
+    - "M2101K7AG"
+    - "M2101K7AI"
+  android_versions: [11, 12]
+  regions: [Global, EEA, IN, ID, RU, TR]
+  aliases: ["sunny"]
+
+mona:
+  tag: "KV"
+  marketing_name: "Xiaomi Civi"
+  models:
+    - "2109119BC"
+  android_versions: [11, 12, 13]
+  regions: [CN]
+
+monet:
+  tag: "JI"
+  marketing_name: "Mi 10 Lite"
+  models:
+    - "XIG01"
+    - "M2002J9G"
+    - "M2002J9S"
+  android_versions: [10, 11, 12]
+  regions: [Global, EEA, TW]
+
+moon:
+  tag: "NT"
+  marketing_name: "Redmi 13 / POCO M6"
+  models:
+    - "2404APC5FG"
+    - "24040RN64Y"
+    - "24049RN28L"
+    - "2404ARN45A"
+  android_versions: [14, 15, 16]
+  regions: [Global, EEA, ID, RU, TR, TW]
+  aliases: ["tides"]
+
+moonstone:
+  tag: "MP"
+  marketing_name: "POCO X5 5G"
+  models: []
+  android_versions: [12, 13, 14, 15, 16]
+  regions: [Global, EEA, IN, ID, RU, TR, TW]
+
+munch:
+  tag: "LM"
+  marketing_name: "Redmi K40S"
+  models:
+    - "22021211RG"
+    - "22021211RI"
+    - "22021211RC"
+  android_versions: [12, 13, 14, 15, 16]
+  regions: [CN, Global, EEA, IN, ID, RU, TR, TW]
+
+muyu:
+  tag: "OY"
+  marketing_name: "Xiaomi Pad 7 Pro"
+  models:
+    - "24091RPADC"
+    - "24091RPADG"
+  android_versions: [15, 16]
+  regions: [CN, Global, EEA, ID, RU, TR, TW]
+
+myron:
+  tag: "PM"
+  marketing_name: "Redmi K90 Pro Max"
+  models:
+    - "25102PCBEG"
+    - "25102RK69C"
+    - "25102RKBEC"
+  android_versions: [16, 17]
+  regions: [CN, Global, EEA, ID, TW]
+
+nabu:
+  tag: "KX"
+  marketing_name: "Xiaomi Pad 5"
+  models:
+    - "21051182C"
+    - "21051182G"
+  android_versions: [11, 12, 13]
+  regions: [CN, Global, EEA, IN, RU, TR, TW]
+
+natrium:
+  tag: "BG"
+  marketing_name: "Mi 5s Plus"
+  models:
+    - "MI 5s Plus"
+  android_versions: [6, 7, 8]
+  regions: [CN, Global]
+
+nezha:
+  tag: "PA"
+  marketing_name: "Xiaomi 17 Ultra"
+  models:
+    - "2512BPNDAG"
+    - "25128PNA1C"
+    - "2512BPNDAC"
+    - "2512BPNDAI"
+  android_versions: [16, 17]
+  regions: [CN, Global, EEA, IN, ID, RU, TR, TW]
+
+nikel:
+  tag: "BF"
+  marketing_name: "Redmi Note 4 MTK"
+  models:
+    - "Redmi Note 4"
+  android_versions: [6]
+  regions: [CN, Global]
+
+nitrogen:
+  tag: "ED"
+  marketing_name: "Mi Max 3"
+  models:
+    - "MI MAX 3"
+  android_versions: [8, 9, 10]
+  regions: [CN, Global, RU]
+
+obsidian:
+  tag: "OF"
+  marketing_name: "Redmi Note 14 Pro 4G"
+  models:
+    - "24116RACCG"
+  android_versions: [14, 15, 16]
+  regions: [Global, EEA, RU, TR]
+
+odin:
+  tag: "KM"
+  marketing_name: "MIX 4"
+  models:
+    - "2106118C"
+  android_versions: [11, 12, 13, 14, 15, 16]
+  regions: [CN]
+
+olive:
+  tag: "CN"
+  marketing_name: "Redmi 8"
+  models:
+    - "Redmi 8"
+  android_versions: [9, 10]
+  regions: [CN, Global, EEA, IN, ID, RU]
+
+olivelite:
+  tag: "CP"
+  marketing_name: "Redmi 8A"
+  models:
+    - "Redmi 8A"
+  android_versions: [9, 10]
+  regions: [CN, Global, EEA, IN, ID, RU]
+
+olivewood:
+  tag: "CQ"
+  marketing_name: "Redmi 8A Pro"
+  models:
+    - "Redmi 8A Dual"
+    - "Redmi 8A Pro"
+  android_versions: [9, 10]
+  regions: [IN, ID]
+
+omega:
+  tag: "HQ"
+  marketing_name: "Redmi Pro"
+  models:
+    - "Redmi Pro"
+  android_versions: [6]
+  regions: [CN]
+
+onc:
+  tag: "FF"
+  marketing_name: "Redmi Y3"
+  models:
+    - "Redmi 7"
+    - "Redmi Y3"
+    - "ONC"
+  android_versions: [9, 10]
+  regions: [IN]
+
+onclite:
+  tag: "FL"
+  marketing_name: "Redmi 7"
+  models: []
+  android_versions: [9, 10]
+  regions: [CN, Global, EEA, IN, RU]
+
+onyx:
+  tag: "OL"
+  marketing_name: "Redmi Turbo 4 Pro"
+  models:
+    - "25053PC47G"
+    - "25053PC47I"
+    - "25053RT47C"
+  android_versions: [15, 16]
+  regions: [CN, Global, EEA, IN, ID, RU, TW]
+
+opal:
+  tag: "GL"
+  marketing_name: "Redmi Note 11S 5G"
+  models:
+    - "22031116BG"
+  android_versions: [11, 12, 13]
+  regions: [Global, EEA, RU, TW]
+
+organ:
+  tag: "PX"
+  marketing_name: "Redmi Pad 2 Pro 5G"
+  models:
+    - "2509BRP2DG"
+    - "2509BRP2DI"
+  android_versions: [15, 16]
+  regions: [CN, Global, EEA, IN, RU, TW]
+
+oxygen:
+  tag: "DD"
+  marketing_name: "Mi Max 2"
+  models:
+    - "MI MAX 2"
+  android_versions: [7]
+  regions: [CN, Global]
+
+pandora:
+  tag: "BL"
+  marketing_name: "Xiaomi 17 Pro"
+  models:
+    - "25098PN5AC"
+  android_versions: [16, 17]
+  regions: [CN]
+
+pearl:
+  tag: "LH"
+  marketing_name: "Redmi Note 12T Pro"
+  models:
+    - "23054RA19C"
+  android_versions: [13, 14, 15, 16]
+  regions: [CN]
+
+perseus:
+  tag: "EE"
+  marketing_name: "Mi MIX 3"
+  models:
+    - "MIX 3"
+    - "Mi MIX 3"
+  android_versions: [9, 10]
+  regions: [CN, Global, RU]
+
+phoenix:
+  tag: "GH"
+  marketing_name: "Redmi K30 4G"
+  models:
+    - "Redmi K30"
+  android_versions: [10, 11, 12]
+  regions: [CN]
+
+phoenixin:
+  tag: "GH"
+  marketing_name: "POCO X2"
+  models:
+    - "POCO X2"
+  android_versions: [10, 11]
+  regions: [IN]
+
+piano:
+  tag: "PY"
+  marketing_name: "Xiaomi Pad 8 Pro"
+  models:
+    - "25091RP04C"
+    - "25091RP04G"
+  android_versions: [16, 17]
+  regions: [CN, Global, EEA, ID, RU, TR, TW]
+
+picasso:
+  tag: "GI"
+  marketing_name: "Redmi K30 5G"
+  models:
+    - "Redmi K30 5G"
+    - "Redmi K30i 5G"
+  android_versions: [10, 11, 12]
+  regions: [CN]
+
+pine:
+  tag: "CM"
+  marketing_name: "Redmi 7A"
+  models:
+    - "Redmi 7A"
+    - "pine"
+  android_versions: [9, 10]
+  regions: [CN, Global, EEA, IN, RU]
+
+pipa:
+  tag: "MZ"
+  marketing_name: "Xiaomi Pad 6"
+  models:
+    - "23043RP34C"
+    - "23043RP34G"
+    - "23043RP34I"
+  android_versions: [13, 14, 15, 16]
+  regions: [CN, Global, EEA, IN, ID, RU, TR, TW]
+
+pissarro:
+  tag: "KT"
+  marketing_name: "Redmi Note 11 Pro / Pro+"
+  models:
+    - "21091116C"
+    - "21091116UC"
+    - "21091116UG"
+    - "21091116I"
+    - "21091116UI"
+  android_versions: [11, 12, 13]
+  regions: [CN, Global, EEA, IN, RU, TR, TW]
+  aliases: ["pissarroin", "pissarroinpro", "pissarropro"]
+
+platina:
+  tag: "DT"
+  marketing_name: "Mi 8 Lite"
+  models:
+    - "MI 8 Lite"
+    - "Platina"
+  android_versions: [8, 9, 10]
+  regions: [CN, Global, RU]
+
+plato:
+  tag: "LQ"
+  marketing_name: "Xiaomi 12T"
+  models:
+    - "22071212AG"
+  android_versions: [12, 13, 14, 15, 16]
+  regions: [Global, EEA, ID, RU, TR, TW]
+
+polaris:
+  tag: "DG"
+  marketing_name: "Mi MIX 2S"
+  models:
+    - "Mi MIX 2S"
+    - "MIX 2S"
+  android_versions: [8, 9, 10]
+  regions: [CN, Global, RU]
+
+popsicle:
+  tag: "PB"
+  marketing_name: "Xiaomi 17 Pro Max"
+  models:
+    - "2509FPN0BC"
+  android_versions: [16, 17]
+  regions: [CN]
+
+prada:
+  tag: "CE"
+  marketing_name: "Redmi 4"
+  models:
+    - "Redmi 4"
+  android_versions: [6]
+  regions: [CN, Global]
+
+prague:
+  tag: "AA"
+  marketing_name: "Redmi K90 Max"
+  models: []
+  android_versions: [16, 17]
+  regions: [CN]
+
+psyche:
+  tag: "LD"
+  marketing_name: "Xiaomi 12X"
+  models:
+    - "2112123AC"
+  android_versions: [11, 12, 13]
+  regions: [CN, Global, EEA, RU, TW]
+
+pudding:
+  tag: "PC"
+  marketing_name: "Xiaomi 17"
+  models:
+    - "25113PN0EC"
+    - "25113PN0EG"
+    - "25113PN0EI"
+  android_versions: [16, 17]
+  regions: [CN, Global, EEA, IN, ID, RU, TR, TW]
+
+pyxis:
+  tag: "FC"
+  marketing_name: "Mi CC 9"
+  models:
+    - "MI CC 9"
+    - "Mi 9 Lite"
+    - "Pyxis"
+  android_versions: [9, 10, 11]
+  regions: [CN, Global, EEA, RU]
+
+raphael:
+  tag: "FK"
+  marketing_name: "Redmi K20 Pro"
+  models:
+    - "Mi 9T Pro"
+    - "Redmi K20 Pro"
+    - "Redmi K20 Pro Premium Edition"
+  android_versions: [9, 10, 11]
+  regions: [CN, Global, EEA, RU]
+
+raphaelin:
+  tag: "FK"
+  marketing_name: "Redmi K20 Pro"
+  models:
+    - "Redmi K20 Pro"
+  android_versions: [9, 10, 11]
+  regions: [IN]
+
+raphaels:
+  tag: "FK"
+  marketing_name: "Redmi K20 Pro Premium Edition"
+  models: []
+  android_versions: [9]
+  regions: [CN]
+
+redwood:
+  tag: "MS"
+  marketing_name: "Redmi Note 12 Pro Speed"
+  models:
+    - "22101320G"
+    - "22101320C"
+    - "22101320I"
+  android_versions: [12, 13, 14, 15, 16]
+  regions: [CN, Global, EEA, IN, ID, RU, TR, TW]
+  aliases: ["redwoodin"]
+
+rembrandt:
+  tag: "MM"
+  marketing_name: "Redmi K60E"
+  models:
+    - "22122RK93C"
+  android_versions: [12, 13, 14, 15, 16]
+  regions: [CN]
+
+renoir:
+  tag: "KI"
+  marketing_name: "Mi 11 Lite 5G"
+  models:
+    - "M2101K9C"
+    - "M2101K9G"
+  android_versions: [11, 12, 13]
+  regions: [CN, Global, EEA, RU, TW, JP]
+
+riva:
+  tag: "CK"
+  marketing_name: "Redmi 5A"
+  models:
+    - "Redmi 5A"
+  android_versions: [7, 8]
+  regions: [CN, Global]
+
+rock:
+  tag: "LU"
+  marketing_name: "POCO M5"
+  models:
+    - "22071219CI"
+    - "22071219AI"
+    - "22071219CG"
+  android_versions: [12, 13, 14, 15, 16]
+  regions: [Global, EEA, IN, ID, RU, TR, TW]
+  aliases: ["stone"]
+
+rolex:
+  tag: "CC"
+  marketing_name: "Redmi 4A"
+  models:
+    - "Redmi 4A"
+  android_versions: [6, 7]
+  regions: [CN, Global]
+
+rosemary:
+  tag: "KL"
+  marketing_name: "Redmi Note 10S"
+  models:
+    - "2207117BPG"
+    - "M2101K7BL"
+    - "M2101K7BNY"
+    - "M2101K7BG"
+    - "M2101K7BI"
+    - "22087RA4DI"
+  android_versions: [11, 12, 13]
+  regions: [Global, EEA, IN, ID, RU, TR, TW]
+  aliases: ["maltose", "secret"]
+
+rosy:
+  tag: "DA"
+  marketing_name: "Redmi 5"
+  models:
+    - "Redmi 5"
+  android_versions: [7, 8]
+  regions: [CN, Global, RU]
+
+ruan:
+  tag: "FS"
+  marketing_name: "Redmi Pad Pro 5G"
+  models:
+    - "24074RPD2C"
+    - "24074RPD2G"
+  android_versions: [14, 15, 16]
+  regions: [CN, Global, EEA, IN, RU]
+
+rubens:
+  tag: "LN"
+  marketing_name: "Redmi K50"
+  models:
+    - "22041211AC"
+  android_versions: [12, 13, 14, 15, 16]
+  regions: [CN]
+
+ruby:
+  tag: "MO"
+  marketing_name: "Redmi Note 12 Pro / Pro+ / Discovery 5G"
+  models:
+    - "22101316UC"
+    - "22101316C"
+    - "22101316G"
+    - "22101316I"
+    - "22101316UP"
+    - "22101316UCP"
+    - "22101316UG"
+  android_versions: [12, 13, 14, 15, 16]
+  regions: [CN, Global, EEA, IN, ID, RU, TR, TW, KR]
+  aliases: ["rubyplus", "rubypro"]
+
+ruyi:
+  tag: "NI"
+  marketing_name: "MIX Flip"
+  models:
+    - "2405CPX3DC"
+    - "2405CPX3DG"
+  android_versions: [14, 15, 16]
+  regions: [CN, Global, EEA, RU, TW]
+
+sagit:
+  tag: "CA"
+  marketing_name: "Mi 6"
+  models:
+    - "MI 6"
+  android_versions: [7, 8, 9]
+  regions: [CN, Global]
+
+sakura:
+  tag: "DI"
+  marketing_name: "Redmi 6 Pro"
+  models:
+    - "Redmi 6 Pro"
+  android_versions: [8, 9]
+  regions: [CN, Global]
+  aliases: ["sakura_india"]
+
+santoni:
+  tag: "AM"
+  marketing_name: "Redmi 4X"
+  models:
+    - "Redmi 4X"
+    - "santoni"
+  android_versions: [6, 7]
+  regions: [CN, Global]
+
+sapphire:
+  tag: "NG"
+  marketing_name: "Redmi Note 13"
+  models:
+    - "23129RA5FL"
+    - "23129RAA4G"
+  android_versions: [13, 14, 15, 16]
+  regions: [Global]
+
+sapphiren:
+  tag: "NH"
+  marketing_name: "Redmi Note 13 NFC"
+  models:
+    - "23124RA7EO"
+  android_versions: [13, 14, 15, 16]
+  regions: [Global, EEA, ID, RU, TR, TW]
+
+scorpio:
+  tag: "AD"
+  marketing_name: "Mi Note 2"
+  models:
+    - "Mi Note 2"
+  android_versions: [6, 7, 8]
+  regions: [CN, Global]
+
+sea:
+  tag: "HZ"
+  marketing_name: "Redmi Note 12S"
+  models:
+    - "2303CRA44A"
+    - "2303ERA42L"
+    - "23030RAC7Y"
+  android_versions: [13, 14, 15, 16]
+  regions: [Global, EEA, RU, TR, TW]
+  aliases: ["ocean"]
+
+selene:
+  tag: "KU"
+  marketing_name: "Redmi 10 / Redmi 10 2022"
+  models:
+    - "21061119DG"
+    - "22011119UY"
+    - "21061119AG"
+    - "21061119AL"
+    - "21121119SG"
+    - "21121119VL"
+    - "21121119SC"
+  android_versions: [11, 12, 13]
+  regions: [CN, Global, EEA, IN, ID, RU, TR, TW]
+  aliases: ["eos"]
+
+selenes:
+  tag: "KU"
+  marketing_name: "Redmi Note 11 4G"
+  models: []
+  android_versions: [11, 12, 13]
+  regions: [CN]
+
+sheng:
+  tag: "NX"
+  marketing_name: "Xiaomi Pad 6S Pro 12.4"
+  models:
+    - "24018RPACG"
+  android_versions: [14, 15, 16]
+  regions: [CN, Global, EEA, ID, RU]
+
+shennongt:
+  tag: "ND"
+  marketing_name: "Xiaomi 14 Pro Ti Satellite"
+  models: []
+  android_versions: [14, 15, 16]
+  regions: [CN]
+
+shiva:
+  tag: "JR"
+  marketing_name: "POCO M2"
+  models:
+    - "M2004J19PI"
+  android_versions: [10, 11]
+  regions: [IN]
+
+shuntian:
+  tag: "FP"
+  marketing_name: "Xiaomi Pad 9 Pro"
+  models:
+    - "2612CRPFFC"
+  android_versions: [17]
+  regions: [CN]
+
+sirius:
+  tag: "EB"
+  marketing_name: "Mi 8 SE"
+  models:
+    - "MI 8 SE"
+    - "sirius"
+  android_versions: [8, 9, 10]
+  regions: [CN]
+
+sky:
+  tag: "MW"
+  marketing_name: "Redmi Note 12R"
+  models:
+    - "23076PC4BI"
+    - "23076RA4BR"
+    - "23076RN8DY"
+    - "A401XM"
+  android_versions: [13, 14, 15, 16]
+  regions: [CN, Global, EEA, IN, TW, JP]
+  aliases: ["river"]
+
+socrates:
+  tag: "MK"
+  marketing_name: "Redmi K60 Pro"
+  models:
+    - "22127RK46C"
+  android_versions: [13, 14, 15, 16]
+  regions: [CN]
+
+somalia:
+  tag: "BW"
+  marketing_name: "Redmi 17 5G / R70 5G / R70m 5G"
+  models:
+    - "26020PC1AI"
+    - "2602BRNA4I"
+    - "26020RN1AI"
+  android_versions: [16]
+  regions: [CN, IN]
+
+songyuan:
+  tag: "GN"
+  marketing_name: "Redmi K100 Pro Max"
+  models:
+    - "26077PC53G"
+    - "M098FE"
+  android_versions: [16, 17]
+  regions: [CN, Global, EEA, ID, RU, TR, TW, JP]
+
+spark:
+  tag: "HY"
+  marketing_name: "Redmi Pad SE 8.7 4G"
+  models:
+    - "24076RP19I"
+    - "24076RP19G"
+  android_versions: [14, 15, 16]
+  regions: [Global, EEA, IN, RU, TW]
+
+spes:
+  tag: "GC"
+  marketing_name: "Redmi Note 11"
+  models:
+    - "2201117TG"
+    - "2201117TI"
+    - "2201117TL"
+  android_versions: [11, 12, 13]
+  regions: [Global, IN, TR]
+
+spesn:
+  tag: "GK"
+  marketing_name: "Redmi Note 11 NFC"
+  models:
+    - "2201117TY"
+  android_versions: [11, 12, 13]
+  regions: [Global, EEA, ID, RU]
+
+spinel:
+  tag: "PG"
+  marketing_name: "Redmi Note 15 4G"
+  models:
+    - "2510DRA23E"
+    - "2510DRA23G"
+    - "2510DRA23L"
+  android_versions: [15, 16]
+  regions: [Global, EEA, ID, RU, TR, TW]
+
+spring:
+  tag: "OU"
+  marketing_name: "Redmi 15R 5G"
+  models:
+    - "25057PC09I"
+    - "25057RA09C"
+    - "25057RN09E"
+    - "25057RN09G"
+    - "25057RN09I"
+    - "25057RN09R"
+    - "A501XM"
+  android_versions: [15, 16]
+  regions: [CN, Global, EEA, IN, TR, TW, JP]
+
+star:
+  tag: "KA"
+  marketing_name: "Mi 11 Pro / Ultra"
+  models:
+    - "M2102K1AC"
+    - "M2102K1C"
+    - "M2102K1G"
+  android_versions: [11, 12, 13, 14, 15, 16]
+  regions: [CN, Global, EEA, IN, ID]
+  aliases: ["mars"]
+
+steppe:
+  tag: "AV"
+  marketing_name: "Redmi M100"
+  models:
+    - "26062PC92I"
+    - "26062RN92G"
+    - "26062RN92I"
+  android_versions: [16]
+  regions: [CN, Global, EEA, IN, ID, TR, TW]
+
+sunstone:
+  tag: "MQ"
+  marketing_name: "Redmi Note 12 5G / Note 12R Pro"
+  models:
+    - "22101317C"
+  android_versions: [12, 13, 14, 15, 16]
+  regions: [CN, Global, EEA, IN, TW]
+
+surya:
+  tag: "JG"
+  marketing_name: "POCO X3 NFC"
+  models:
+    - "M2007J20CI"
+    - "M2007J20CG"
+  android_versions: [10, 11, 12]
+  regions: [Global, EEA, IN, ID, RU, TR]
+  aliases: ["karna"]
+
+sweet:
+  tag: "KF"
+  marketing_name: "Redmi Note 10 Pro"
+  models:
+    - "M2101K6G"
+    - "2209116AG"
+  android_versions: [11, 12, 13]
+  regions: [Global, EEA, ID, RU, TR, TW]
+
+sweetin:
+  tag: "KF"
+  marketing_name: "Redmi Note 10 Pro / Pro Max"
+  models:
+    - "M2101K6P"
+    - "M2101K6I"
+  android_versions: [11, 12, 13]
+  regions: [IN]
+
+taiko:
+  tag: "OV"
+  marketing_name: "Redmi Pad 2"
+  models:
+    - "25040RP0AC"
+    - "25040RP0AE"
+    - "25040RP0AG"
+    - "25040RP0AI"
+    - "25040RP0AL"
+  android_versions: [15, 16]
+  regions: [CN, Global, EEA, IN, ID, RU, TR, TW]
+
+tanzanite:
+  tag: "OG"
+  marketing_name: "Redmi Note 14 4G"
+  models:
+    - "24117RN76E"
+    - "24117RN76G"
+    - "24117RN76L"
+    - "24117RN76O"
+  android_versions: [14, 15, 16]
+  regions: [Global, EEA, ID, RU, TR, TW]
+
+taoyao:
+  tag: "LI"
+  marketing_name: "Xiaomi 12 Lite"
+  models:
+    - "2203129G"
+  android_versions: [12, 13, 14, 15, 16]
+  regions: [Global, EEA, ID, RU, TR, TW]
+
+tapas:
+  tag: "MT"
+  marketing_name: "Redmi Note 12 4G"
+  models:
+    - "23021RAAEG"
+    - "23027RAD4I"
+    - "23028RA60L"
+  android_versions: [13, 14, 15, 16]
+  regions: [Global, IN, TR]
+
+thor:
+  tag: "LA"
+  marketing_name: "Xiaomi 12S Ultra"
+  models:
+    - "2203121C"
+  android_versions: [12, 13, 14, 15, 16]
+  regions: [CN]
+
+thyme:
+  tag: "GA"
+  marketing_name: "Mi 10S"
+  models:
+    - "M2102J2SC"
+    - "Thyme"
+  android_versions: [11, 12, 13]
+  regions: [CN]
+
+tiare:
+  tag: "CL"
+  marketing_name: "Redmi Go"
+  models:
+    - "Redmi Go"
+  android_versions: [8]
+  regions: [Global, EEA, IN, RU]
+
+tiffany:
+  tag: "DB"
+  marketing_name: "Mi 5X"
+  models:
+    - "MI 5X"
+  android_versions: [7, 8]
+  regions: [CN]
+
+tissot:
+  tag: "DH"
+  marketing_name: "Mi A1"
+  models: []
+  android_versions: [8, 9]
+  regions: [Global]
+
+toco:
+  tag: "FN"
+  marketing_name: "Mi Note 10 Lite"
+  models:
+    - "Mi Note 10 Lite"
+    - "toco"
+  android_versions: [10, 11, 12]
+  regions: [Global, EEA, RU, TR]
+
+topaz:
+  tag: "MG"
+  marketing_name: "Redmi Note 12 4G NFC"
+  models:
+    - "23021RAA2Y"
+  android_versions: [13, 14, 15, 16]
+  regions: [Global, EEA, ID, RU]
+
+tornado:
+  tag: "PO"
+  marketing_name: "Redmi 15C 5G / 15R 5G"
+  models:
+    - "2508CPC2BI"
+    - "2508CRN2BI"
+    - "2607FRNEAG"
+    - "2607FRNEAI"
+    - "2508CRN2BE"
+  android_versions: [15, 16]
+  regions: [CN, Global, EEA, IN, TR]
+
+tucana:
+  tag: "FD"
+  marketing_name: "Mi CC 9 Pro"
+  models:
+    - "MI CC9 Pro"
+    - "Mi Note 10"
+  android_versions: [9, 10, 11]
+  regions: [CN, Global, EEA, ID, RU]
+
+tulip:
+  tag: "EK"
+  marketing_name: "Redmi Note 6 Pro"
+  models:
+    - "Redmi Note 6 Pro"
+  android_versions: [8, 9]
+  regions: [Global, RU]
+
+turner:
+  tag: "AO"
+  marketing_name: "Redmi K Pad"
+  models:
+    - "25079RPDCC"
+    - "25079RPDCG"
+  android_versions: [15, 16]
+  regions: [CN, Global, TW]
+
+ugg:
+  tag: "DK"
+  marketing_name: "Redmi Note 5A Prime"
+  models:
+    - "Redmi Note 5A"
+    - "Redmi Y1"
+  android_versions: [7]
+  regions: [CN, Global]
+
+ugglite:
+  tag: "DF"
+  marketing_name: "Redmi Note 5A (2GB)"
+  models:
+    - "Redmi Note 5A"
+  android_versions: [7]
+  regions: [CN, Global]
+
+uke:
+  tag: "OZ"
+  marketing_name: "Xiaomi Pad 7"
+  models:
+    - "2410CRP4CC"
+    - "2410CRP4CG"
+    - "2410CRP4CI"
+  android_versions: [15, 16]
+  regions: [CN, Global, EEA, IN, ID, RU, TW]
+
+umi:
+  tag: "JB"
+  marketing_name: "Mi 10"
+  models:
+    - "Mi 10"
+    - "Umi"
+  android_versions: [10, 11, 12, 13]
+  regions: [CN, Global, EEA, IN, ID, RU, TR]
+
+unicorn:
+  tag: "LE"
+  marketing_name: "Xiaomi 12S Pro"
+  models:
+    - "2206122SC"
+  android_versions: [12, 13, 14, 15, 16]
+  regions: [CN]
+
+ursa:
+  tag: "EH"
+  marketing_name: "Mi 8 Explorer"
+  models:
+    - "MI 8 Explorer Edition"
+  android_versions: [8, 9, 10]
+  regions: [CN]
+
+vangogh:
+  tag: "JV"
+  marketing_name: "Mi 10 Lite Zoom"
+  models:
+    - "M2002J9E"
+  android_versions: [10, 11, 12]
+  regions: [CN]
+
+vayu:
+  tag: "JU"
+  marketing_name: "POCO X3 Pro"
+  models:
+    - "M2102J20SI"
+    - "M2102J20SG"
+  android_versions: [11, 12, 13]
+  regions: [Global, EEA, IN, ID, RU, TR, TW]
+  aliases: ["bhima"]
+
+vela:
+  tag: "FE"
+  marketing_name: "Mi CC 9 Meitu Edition"
+  models: []
+  android_versions: [9, 10, 11]
+  regions: [CN]
+
+venus:
+  tag: "KB"
+  marketing_name: "Mi 11"
+  models:
+    - "M2011K2C"
+    - "M2011K2G"
+  android_versions: [11, 12, 13, 14, 15, 16]
+  regions: [CN, Global, EEA, ID, RU, TR, TW]
+
+veux:
+  tag: "KC"
+  marketing_name: "Redmi Note 11E Pro"
+  models:
+    - "2201116PI"
+    - "2201116SI"
+    - "2201116PG"
+    - "2201116SG"
+    - "2201116SR"
+    - "2201116SC"
+  android_versions: [11, 12, 13]
+  regions: [CN, Global, EEA, IN, ID, RU, TR, TW, JP]
+  aliases: ["peux"]
+
+vida:
+  tag: "GD"
+  marketing_name: "Redmi Note 11 Pro 4G"
+  models:
+    - "2201116TI"
+  android_versions: [11, 12, 13]
+  regions: [IN]
+
+vili:
+  tag: "KD"
+  marketing_name: "Xiaomi 11T Pro"
+  models:
+    - "2107113SG"
+    - "2107113SI"
+    - "2107113SR"
+  android_versions: [11, 12, 13, 14, 15, 16]
+  regions: [Global, EEA, IN, ID, RU, TR, TW, JP]
+
+vince:
+  tag: "EG"
+  marketing_name: "Redmi 5 Plus"
+  models:
+    - "Redmi 5 Plus"
+    - "Redmi Note 5"
+  android_versions: [7, 8]
+  regions: [CN, Global]
+
+violet:
+  tag: "FH"
+  marketing_name: "Redmi Note 7 Pro"
+  models:
+    - "Redmi Note 7 Pro"
+  android_versions: [9, 10]
+  regions: [CN, IN]
+
+violin:
+  tag: "OT"
+  marketing_name: "Xiaomi Pad 7S Pro 12.5"
+  models:
+    - "25053RP5CC"
+  android_versions: [15, 16]
+  regions: [CN]
+
+viva:
+  tag: "GD"
+  marketing_name: "Redmi Note 11 Pro 4G"
+  models:
+    - "2201116TG"
+  android_versions: [11, 12, 13]
+  regions: [Global, EEA, ID, RU, TR, TW]
+
+warhol:
+  tag: "PS"
+  marketing_name: "Xiaomi 17T Pro"
+  models:
+    - "2602EPTC0G"
+    - "2602EPTC0R"
+    - "M025EC"
+  android_versions: [16, 17]
+  regions: [CN, Global, EEA, ID, RU, TR, TW, JP]
+
+warm:
+  tag: "GV"
+  marketing_name: "Redmi A4 5G"
+  models:
+    - "24116PCC1I"
+    - "24116RNC1I"
+  android_versions: [14, 15, 16]
+  regions: [IN]
+
+warsaw:
+  tag: "HP"
+  marketing_name: "Redmi K90 Ultra"
+  models: []
+  android_versions: [16, 17]
+  regions: [CN]
+
+water:
+  tag: "GO"
+  marketing_name: "Redmi A2 / A2+ / POCO C51"
+  models:
+    - "2302EPCC4H"
+    - "2305EPCC4G"
+    - "23028RNCAG"
+    - "23026RN54G"
+    - "23028RN4DG"
+  android_versions: [13]
+  regions: [Global, EEA, IN, ID, RU, TW]
+  aliases: ["cloud"]
+
+wayne:
+  tag: "DC"
+  marketing_name: "Mi 6X"
+  models:
+    - "MI 6X"
+  android_versions: [8, 9]
+  regions: [CN]
+
+whyred:
+  tag: "EI"
+  marketing_name: "Redmi Note 5"
+  models:
+    - "Redmi Note 5"
+    - "Redmi Note 5 Pro"
+  android_versions: [7, 8, 9]
+  regions: [CN, Global, RU]
+
+willow:
+  tag: "CX"
+  marketing_name: "Redmi Note 8T"
+  models:
+    - "Redmi Note 8T"
+    - "willow"
+  android_versions: [9, 10, 11]
+  regions: [Global, EEA, RU]
+
+xaga:
+  tag: "LO"
+  marketing_name: "Redmi Note 11T Pro / Pro+"
+  models:
+    - "22041216G"
+    - "22041216C"
+    - "22041216I"
+    - "22041216UC"
+  android_versions: [12, 13, 14, 15, 16]
+  regions: [CN, Global, EEA, IN, RU, TR, TW]
+  aliases: ["xagain", "xagapro"]
+
+xun:
+  tag: "MU"
+  marketing_name: "Redmi Pad SE"
+  models:
+    - "23073RPBFC"
+    - "23073RPBFG"
+    - "23073RPBFL"
+  android_versions: [13, 14, 15, 16]
+  regions: [CN, Global, EEA, IN, ID, RU, TR, TW]
+
+yili:
+  tag: "AK"
+  marketing_name: "Redmi K Pad 2"
+  models:
+    - "26048RP6AC"
+  android_versions: [16, 17]
+  regions: [CN]
+
+ysl:
+  tag: "EF"
+  marketing_name: "Redmi S2"
+  models:
+    - "Redmi S2"
+  android_versions: [8, 9]
+  regions: [CN, Global, RU]
+
+yudi:
+  tag: "MH"
+  marketing_name: "Xiaomi Pad 6 Max 14"
+  models:
+    - "2307BRPDCC"
+  android_versions: [13, 14, 15, 16]
+  regions: [CN]
+
+yuechu:
+  tag: "MI"
+  marketing_name: "Xiaomi Civi 3"
+  models:
+    - "23046PNC9C"
+  android_versions: [13, 14, 15, 16]
+  regions: [CN]
+
+yunluo:
+  tag: "LY"
+  marketing_name: "Redmi Pad"
+  models:
+    - "22081283G"
+  android_versions: [12, 13, 14, 15, 16]
+  regions: [CN, Global, EEA, IN, ID, RU, TR, TW]
+
+yupei:
+  tag: "PZ"
+  marketing_name: "Xiaomi Pad 8 / Xiaomi Pad 9"
+  models:
+    - "25097RP43C"
+    - "25097RP43G"
+    - "25097RP43I"
+    - "M656BA"
+  android_versions: [16, 17]
+  regions: [CN, Global, EEA, IN, ID, RU, TR, TW]
+
+zephyr:
+  tag: "BU"
+  marketing_name: "Redmi Note 17 4G"
+  models:
+    - "26012RN62A"
+    - "26012RN62L"
+    - "26012RN62Y"
+  android_versions: [16]
+  regions: [Global, EEA, ID, RU, TR, TW]
+
+zeus:
+  tag: "LB"
+  marketing_name: "Xiaomi 12 Pro"
+  models:
+    - "2201122C"
+    - "2201122G"
+  android_versions: [12, 13, 14, 15, 16]
+  regions: [CN, Global, EEA, IN, ID, RU, TR, TW]
+
+zijin:
+  tag: "LP"
+  marketing_name: "Xiaomi Civi 1S"
+  models:
+    - "2109119BC"
+  android_versions: [12, 13, 14, 15, 16]
+  regions: [CN]
+
+ziyi:
+  tag: "LL"
+  marketing_name: "Xiaomi Civi 2"
+  models:
+    - "2210129SG"
+    - "2209129SC"
+  android_versions: [12, 13, 14, 15, 16]
+  regions: [CN, Global, EEA, RU, TR, TW]
+
+zizhan:
+  tag: "LR"
+  marketing_name: "Xiaomi MIX Fold 2"
+  models:
+    - "22061218C"
+  android_versions: [12, 13, 14, 15, 16]
+  regions: [CN]
+
+sweet_k6a:
+  tag: "HG"
+  marketing_name: "Redmi Note 10 Pro (sweet_k6a)"
+  models:
+    - "M2101K6G"
+    - "2209116AG"
+  android_versions: [11, 12, 13]
+  regions: [Global, EEA, ID, RU, TR]
+
+emerald_r:
+  tag: "FO"
+  marketing_name: "Redmi Note 13 Pro 4G / POCO M6 Pro (emerald_r)"
+  models:
+    - "2312FPCA6G"
+    - "23117RA68G"
+    - "2502FRA65G"
+  android_versions: [13, 14, 15, 16]
+  regions: [Global, EEA, RU, TR]
+
+rosemary_p:
+  tag: "FF"
+  marketing_name: "Redmi Note 10S (rosemary_p)"
+  models:
+    - "2207117BPG"
+    - "M2101K7BL"
+    - "M2101K7BNY"
+    - "M2101K7BG"
+    - "M2101K7BI"
+    - "22087RA4DI"
+  android_versions: [11, 12, 13]
+  regions: [Global, EEA, ID, RU, TR, TW]
+
+shennong_t:
+  tag: "ND"
+  marketing_name: "Xiaomi 14 Pro Titanium"
+  models:
+    - "2311BPN23C"
+  android_versions: [14, 15, 16]
+  regions: [CN]
+
+dandelion_c3l2:
+  tag: "CZ"
+  marketing_name: "Redmi 9A (dandelion_c3l2)"
+  models:
+    - "220233L2C"
+    - "220233L2G"
+    - "220233L2I"
+  android_versions: [10, 11]
+  regions: [CN, Global, EEA, IN, ID, RU, TW]
