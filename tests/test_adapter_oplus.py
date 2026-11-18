@@ -496,6 +496,9 @@ def test_vendor_configs_8_active_official_staggered_and_get_adapter() -> None:
         "realme",
         "asus",
         "vivo",
+        "tecno",
+        "infinix",
+        "itel",
     }
     assert set(enabled_vendors.keys()) == expected_active
 
@@ -514,7 +517,7 @@ def test_vendor_configs_8_active_official_staggered_and_get_adapter() -> None:
     assert configs["sony"].status == "awaiting_r2_and_cdf_seed"
     assert configs["motorola"].enabled is False
     assert configs["motorola"].status == "requires_lmsa_oauth_token"
-    for checkin_vid in ("nothing", "tecno", "infinix", "itel"):
+    for checkin_vid in ("nothing",):
         assert configs[checkin_vid].enabled is False
         assert configs[checkin_vid].status == "requires_device_authenticated_checkin"
     for suppressed_vid in ("huawei", "honor"):
@@ -531,6 +534,9 @@ def test_vendor_configs_8_active_official_staggered_and_get_adapter() -> None:
         "oneplus",
         "oppo",
         "realme",
+        "tecno",
+        "infinix",
+        "itel",
     ):
         inst = get_adapter(registered_vid)
         assert isinstance(inst, VendorAdapter)

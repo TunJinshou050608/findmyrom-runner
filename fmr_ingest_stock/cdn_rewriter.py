@@ -29,8 +29,8 @@ _EXTRACTION_MATRIX_PATH = (
 _FALLBACK_OFFICIAL_CDN_HOSTS: dict[str, tuple[str, ...]] = {
     "asus": ("asus.com", "asus.com.cn"),
     "google": ("dl.google.com", "dl.googleusercontent.com"),
-    "infinix": ("android.googleapis.com",),
-    "itel": ("android.googleapis.com",),
+    "infinix": ("android.googleapis.com", "gvt1.com"),
+    "itel": ("android.googleapis.com", "gvt1.com"),
     "motorola": ("android.googleapis.com", "lenovo.com", "motorola.com"),
     "nothing": ("android.googleapis.com", "nothing.tech"),
     "oneplus": (
@@ -90,7 +90,7 @@ _FALLBACK_OFFICIAL_CDN_HOSTS: dict[str, tuple[str, ...]] = {
         "sslcs.cdngc.net",
     ),
     "sony": ("sony.net", "sonymobile.com"),
-    "tecno": ("android.googleapis.com",),
+    "tecno": ("android.googleapis.com", "gvt1.com"),
     "vivo": ("bbk.com", "vivo.com", "vivo.com.cn", "vivoglobal.com"),
     "xiaomi": (FAST_HOST, "d.miui.com", "miui.com", "xiaomi.com"),
 }

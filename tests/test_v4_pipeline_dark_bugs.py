@@ -511,13 +511,16 @@ def test_vendors_yaml_and_cli_max_devices() -> None:
         "realme": 25,
         "asus": 60,
         "vivo": 60,
+        "tecno": 20,
+        "infinix": 20,
+        "itel": 20,
     }
     assert configs["google"].verify_workers == 1
     for vid, expected_max in expected_active.items():
         assert configs[vid].enabled is True
         assert configs[vid].max_devices == expected_max
 
-    for disabled_vid in ("rog", "motorola", "nothing", "tecno", "infinix", "itel", "sony", "huawei", "honor"):
+    for disabled_vid in ("rog", "motorola", "nothing", "sony", "huawei", "honor"):
         assert configs[disabled_vid].enabled is False
 
     parser = build_parser()

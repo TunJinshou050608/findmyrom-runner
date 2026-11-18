@@ -41,6 +41,6 @@ def marketing_name(device):
         prefix,pattern=prefixes[vendor]
         if re.search(pattern,name,re.I):name=prefix+' '+name
     if vendor=='asus' and not re.match(r'^(?:ASUS|ROG)\b',name,re.I):name='ASUS '+name
-    for pattern,value in [(r'^Realme\b','realme'),(r'^Oppo\b','OPPO'),(r'^Vivo\b','vivo')]:
+    for pattern,value in [(r'^Realme\b','realme'),(r'^Oppo\b','OPPO'),(r'^Vivo\b','vivo'),(r'^Tecno\b','TECNO'),(r'^Infinix\b','Infinix'),(r'^Itel\b','itel')]:
         name=re.sub(pattern,value,name,flags=re.I)
     return clean_model_name(name)

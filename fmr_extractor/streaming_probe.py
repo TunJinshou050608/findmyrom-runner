@@ -19,7 +19,7 @@ import time
 import xml.etree.ElementTree as ET
 import zipfile
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import urljoin, urlsplit
 
 import httpx
 import lz4.frame
@@ -34,7 +34,7 @@ LIMITS = dict(IMAGE_LIMITS, recovery=(65536, 256*1024*1024, b'ANDROID!'))
 
 CHUNK = 256 * 1024
 BUDGET = 250 * 1024 * 1024
-ALLOWED = ('dl.google.com', 'allawnfs.com', 'allawnofs.com',
+ALLOWED = ('dl.google.com', 'android.googleapis.com', 'gvt1.com', 'allawnfs.com', 'allawnofs.com',
            'vivoglobal.com', 'vivo.com.cn', 'bigota.d.miui.com', 'hugeota.d.miui.com',
            'ultimota.d.miui.com', 'ultimateota.d.miui.com', 'superota.d.miui.com',
            'bkt-sgp-miui-ota-update-alisgp.oss-ap-southeast-1.aliyuncs.com',
@@ -68,42 +68,63 @@ class RangeReader(io.RawIOBase):
         if self.etag:
             headers['If-Match'] = self.etag
         self.requests += 1
-        with self.client.stream('GET', self.url, headers=headers, follow_redirects=False, timeout=30) as r:
-            if r.status_code==401 and self.refresh and not _renewed:
-                r.close()
-                self.headers=self.refresh()
-                return self.fetch(start,length,_renewed=True)
-            # Close an ignored Range BEFORE reading its multi-GB response body.
-            if r.status_code != 206:
-                raise ValueError(f'Range HTTP {r.status_code}; body not consumed')
-            m = re.fullmatch(r'bytes (\d+)-(\d+)/(\d+)', r.headers.get('content-range', ''))
-            if not m or tuple(map(int, m.groups()[:2])) != (start, end):
-                raise ValueError('Invalid exact Content-Range')
-            total = int(m[3])
-            if end >= total or (self.size is not None and total != self.size):
-                raise ValueError('Source size changed')
-            etag = r.headers.get('etag')
-            if self.etag and etag and etag != self.etag:
-                raise ValueError('Source ETag changed')
-            if etag and not etag.startswith('W/'):
-                self.etag = etag
-            self.size = total
-            encoding = r.headers.get('content-encoding', 'identity').lower()
-            self.encodings.add(encoding)
-            host = urlsplit(self.url).hostname
-            oplus = any(host == d or host.endswith('.'+d) for d in ('allawnfs.com','allawnofs.com'))
-            if encoding != 'identity' and not (encoding == 'utf-8' and oplus):
-                raise ValueError('Unsupported encoded Range response')
-            result = bytearray()
-            for chunk in r.iter_raw(65536):
-                self.used += len(chunk)
-                if (self.used > self.budget or len(result)+len(chunk) > length
-                        or time.monotonic() > self.deadline):
-                    raise ValueError('Range response exceeded bounds')
-                result.extend(chunk)
-            if len(result) != length:
-                raise ValueError('Truncated Range response')
-            return bytes(result)
+        current_url = self.url
+        for _ in range(4):
+            with self.client.stream('GET', current_url, headers=headers, follow_redirects=False, timeout=30) as r:
+                if r.status_code in (301, 302, 303, 307, 308):
+                    location = r.headers.get('location', '').strip()
+                    if not location:
+                        raise ValueError('Redirect missing Location header')
+                    next_url = urljoin(current_url, location)
+                    parsed_next = urlsplit(next_url)
+                    next_host = (parsed_next.hostname or '').lower()
+                    if (
+                        parsed_next.scheme != 'https'
+                        or parsed_next.username
+                        or parsed_next.password
+                        or parsed_next.port not in (None, 443)
+                        or not any(next_host == d or next_host.endswith('.' + d) for d in ALLOWED)
+                    ):
+                        raise ValueError('Redirect outside fixed official CDN allowlist')
+                    current_url = next_url
+                    continue
+                if r.status_code == 401 and self.refresh and not _renewed:
+                    r.close()
+                    self.headers = self.refresh()
+                    return self.fetch(start, length, _renewed=True)
+                # Close an ignored Range BEFORE reading its multi-GB response body.
+                if r.status_code != 206:
+                    raise ValueError(f'Range HTTP {r.status_code}; body not consumed')
+                m = re.fullmatch(r'bytes (\d+)-(\d+)/(\d+)', r.headers.get('content-range', ''))
+                if not m or tuple(map(int, m.groups()[:2])) != (start, end):
+                    raise ValueError('Invalid exact Content-Range')
+                total = int(m[3])
+                if end >= total or (self.size is not None and total != self.size):
+                    raise ValueError('Source size changed')
+                etag = r.headers.get('etag')
+                if self.etag and etag and etag != self.etag:
+                    raise ValueError('Source ETag changed')
+                if etag and not etag.startswith('W/'):
+                    self.etag = etag
+                self.size = total
+                encoding = r.headers.get('content-encoding', 'identity').lower()
+                self.encodings.add(encoding)
+                host = urlsplit(current_url).hostname
+                oplus = any(host == d or host.endswith('.' + d) for d in ('allawnfs.com', 'allawnofs.com'))
+                if encoding != 'identity' and not (encoding == 'utf-8' and oplus):
+                    raise ValueError('Unsupported encoded Range response')
+                result = bytearray()
+                for chunk in r.iter_raw(65536):
+                    self.used += len(chunk)
+                    if (self.used > self.budget or len(result) + len(chunk) > length
+                            or time.monotonic() > self.deadline):
+                        raise ValueError('Range response exceeded bounds')
+                    result.extend(chunk)
+                if len(result) != length:
+                    raise ValueError('Truncated Range response')
+                self.url = current_url
+                return bytes(result)
+        raise ValueError('Too many HTTP redirects')
 
     def readable(self): return True
     def seekable(self): return True

@@ -122,33 +122,36 @@ vendors:
     display_name: Nothing
 
   tecno:
-    enabled: false
+    enabled: true
     adapter: tecno
-    status: requires_device_authenticated_checkin
+    status: active_official
     tier: official
     bucket: 5
     max_collect_seconds: 600
     verify_workers: 4
+    max_devices: 20
     display_name: TECNO
 
   infinix:
-    enabled: false
+    enabled: true
     adapter: infinix
-    status: requires_device_authenticated_checkin
+    status: active_official
     tier: official
     bucket: 5
     max_collect_seconds: 600
     verify_workers: 4
+    max_devices: 20
     display_name: Infinix
 
   itel:
-    enabled: false
+    enabled: true
     adapter: itel
-    status: requires_device_authenticated_checkin
+    status: active_official
     tier: official
     bucket: 11
     max_collect_seconds: 600
     verify_workers: 4
+    max_devices: 20
     display_name: itel
 
   sony:

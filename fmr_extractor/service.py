@@ -24,7 +24,7 @@ from .prepared import PreparedImages, verify_control
 
 LOG = logging.getLogger('fmr-extractor')
 MAX_BODY = 8192
-BRANDS = {'xiaomi', 'google', 'oneplus', 'oppo', 'realme', 'vivo', 'samsung'}
+BRANDS = {'xiaomi', 'google', 'oneplus', 'oppo', 'realme', 'vivo', 'samsung', 'tecno', 'infinix', 'itel'}
 
 
 def verify_job(body, signature, secret, now=None):

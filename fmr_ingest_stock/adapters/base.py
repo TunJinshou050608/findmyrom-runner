@@ -30,6 +30,7 @@ OFFICIAL_METADATA_HOSTS: frozenset[str] = frozenset(
     {
         "developers.google.com",
         "storage.googleapis.com",
+        "android.googleapis.com",
         "fota-cloud-dn.ospserver.net",
         "doc.samsungmobile.com",
         "neofussvr.sslcs.cdngc.net",

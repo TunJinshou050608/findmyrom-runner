@@ -687,7 +687,9 @@ def normalize_transsion_firmware(pkg: dict[str, Any] | TranssionFirmware) -> dic
     android_ver = parsed.get('android_version')
     if (not android_ver or android_ver == 'unknown') and d.get('sdk_level'):
         sdk = d['sdk_level']
-        if sdk >= 35:
+        if sdk >= 36:
+            android_ver = str(sdk - 20)
+        elif sdk == 35:
             android_ver = '15'
         elif sdk == 34:
             android_ver = '14'

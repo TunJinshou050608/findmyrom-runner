@@ -4,12 +4,15 @@
     "brands": [
       "asus",
       "google",
+      "infinix",
+      "itel",
       "motorola",
       "nothing",
       "oneplus",
       "oppo",
       "realme",
       "rog",
+      "tecno",
       "vivo",
       "xiaomi"
     ],
@@ -28,10 +31,13 @@
   "on_demand": {
     "brands": [
       "google",
+      "infinix",
+      "itel",
       "oneplus",
       "oppo",
       "realme",
       "samsung",
+      "tecno",
       "vivo",
       "xiaomi"
     ],
@@ -95,10 +101,12 @@
       "dl.googleusercontent.com"
     ],
     "infinix": [
-      "android.googleapis.com"
+      "android.googleapis.com",
+      "gvt1.com"
     ],
     "itel": [
-      "android.googleapis.com"
+      "android.googleapis.com",
+      "gvt1.com"
     ],
     "motorola": [
       "android.googleapis.com",
@@ -173,7 +181,8 @@
       "sonymobile.com"
     ],
     "tecno": [
-      "android.googleapis.com"
+      "android.googleapis.com",
+      "gvt1.com"
     ],
     "vivo": [
       "bbk.com",

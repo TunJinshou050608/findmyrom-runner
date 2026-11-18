@@ -133,6 +133,10 @@ def get_adapter(vendor_id: str, **kwargs: Any) -> VendorAdapter:
         from .oplus import OPlusAdapter
 
         return OPlusAdapter(key, **kwargs)
+    if key in ("tecno", "infinix", "itel"):
+        from .transsion import TranssionAdapter
+
+        return TranssionAdapter(key, **kwargs)
 
     raise KeyError(f"No official adapter registered for vendor {vendor_id!r}")
 

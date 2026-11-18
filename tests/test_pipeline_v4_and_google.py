@@ -140,6 +140,9 @@ def test_zero_third_party_mirrors_in_cdn_rewriter_and_vendors_yaml():
         "realme",
         "asus",
         "vivo",
+        "tecno",
+        "infinix",
+        "itel",
     }
     for vid in active_official_vendors:
         assert configs[vid].enabled is True
@@ -153,9 +156,6 @@ def test_zero_third_party_mirrors_in_cdn_rewriter_and_vendors_yaml():
         "rog": ("covered_by_asus_adapter", "official"),
         "motorola": ("requires_lmsa_oauth_token", "official"),
         "nothing": ("requires_device_authenticated_checkin", "official"),
-        "tecno": ("requires_device_authenticated_checkin", "official"),
-        "infinix": ("requires_device_authenticated_checkin", "official"),
-        "itel": ("requires_device_authenticated_checkin", "official"),
         "sony": ("awaiting_r2_and_cdf_seed", "official"),
         "huawei": ("suppressed_closed_bootloader", "suppressed"),
         "honor": ("suppressed_closed_bootloader", "suppressed"),

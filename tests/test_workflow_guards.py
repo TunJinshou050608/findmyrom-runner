@@ -356,7 +356,10 @@ def test_local_collect_script_and_vendors_yaml_contract():
     assert vendors['google']['verify_workers'] == 1
     assert vendors['google']['max_devices'] == 25
     enabled = {vid for vid, cfg in vendors.items() if cfg.get('enabled') is True}
-    assert enabled == {'google', 'samsung', 'xiaomi', 'oneplus', 'oppo', 'realme', 'asus', 'vivo'}
+    assert enabled == {
+        'google', 'samsung', 'xiaomi', 'oneplus', 'oppo', 'realme', 'asus', 'vivo',
+        'tecno', 'infinix', 'itel',
+    }
 
 
 def test_local_collect_daemon_adaptive_sleep_and_next_due(tmp_path: Path):

@@ -72,7 +72,7 @@ def test_extraction_matrix_v1_contract_and_helpers():
     assert isinstance(EXTRACTION_BRANDS, frozenset)
     assert isinstance(EXTRACTION_PACKAGES, frozenset)
     assert EXTRACTION_BRANDS == frozenset(
-        {"asus", "google", "motorola", "nothing", "oneplus", "oppo", "realme", "rog", "vivo", "xiaomi"}
+        {"asus", "google", "infinix", "itel", "motorola", "nothing", "oneplus", "oppo", "realme", "rog", "tecno", "vivo", "xiaomi"}
     )
     assert EXTRACTION_PACKAGES == frozenset({"factory_zip", "fastboot_zip", "recovery_zip"})
 
@@ -103,6 +103,7 @@ def test_extraction_matrix_v1_contract_and_helpers():
 
 def test_extraction_eligible_preserves_exact_semantics():
     assert extraction_eligible("oneplus", "recovery_zip", "https://ota.oneplus.net/rom/build.zip") is True
+    assert extraction_eligible("tecno", "recovery_zip", "https://android.googleapis.com/packages/ota-api/package/aabbcc112233.zip") is True
     assert extraction_eligible("google", "factory_zip", "https://dl.google.com/dl/android/aosp/husky.ZIP") is True
     assert extraction_eligible("samsung", "samsung_zip", "https://samsungmobile.com/fw.zip") is False
     assert extraction_eligible("oneplus", "fastboot_tgz", "https://ota.oneplus.net/rom/build.tgz") is False
