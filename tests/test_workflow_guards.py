@@ -358,7 +358,7 @@ def test_local_collect_script_and_vendors_yaml_contract():
     enabled = {vid for vid, cfg in vendors.items() if cfg.get('enabled') is True}
     assert enabled == {
         'google', 'samsung', 'xiaomi', 'oneplus', 'oppo', 'realme', 'asus', 'vivo',
-        'tecno', 'infinix', 'itel',
+        'tecno', 'infinix', 'itel', 'sony',
     }
 
 

@@ -1,0 +1,3400 @@
+schema_version: 1
+source: Curated Sony Xperia smartphone & tablet customization/SPC seed list
+products:
+  PDX-267:
+    label: Xperia 1 VIII
+    device_type: phone
+    models:
+      XQ-GE44:
+      - id: '28655496'
+        name: Customized JP
+        spc: '43041651'
+      XQ-GE54:
+      - id: '28680399'
+        name: Customized EU/UK
+        spc: '43041667'
+      XQ-GE74:
+      - id: '28657952'
+        name: Customized HK
+        spc: '43041672'
+      - id: '28658093'
+        name: Customized SEA
+        spc: '43041696'
+      - id: '28753112'
+        name: Customized TW
+        spc: '43041684'
+      SO-51G:
+      - id: '28655356'
+        name: NTT DoCoMo JP
+        spc: '43041633'
+      SOG17:
+      - id: '28655407'
+        name: KDDI JP
+        spc: '43041639'
+      A601SO:
+      - id: '28655448'
+        name: SoftBank JP
+        spc: '43041645'
+    year: 2026
+  PDX-268:
+    label: Xperia 10 VIII
+    device_type: phone
+    models:
+      XQ-GH44:
+      - id: '28910647'
+        name: Customized JP
+        spc: '43041729'
+      XQ-GH54:
+      - id: '28910237'
+        name: Customized EU/UK
+        spc: '43041632'
+      XQ-GH74:
+      - id: '28910309'
+        name: Customized TW
+        spc: '43041737'
+      - id: '28910350'
+        name: Customized HK
+        spc: '43041734'
+      - id: '28910392'
+        name: Customized SEA
+        spc: '43041740'
+      SO-52G:
+      - id: '28910116'
+        name: NTT DoCoMo JP
+        spc: '43041720'
+      SOG18:
+      - id: '28910535'
+        name: KDDI JP
+        spc: '43041723'
+      A602SO:
+      - id: '28910589'
+        name: SoftBank JP
+        spc: '43041726'
+    year: 2026
+  PDX-256:
+    label: Xperia 1 VII
+    device_type: phone
+    models:
+      XQ-FS44:
+      - id: '27666395'
+        name: Customized JP
+        spc: '43041537'
+      XQ-FS54:
+      - id: '27666440'
+        name: Customized EU/UK
+        spc: '43041546'
+      XQ-FS72:
+      - id: '27666507'
+        name: Customized HK
+        spc: '43041550'
+      - id: '27666560'
+        name: Customized TW
+        spc: '43041556'
+      - id: '27666617'
+        name: Customized SEA
+        spc: '43041562'
+      - id: '27666667'
+        name: Customized VN
+        spc: '43041580'
+      SO-51F:
+      - id: '27666270'
+        name: NTT DoCoMo JP
+        spc: '43041519'
+      SOG15:
+      - id: '27666293'
+        name: KDDI JP
+        spc: '43041525'
+      A501SO:
+      - id: '27666349'
+        name: SoftBank JP
+        spc: '43041531'
+    year: 2025
+  PDX-257:
+    label: Xperia 10 VII
+    device_type: phone
+    models:
+      XQ-FE44:
+      - id: '28031367'
+        name: Customized JP
+        spc: '43041598'
+      XQ-FE54:
+      - id: '28031411'
+        name: Customized EU/UK
+        spc: '43041518'
+      XQ-FE72:
+      - id: '28031454'
+        name: Customized HK
+        spc: '43041603'
+      - id: '28039119'
+        name: Customized SEA
+        spc: '43041609'
+      - id: '28052253'
+        name: Customized TW
+        spc: '43041606'
+      SO-52F:
+      - id: '27997801'
+        name: NTT DoCoMo JP
+        spc: '43041583'
+      SOG16:
+      - id: '27997889'
+        name: KDDI JP
+        spc: '43041589'
+      A502SO:
+      - id: '27997936'
+        name: SoftBank JP
+        spc: '43041592'
+    year: 2025
+  PDX-245:
+    label: Xperia 1 VI
+    device_type: phone
+    models:
+      XQ-EC44:
+      - id: '26925427'
+        name: Customized JP
+        spc: '43041336'
+      XQ-EC54:
+      - id: '26925038'
+        name: Customized EU/UK
+        spc: '43041340'
+      - id: '26925085'
+        name: EE UK
+        spc: '43041349'
+      - id: '26925132'
+        name: O2 UK
+        spc: '43041346'
+      XQ-EC72:
+      - id: '26925191'
+        name: Customized HK
+        spc: '43041372'
+      - id: '26925233'
+        name: Customized SEA
+        spc: '43041388'
+      - id: '26925311'
+        name: Customized TW
+        spc: '43041380'
+      SO-51E:
+      - id: '26924818'
+        name: NTT DoCoMo JP
+        spc: '43041322'
+      SOG13:
+      - id: '26924891'
+        name: KDDI JP
+        spc: '43041328'
+      A401SO:
+      - id: '26924943'
+        name: SoftBank JP
+        spc: '43041332'
+    year: 2024
+  PDX-246:
+    label: Xperia 10 VI
+    device_type: phone
+    models:
+      XQ-ES44:
+      - id: '26981889'
+        name: Customized JP
+        spc: '43041424'
+      - id: '27141466'
+        name: Rakuten Open Device JP
+        spc: '43041416'
+      XQ-ES54:
+      - id: '26953648'
+        name: EE UK
+        spc: '43041439'
+      - id: '26961256'
+        name: O2 UK
+        spc: '43041435'
+      - id: '26964951'
+        name: Customized EU/UK
+        spc: '43041321'
+      XQ-ES72:
+      - id: '26957417'
+        name: Customized HK
+        spc: '43041455'
+      - id: '26957494'
+        name: Customized TW
+        spc: '43041459'
+      - id: '26957581'
+        name: Customized SEA
+        spc: '43041463'
+      SO-52E:
+      - id: '26952900'
+        name: NTT DoCoMo JP
+        spc: '43041392'
+      SOG14:
+      - id: '26953197'
+        name: KDDI JP
+        spc: '43041400'
+      A402SO:
+      - id: '26953406'
+        name: SoftBank JP
+        spc: '43041408'
+    year: 2024
+  PDX-234:
+    label: Xperia 1 V
+    device_type: phone
+    models:
+      XQ-DQ44:
+      - id: '25853834'
+        name: Customized JP
+        spc: '43041034'
+      XQ-DQ54:
+      - id: '25870366'
+        name: EE UK
+        spc: '43041050'
+      - id: '25870536'
+        name: Customized EU/UK
+        spc: '43041038'
+      - id: '25949612'
+        name: O2 UK
+        spc: '43041047'
+      XQ-DQ62:
+      - id: '25870199'
+        name: Customized US
+        spc: '43041076'
+      XQ-DQ72:
+      - id: '25864871'
+        name: Customized HK
+        spc: '43041085'
+      - id: '25865018'
+        name: Customized TW
+        spc: '43041092'
+      - id: '25865110'
+        name: Customized SEA
+        spc: '43041099'
+      - id: '25865180'
+        name: Customized CN
+        spc: '43041011'
+      SO-51D:
+      - id: '25837244'
+        name: NTT DoCoMo JP
+        spc: '43041013'
+      SOG10:
+      - id: '25844535'
+        name: KDDI JP
+        spc: '43041022'
+      A301SO:
+      - id: '25853383'
+        name: SoftBank JP
+        spc: '43041028'
+    year: 2023
+  PDX-237:
+    label: Xperia 5 V
+    device_type: phone
+    models:
+      XQ-DE44:
+      - id: '26211498'
+        name: Customized JP
+        spc: '43041254'
+      - id: '26211598'
+        name: Rakuten JP
+        spc: '43041251'
+      XQ-DE54:
+      - id: '26210925'
+        name: Customized EU/UK
+        spc: '43041183'
+      - id: '26211025'
+        name: Orange MCV
+        spc: '43041259'
+      - id: '26239716'
+        name: O2 UK
+        spc: '43041262'
+      XQ-DE72:
+      - id: '26210698'
+        name: Customized TW
+        spc: '43041284'
+      - id: '26211242'
+        name: Customized SEA
+        spc: '43041287'
+      - id: '26211300'
+        name: Customized HK
+        spc: '43041281'
+      - id: '26211386'
+        name: Customized CN
+        spc: '43041278'
+      SO-53D:
+      - id: '26210753'
+        name: NTT DoCoMo JP
+        spc: '43041231'
+      SOG12:
+      - id: '26211731'
+        name: KDDI JP
+        spc: '43041239'
+    year: 2023
+  PDX-235:
+    label: Xperia 10 V
+    device_type: phone
+    models:
+      XQ-DC44:
+      - id: '25901086'
+        name: Rakuten JP
+        spc: '43041126'
+      - id: '25901155'
+        name: Customized JP
+        spc: '43041290'
+      - id: '25901225'
+        name: MVNO JP
+        spc: '43041130'
+      XQ-DC54:
+      - id: '25927837'
+        name: Orange MCV
+        spc: '43041142'
+      - id: '25927923'
+        name: O2 UK
+        spc: '43041146'
+      - id: '25927999'
+        name: EE UK
+        spc: '43041150'
+      - id: '25932957'
+        name: Customized EU/UK
+        spc: '43041134'
+      XQ-DC72:
+      - id: '25928084'
+        name: Customized SEA
+        spc: '43041179'
+      - id: '25928134'
+        name: Customized TW
+        spc: '43041175'
+      - id: '25928195'
+        name: Customized HK
+        spc: '43041171'
+      SO-52D:
+      - id: '25901280'
+        name: NTT DoCoMo JP
+        spc: '43041102'
+      - id: '26540395'
+        name: NTT DoCoMo JP MLK
+        spc: '43041320'
+      SOG11:
+      - id: '25901395'
+        name: KDDI JP
+        spc: '43041110'
+      A302SO:
+      - id: '25901485'
+        name: SoftBank JP
+        spc: '43041118'
+    year: 2023
+  PDX-223:
+    label: Xperia 1 IV
+    device_type: phone
+    models:
+      XQ-CT44:
+      - id: '24789429'
+        name: Customized JP
+        spc: '43040620'
+      XQ-CT54:
+      - id: '24665778'
+        name: O2 UK
+        spc: '43040638'
+      - id: '24665814'
+        name: Altice FR/PT
+        spc: '43040644'
+      - id: '24665850'
+        name: EE UK
+        spc: '43040641'
+      - id: '24665885'
+        name: Customized EU/UK
+        spc: '43040629'
+      XQ-CT62:
+      - id: '25055844'
+        name: Customized US
+        spc: '43040660'
+      XQ-CT72:
+      - id: '24615687'
+        name: Customized CN
+        spc: '43040575'
+      - id: '24615782'
+        name: Customized HK
+        spc: '43040671'
+      - id: '24615924'
+        name: Customized TW
+        spc: '43040680'
+      - id: '24616010'
+        name: Customized SEA
+        spc: '43040689'
+      SO-51C:
+      - id: '24677182'
+        name: NTT DoCoMo JP
+        spc: '43040596'
+      SOG06:
+      - id: '24677546'
+        name: KDDI JP
+        spc: '43040602'
+      A201SO:
+      - id: '24677712'
+        name: SoftBank JP
+        spc: '43040611'
+    year: 2022
+  PDX-224:
+    label: Xperia 5 IV
+    device_type: phone
+    models:
+      XQ-CQ44:
+      - id: '24928353'
+        name: Rakuten JP
+        spc: '43040914'
+      - id: '24928406'
+        name: Customized JP
+        spc: '43040918'
+      XQ-CQ54:
+      - id: '24922820'
+        name: Customized EU/UK
+        spc: '43040595'
+      - id: '24927240'
+        name: O2 UK
+        spc: '43040929'
+      - id: '24927746'
+        name: Orange MCV
+        spc: '43040925'
+      - id: '24927791'
+        name: Altice FR/PT
+        spc: '43040937'
+      XQ-CQ62:
+      - id: '24927864'
+        name: Customized US
+        spc: '43040954'
+      XQ-CQ72:
+      - id: '24927983'
+        name: Customized TW
+        spc: '43040966'
+      - id: '24928042'
+        name: Customized CN
+        spc: '43040958'
+      - id: '24928107'
+        name: Customized SEA
+        spc: '43040970'
+      - id: '24928295'
+        name: Customized HK
+        spc: '43040962'
+      SO-54C:
+      - id: '24935985'
+        name: NTT DoCoMo JP
+        spc: '43040890'
+      SOG09:
+      - id: '24936126'
+        name: KDDI JP
+        spc: '43040898'
+      A204SO:
+      - id: '24936273'
+        name: SoftBank JP
+        spc: '43040906'
+    year: 2022
+  PDX-225:
+    label: Xperia 10 IV
+    device_type: phone
+    models:
+      XQ-CC44:
+      - id: '24703407'
+        name: Rakuten JP
+        spc: '43040729'
+      - id: '24703474'
+        name: MVNO JP
+        spc: '43040733'
+      XQ-CC54:
+      - id: '24702829'
+        name: O2 UK
+        spc: '43040753'
+      - id: '24702868'
+        name: EE UK
+        spc: '43040757'
+      - id: '24702918'
+        name: Orange MCV
+        spc: '43040749'
+      - id: '24702985'
+        name: Vodafone MCV
+        spc: '43040765'
+      - id: '24703070'
+        name: Altice FR/PT
+        spc: '43040761'
+      - id: '24703124'
+        name: Customized EU/UK
+        spc: '43040741'
+      XQ-CC72:
+      - id: '24703208'
+        name: Customized SEA
+        spc: '43040785'
+      - id: '24703252'
+        name: Customized HK
+        spc: '43040777'
+      - id: '24703314'
+        name: Customized TW
+        spc: '43040781'
+      SO-52C:
+      - id: '24703518'
+        name: NTT DoCoMo JP
+        spc: '43040695'
+      SOG07:
+      - id: '24703628'
+        name: KDDI JP
+        spc: '43040705'
+      A202SO:
+      - id: '24703731'
+        name: SoftBank JP
+        spc: '43040717'
+    year: 2022
+  PDX-226:
+    label: Xperia Ace III
+    device_type: phone
+    models:
+      SO-53C:
+      - id: '24641610'
+        name: NTT DoCoMo JP
+        spc: '43040789'
+      SOG08:
+      - id: '24641901'
+        name: KDDI JP
+        spc: '43040798'
+      A203SO:
+      - id: '24641961'
+        name: Y!mobile JP
+        spc: '43040813'
+    year: 2022
+  PDX-217:
+    label: Xperia PRO-I
+    device_type: phone
+    models:
+      XQ-BE42:
+      - id: '23835884'
+        name: Customized JP
+        spc: '43040526'
+      XQ-BE52:
+      - id: '23701010'
+        name: Customized EEA
+        spc: '43040528'
+      - id: '23707536'
+        name: Customized UK
+        spc: '43040527'
+      - id: '23924302'
+        name: O2 UK
+        spc: '43040531'
+      XQ-BE62:
+      - id: '23636711'
+        name: Customized US
+        spc: '43040536'
+      XQ-BE72:
+      - id: '23634515'
+        name: Customized CN
+        spc: '43040537'
+      - id: '23635995'
+        name: Customized TW
+        spc: '43040539'
+      - id: '23636595'
+        name: Customized RU
+        spc: '43040535'
+      - id: '23636608'
+        name: Customized HK
+        spc: '43040538'
+      - id: '23865922'
+        name: Customized SEA
+        spc: '43040540'
+    year: 2021
+  PDX-215:
+    label: Xperia 1 III
+    device_type: phone
+    models:
+      XQ-BC42:
+      - id: '23163231'
+        name: Customized JP
+        spc: '43040238'
+      XQ-BC52:
+      - id: '23119726'
+        name: Orange MCV
+        spc: '43040250'
+      - id: '23119751'
+        name: EE UK
+        spc: '43040256'
+      - id: '23119804'
+        name: Customized EEA
+        spc: '43040244'
+      - id: '23119856'
+        name: Customized UK
+        spc: '43040241'
+      - id: '23119898'
+        name: O2 UK
+        spc: '43040253'
+      XQ-BC62:
+      - id: '23131371'
+        name: Customized US
+        spc: '43040274'
+      XQ-BC72:
+      - id: '23078028'
+        name: Customized RU
+        spc: '43040271'
+      - id: '23078030'
+        name: Customized SEA
+        spc: '43040443'
+      - id: '23078032'
+        name: Customized HK
+        spc: '43040283'
+      - id: '23078035'
+        name: Customized TW
+        spc: '43040289'
+      - id: '23119550'
+        name: Customized CN
+        spc: '43040277'
+      SO-51B:
+      - id: '23119939'
+        name: NTT DoCoMo JP
+        spc: '43040217'
+      SOG03:
+      - id: '23120050'
+        name: KDDI JP
+        spc: '43040223'
+      A101SO:
+      - id: '23120003'
+        name: SoftBank JP
+        spc: '43040229'
+    year: 2021
+  PDX-214:
+    label: Xperia 5 III
+    device_type: phone
+    models:
+      XQ-BQ42:
+      - id: '23248580'
+        name: Customized JP
+        spc: '43040565'
+      XQ-BQ52:
+      - id: '23243553'
+        name: O2 UK
+        spc: '43040393'
+      - id: '23243603'
+        name: Orange MCV
+        spc: '43040390'
+      - id: '23243620'
+        name: EE UK
+        spc: '43040396'
+      - id: '23243662'
+        name: Customized UK
+        spc: '43040381'
+      - id: '23287419'
+        name: Customized EEA
+        spc: '43040384'
+      - id: '23288936'
+        name: Altice FR/PT
+        spc: '43040399'
+      - id: '23365115'
+        name: Vodafone LC Not Net Locked
+        spc: '43040402'
+      - id: '23365211'
+        name: Vodafone UK
+        spc: '43040405'
+      XQ-BQ62:
+      - id: '23129819'
+        name: Customized US
+        spc: '43040414'
+      XQ-BQ72:
+      - id: '23243628'
+        name: Customized TW
+        spc: '43040423'
+      - id: '23243642'
+        name: Customized RU
+        spc: '43040411'
+      - id: '23243684'
+        name: Customized SEA
+        spc: '43040427'
+      - id: '23248625'
+        name: Customized CN
+        spc: '43040417'
+      - id: '23278672'
+        name: Customized HK
+        spc: '43040420'
+      SO-53B:
+      - id: '23755407'
+        name: NTT DoCoMo JP
+        spc: '43040541'
+      SOG05:
+      - id: '23756672'
+        name: KDDI JP
+        spc: '43040549'
+      A103SO:
+      - id: '23756775'
+        name: SoftBank JP
+        spc: '43040557'
+    year: 2021
+  PDX-213:
+    label: Xperia 10 III (Lite)
+    device_type: phone
+    models:
+      XQ-BT44:
+      - id: '23196780'
+        name: Rakuten JP
+        spc: '43040322'
+      - id: '23197177'
+        name: MVNO JP
+        spc: '43040326'
+      XQ-BT52:
+      - id: '23120584'
+        name: Orange MCV
+        spc: '43040341'
+      - id: '23120596'
+        name: Customized HK
+        spc: '43040363'
+      - id: '23120619'
+        name: Altice FR/PT
+        spc: '43040350'
+      - id: '23120635'
+        name: EE UK
+        spc: '43040347'
+      - id: '23120643'
+        name: Vodafone IE/UK
+        spc: '43040356'
+      - id: '23120657'
+        name: Vodafone LC Not Net Locked
+        spc: '43040353'
+      - id: '23120678'
+        name: Customized EEA
+        spc: '43040213'
+      - id: '23120715'
+        name: Customized UK
+        spc: '43040330'
+      - id: '23120730'
+        name: O2 UK
+        spc: '43040344'
+      - id: '23120736'
+        name: Customized TW
+        spc: '43040367'
+      - id: '23168982'
+        name: Customized SEA
+        spc: '43040371'
+      SO-52B:
+      - id: '23120523'
+        name: NTT DoCoMo JP
+        spc: '43040298'
+      SOG04:
+      - id: '23120552'
+        name: KDDI JP
+        spc: '43040306'
+      A102SO:
+      - id: '23120760'
+        name: Y!mobile JP
+        spc: '43040314'
+    year: 2021
+  PDX-212:
+    label: Xperia Ace II
+    device_type: phone
+    models:
+      SO-41B:
+      - id: '23121007'
+        name: NTT DoCoMo JP
+        spc: '43040375'
+    year: 2021
+  PDX-204:
+    label: Xperia PRO
+    device_type: phone
+    models:
+      XQ-AQ52:
+      - id: 1322-1932
+        name: Customized JP
+      - id: 1322-2432
+        name: Customized EU
+      - id: 1322-2857
+        name: Customized UK
+      XQ-AQ62:
+      - id: 1322-1486
+        name: Customized US
+    year: 2020
+  PDX-203:
+    label: Xperia 1 II
+    device_type: phone
+    models:
+      XQ-AT42:
+      - id: 1322-1449
+        name: Customized JP
+      XQ-AT51:
+      - id: 1320-8464
+        name: Service Exchange Unit
+      - id: 1321-7192
+        name: Customized UK
+      - id: 1321-7656
+        name: Orange MCV
+      - id: 1321-7706
+        name: Customized EU
+      - id: 1321-7799
+        name: Customized US
+      - id: 1321-8373
+        name: StoreFront
+      - id: 1321-8375
+        name: O2 Pay monthly UK
+      - id: 1321-8392
+        name: Altice FR/PT
+      - id: 1321-8394
+        name: Vodafone LC Net Locked
+      - id: 1322-1052
+        name: Customized RU
+      XQ-AT52:
+      - id: 1320-8476
+        name: Service Exchange Unit
+      - id: 1321-8212
+        name: Customized HK
+      - id: 1321-8374
+        name: StoreFront
+      - id: 1321-8454
+        name: Customized TW
+      - id: 1322-0284
+        name: Customized SEA
+      XQ-AT72:
+      - id: 1322-0348
+        name: Customized CN
+      SO-51A:
+      - id: 1321-8338
+        name: NTT DoCoMo JP
+      - id: 2000-0186
+        name: NTT DoCoMo JP
+      SOG01:
+      - id: 1321-3993
+        name: KDDI JP
+    year: 2020
+  PDX-206:
+    label: Xperia 5 II
+    device_type: phone
+    models:
+      XQ-AS42:
+      - id: '21604879'
+        name: Customized JP
+        spc: '43040127'
+      XQ-AS52:
+      - id: '21598569'
+        name: Customized EEA
+        spc: '43040137'
+      - id: '21598891'
+        name: Customized RU
+        spc: '43040195'
+      - id: '21603389'
+        name: Vodafone LC Not Net Locked
+        spc: '43040155'
+      - id: '21603549'
+        name: Altice FR/PT
+        spc: '43040152'
+      - id: '21603737'
+        name: Vodafone LC Net Locked
+        spc: '43040161'
+      - id: '21604255'
+        name: Orange MCV
+        spc: '43040140'
+      - id: '21610882'
+        name: O2 UK
+        spc: '43040143'
+      - id: '21612245'
+        name: Customized UK
+        spc: '43040134'
+      - id: '21643266'
+        name: EE UK
+        spc: '43040146'
+      XQ-AS62:
+      - id: '21621197'
+        name: Customized US
+        spc: '43040175'
+      XQ-AS72:
+      - id: '21573901'
+        name: Customized CN
+        spc: '43040179'
+      - id: '21591886'
+        name: Customized TW
+        spc: '43040187'
+      - id: '21598924'
+        name: Customized HK
+        spc: '43040183'
+      - id: '21610788'
+        name: Customized SEA
+        spc: '43040191'
+      SO-52A:
+      - id: '21600227'
+        name: NTT DoCoMo JP
+        spc: '43040101'
+      SOG02:
+      - id: '21600274'
+        name: KDDI JP
+        spc: '43040111'
+      A002SO:
+      - id: '21600311'
+        name: SoftBank JP
+        spc: '43040119'
+    year: 2020
+  PDX-201:
+    label: Xperia 10 II
+    device_type: phone
+    models:
+      XQ-AU42:
+      - id: 1321-7561
+        name: MVNO JP
+      XQ-AU51:
+      - id: 1320-8440
+        name: Service Exchange Unit
+      - id: 1321-6454
+        name: O2 Pay monthly UK
+      - id: 1321-7630
+        name: Customized UK
+      - id: 1321-7916
+        name: StoreFront
+      - id: 1321-8070
+        name: Vodafone LC Net Locked
+      XQ-AU52:
+      - id: 1320-8452
+        name: Service Exchange Unit
+      - id: 1321-6453
+        name: Customized EU
+      - id: 1321-6992
+        name: Orange MCV
+      - id: 1321-7492
+        name: Customized TW
+      - id: 1321-7707
+        name: Customized HK
+      - id: 1321-7917
+        name: StoreFront
+      - id: 1321-8030
+        name: EE UK
+      - id: 1321-8238
+        name: Vodafone LC Not Net Locked
+      - id: 1321-8369
+        name: Altice FR/PT
+      - id: 1321-9381
+        name: Customized UK
+      - id: 1321-9491
+        name: Customized SEA
+      SO-41A:
+      - id: 1321-8646
+        name: NTT DoCoMo JP
+      SOV43:
+      - id: 1321-6564
+        name: KDDI JP
+      A001SO:
+      - id: 1321-6541
+        name: SoftBank JP
+    year: 2020
+  PDX-202:
+    label: Xperia L4
+    device_type: phone
+    models:
+      XQ-AD51:
+      - id: 1321-4044
+        name: O2 Pay monthly UK
+      - id: 1321-5047
+        name: EE UK
+      - id: 1321-5612
+        name: Customized UK
+      - id: 1321-5614
+        name: Vodafone LC Net Locked
+      - id: 1321-6990
+        name: Meteor IE
+      - id: 1321-7546
+        name: StoreFront
+      XQ-AD52:
+      - id: 1321-2204
+        name: Orange MCV
+      - id: 1321-2205
+        name: Customized EU
+      - id: 1321-5615
+        name: Vodafone LC Not Net Locked
+      - id: 1321-7545
+        name: StoreFront
+      - id: 1321-8838
+        name: Customized UK
+    year: 2020
+  Griffin:
+    label: Xperia 1
+    device_type: phone
+    models:
+      J8110:
+      - id: 1318-3803
+        name: Service Exchange Unit
+      - id: 1318-7513
+        name: O2 Pay monthly UK
+      - id: 1318-8940
+        name: Vodafone LC Net Locked
+      - id: 1319-0326
+        name: Customized ZA
+      - id: 1319-1713
+        name: Mobilkom A1 AT
+      - id: 1319-2550
+        name: EE UK
+      - id: 1319-2847
+        name: Customized UK
+      - id: 1319-7536
+        name: StoreFront
+      J8170:
+      - id: 1318-8742
+        name: Customized US
+      - id: 1319-0676
+        name: Amazon US
+      - id: 1319-4940
+        name: Service Exchange Unit
+      J9110:
+      - id: 1318-3818
+        name: Service Exchange Unit
+      - id: 1318-7934
+        name: Customized NOBA
+      - id: 1318-8208
+        name: Customized CN
+      - id: 1318-8327
+        name: Customized EU
+      - id: 1318-8417
+        name: Polkomtel PLUS PL
+      - id: 1318-8418
+        name: Play PL
+      - id: 1318-8561
+        name: Customized EU3
+      - id: 1318-8682
+        name: Customized RU
+      - id: 1318-9860
+        name: Customized HK
+      - id: 1319-1341
+        name: Customized TW
+      - id: 1319-1707
+        name: Altice FR/PT
+      - id: 1319-2549
+        name: Orange MCV
+      - id: 1319-2606
+        name: Telekom LC
+      - id: 1319-2846
+        name: Customized UK
+      - id: 1319-5068
+        name: Vodafone LC Not Net Locked
+      - id: 1319-6110
+        name: Customized UA
+      - id: 1319-7535
+        name: StoreFront
+      - id: 1320-4243
+        name: Customized SEA
+      - id: 1322-0661
+        name: Customized JP
+      J9150:
+      - id: 1320-5128
+        name: Customized JP
+      J9180:
+      - id: 1320-6073
+        name: Customized CN
+      SO-03L:
+      - id: 1319-1360
+        name: NTT DoCoMo JP
+      SOV40:
+      - id: 1318-7508
+        name: KDDI JP
+      802SO:
+      - id: 1318-7898
+        name: SoftBank JP
+    year: 2019
+  Bahamut:
+    label: Xperia 5
+    device_type: phone
+    models:
+      J8210:
+      - id: 1319-8005
+        name: Service Exchange Unit
+      - id: 1320-2278
+        name: Vodafone LC Net Locked
+      - id: 1320-2982
+        name: O2 Pay monthly UK
+      - id: 1320-4185
+        name: EE UK
+      - id: 1320-4503
+        name: Customized UK
+      - id: 1320-4838
+        name: 3 IE
+      - id: 1320-6273
+        name: StoreFront
+      J8270:
+      - id: 1319-8081
+        name: Service Exchange Unit
+      - id: 1320-1241
+        name: Customized US
+      J9210:
+      - id: 1319-8032
+        name: Service Exchange Unit
+      - id: 1319-9472
+        name: Customized CN
+      - id: 1320-0725
+        name: Customized HK
+      - id: 1320-0801
+        name: Customized EU
+      - id: 1320-1207
+        name: Customized NOBA
+      - id: 1320-1208
+        name: Customized EU3
+      - id: 1320-1416
+        name: Vodafone LC Not Net Locked
+      - id: 1320-2277
+        name: Altice FR/PT
+      - id: 1320-3307
+        name: Customized RU
+      - id: 1320-3351
+        name: Orange MCV
+      - id: 1320-3640
+        name: Customized TW
+      - id: 1320-4494
+        name: Customized UK
+      - id: 1320-6272
+        name: StoreFront
+      - id: 1320-6293
+        name: Customized SEA
+      J9260:
+      - id: 1320-5118
+        name: Customized JP
+      SO-01M:
+      - id: 1319-8175
+        name: NTT DoCoMo JP
+      SOV41:
+      - id: 1319-8624
+        name: KDDI JP
+      901SO:
+      - id: 1319-8987
+        name: SoftBank JP
+    year: 2019
+  Himiko:
+    label: Xperia 8 (Lite)
+    device_type: phone
+    models:
+      J3273:
+      - id: 1322-0727
+        name: MVNO JP
+      SOV42:
+      - id: 1319-8218
+        name: KDDI JP
+      - id: 1320-4144
+        name: KDDI UQ JP
+      - id: 1320-6393
+        name: KDDI UQ CJ JP
+      902SO:
+      - id: 1319-8344
+        name: SoftBank JP
+    year: 2019
+  Houou:
+    label: Xperia Ace
+    device_type: phone
+    models:
+      J3173:
+      - id: 1319-7169
+        name: Rakuten JP
+      - id: 1320-4559
+        name: MVNO JP
+      SO-02L:
+      - id: 1318-0959
+        name: NTT DoCoMo JP
+    year: 2019
+  Mermaid:
+    label: Xperia 10 Plus
+    device_type: phone
+    models:
+      I3213:
+      - id: 1318-0654
+        name: Customized ZA
+      - id: 1318-2262
+        name: Customized UK
+      - id: 1319-2688
+        name: Commercial and Journalists
+      - id: 1319-3390
+        name: StoreFront
+      I3223:
+      - id: 1318-0751
+        name: Customized US
+      - id: 1319-2687
+        name: Commercial and Journalists
+      - id: 1319-3391
+        name: StoreFront
+      I4213:
+      - id: 1317-7514
+        name: Customized EU
+      - id: 1317-9453
+        name: Customized NOBA
+      - id: 1318-0653
+        name: Customized RU
+      - id: 1318-0655
+        name: Customized ZA
+      - id: 1318-0750
+        name: Orange MCV
+      - id: 1318-1021
+        name: Customized UA
+      - id: 1318-1666
+        name: Play PL
+      - id: 1318-1667
+        name: Polkomtel PLUS PL
+      - id: 1318-2391
+        name: Bouygues Telecom FR
+      - id: 1318-2804
+        name: Altice FR/PT
+      - id: 1318-2805
+        name: Customized UK
+      - id: 1318-4234
+        name: Telenor BG
+      - id: 1318-4235
+        name: Telenor HU
+      - id: 1318-6731
+        name: Customized EU3
+      - id: 1318-6732
+        name: T-Mobile NL
+      - id: 1319-2689
+        name: Commercial and Journalists
+      - id: 1319-3389
+        name: StoreFront
+      I4293:
+      - id: 1318-0602
+        name: Customized CN
+      - id: 1318-1294
+        name: Customized HK
+      - id: 1318-2077
+        name: Customized TW
+      - id: 1319-2690
+        name: Commercial and Journalists
+      - id: 1319-3388
+        name: StoreFront
+    year: 2019
+  Kirin:
+    label: Xperia 10
+    device_type: phone
+    models:
+      I3113:
+      - id: 1317-8432
+        name: EE UK
+      - id: 1317-8890
+        name: Vodafone LC Net Locked
+      - id: 1317-8891
+        name: Vodafone LC Not Net Locked
+      - id: 1317-9048
+        name: O2 Pay monthly UK
+      - id: 1317-9072
+        name: Customized ZA
+      - id: 1317-9296
+        name: Virgin Mobile UK
+      - id: 1317-9614
+        name: Meteor IE
+      - id: 1317-9617
+        name: Customized UK
+      - id: 1318-0711
+        name: 3 IE
+      - id: 1318-2750
+        name: Mobilkom A1 AT
+      - id: 1319-1272
+        name: Commercial and Journalists
+      - id: 1319-3398
+        name: StoreFront
+      - id: 1319-5251
+        name: Tesco Mobile IE
+      I3123:
+      - id: 1317-7745
+        name: Customized US
+      - id: 1319-1270
+        name: Commercial and Journalists
+      - id: 1319-3662
+        name: StoreFront
+      I4113:
+      - id: 1317-7500
+        name: Customized EU
+      - id: 1317-7873
+        name: Customized RU
+      - id: 1317-7874
+        name: Customized UA
+      - id: 1317-8270
+        name: Customized ZA
+      - id: 1317-8888
+        name: Play PL
+      - id: 1317-9402
+        name: Customized NOBA
+      - id: 1317-9613
+        name: Polkomtel PLUS PL
+      - id: 1317-9618
+        name: Customized UK
+      - id: 1317-9623
+        name: Orange MCV
+      - id: 1318-2134
+        name: TIM IT
+      - id: 1318-2247
+        name: Bouygues Telecom FR
+      - id: 1318-2751
+        name: Vipnet HR
+      - id: 1318-2753
+        name: Altice FR/PT
+      - id: 1318-2997
+        name: Telekom.de DE
+      - id: 1318-2998
+        name: T-Mobile PL
+      - id: 1318-2999
+        name: T-Mobile CZ
+      - id: 1318-3004
+        name: T-Mobile SK
+      - id: 1318-3005
+        name: T-Mobile HR
+      - id: 1318-3006
+        name: T-Mobile HU
+      - id: 1318-3007
+        name: T-Mobile NL
+      - id: 1318-3008
+        name: Cosmote GR
+      - id: 1318-4098
+        name: Telenor HU
+      - id: 1318-4100
+        name: Vivacom BG
+      - id: 1318-4101
+        name: Telenor BG
+      - id: 1318-6083
+        name: Vodafone LC Not Net Locked
+      - id: 1318-6255
+        name: Movistar ES
+      - id: 1318-6729
+        name: Customized EU3
+      - id: 1319-1271
+        name: Commercial and Journalists
+      - id: 1319-3402
+        name: StoreFront
+      - id: 1321-7246
+        name: EE UK
+      I4193:
+      - id: 1317-7872
+        name: Customized HK
+      - id: 1317-8892
+        name: Customized TW
+      - id: 1319-1273
+        name: Commercial and Journalists
+      - id: 1319-3661
+        name: StoreFront
+    year: 2019
+  Dragon:
+    label: Xperia L3
+    device_type: phone
+    models:
+      I3312:
+      - id: 1318-0827
+        name: O2 Pay monthly UK
+      - id: 1318-1098
+        name: Customized ZA
+      - id: 1318-1099
+        name: Vodafone LC Not Net Locked
+      - id: 1318-1100
+        name: Vodafone LC Net Locked
+      - id: 1318-2711
+        name: Customized UK
+      - id: 1318-2713
+        name: Meteor IE
+      - id: 1318-3662
+        name: EE UK
+      - id: 1318-4109
+        name: Virgin Mobile UK
+      - id: 1318-4640
+        name: 3 IE
+      - id: 1318-9259
+        name: Tesco Mobile IE
+      - id: 1319-3113
+        name: Commercial and Journalists
+      - id: 1319-3411
+        name: StoreFront
+      I4312:
+      - id: 1318-0814
+        name: Customized EU
+      - id: 1318-0826
+        name: Customized NOBA
+      - id: 1318-1096
+        name: Customized ZA
+      - id: 1318-1102
+        name: Play PL
+      - id: 1318-1103
+        name: Polkomtel PLUS PL
+      - id: 1318-1104
+        name: Customized UA
+      - id: 1318-1571
+        name: Customized RU
+      - id: 1318-1572
+        name: Orange MCV
+      - id: 1318-2389
+        name: Bouygues Telecom FR
+      - id: 1318-2714
+        name: Customized UK
+      - id: 1318-6187
+        name: Movistar ES
+      - id: 1318-6242
+        name: Vodafone LC Not Net Locked
+      - id: 1318-6710
+        name: T-Mobile SK
+      - id: 1318-6849
+        name: Customized EU3
+      - id: 1318-7282
+        name: T-Mobile CZ
+      - id: 1318-7284
+        name: T-Mobile PL
+      - id: 1318-7287
+        name: Cosmote GR
+      - id: 1319-3112
+        name: Commercial and Journalists
+      - id: 1319-3410
+        name: StoreFront
+      I4332:
+      - id: 1318-1570
+        name: Customized HK
+      - id: 1318-4402
+        name: Customized TW
+      - id: 1318-4885
+        name: SmarTone HK
+      - id: 1319-3111
+        name: Commercial and Journalists
+      - id: 1319-3413
+        name: StoreFront
+    year: 2019
+  Akatsuki:
+    label: Xperia XZ3
+    device_type: phone
+    models:
+      H8416:
+      - id: 1315-8097
+        name: Commercial and Journalists
+      - id: 1316-3075
+        name: Bouygues Telecom FR
+      - id: 1316-3149
+        name: O2 Pay monthly UK
+      - id: 1316-4520
+        name: Customized UK
+      - id: 1316-4521
+        name: Customized KR
+      - id: 1316-4522
+        name: Customized US
+      - id: 1316-4523
+        name: Meteor IE
+      - id: 1316-5268
+        name: Orange MCV
+      - id: 1316-5270
+        name: EE UK
+      - id: 1316-5987
+        name: Vodafone LC Net Locked
+      - id: 1316-5988
+        name: Vodafone LC Not Net Locked
+      - id: 1316-6423
+        name: Customized IBE
+      - id: 1316-6609
+        name: Altice FR/PT
+      - id: 1316-6834
+        name: Virgin Mobile UK
+      - id: 1316-6836
+        name: Mobilkom A1 AT
+      - id: 1316-6837
+        name: Swisscom CH
+      - id: 1316-6960
+        name: Customized IT
+      - id: 1316-6962
+        name: TIM IT
+      - id: 1316-9405
+        name: 3 IE
+      - id: 1316-9994
+        name: T-Mobile NL
+      - id: 1316-9996
+        name: Telekom.de DE
+      - id: 1316-9997
+        name: T-Mobile AT
+      - id: 1316-9998
+        name: T-Mobile CZ
+      - id: 1316-9999
+        name: T-Mobile HU
+      - id: 1317-0000
+        name: Cosmote GR
+      - id: 1317-0001
+        name: T-Mobile PL
+      - id: 1317-0002
+        name: T-Mobile HR
+      - id: 1317-0254
+        name: StoreFront
+      - id: 1317-0257
+        name: StoreFront
+      - id: 1317-1574
+        name: Telenor HU
+      H9436:
+      - id: 1315-8244
+        name: Commercial and Journalists
+      - id: 1316-3076
+        name: Customized FR
+      - id: 1316-3203
+        name: Customized GR
+      - id: 1316-3759
+        name: Customized CE1
+      - id: 1316-3761
+        name: Customized UA
+      - id: 1316-3925
+        name: Customized RU
+      - id: 1316-4519
+        name: Customized UK
+      - id: 1316-4527
+        name: Polkomtel PLUS PL
+      - id: 1316-4654
+        name: Play PL
+      - id: 1316-4789
+        name: Customized NOBA
+      - id: 1316-6961
+        name: Customized DACHBLX
+      - id: 1316-6966
+        name: Mobitel SI
+      - id: 1317-0253
+        name: StoreFront
+      - id: 1317-0256
+        name: StoreFront
+      - id: 1317-1363
+        name: Proximus (Vfe) BE
+      H9493:
+      - id: 1315-9390
+        name: Commercial and Journalists
+      - id: 1315-9395
+        name: Service Exchange Unit
+      - id: 1316-2305
+        name: Customized TW
+      - id: 1316-2331
+        name: Customized HK
+      - id: 1316-4060
+        name: Customized CN
+      - id: 1317-0252
+        name: StoreFront
+      - id: 1317-0255
+        name: StoreFront
+      - id: 1317-6427
+        name: Customized RU
+      SO-01L:
+      - id: 1317-4340
+        name: NTT DoCoMo JP
+      SOV39:
+      - id: 1316-1754
+        name: KDDI JP
+      801SO:
+      - id: 1316-0847
+        name: SoftBank JP
+    year: 2018
+  Aurora:
+    label: Xperia XZ2 Premium
+    device_type: phone
+    models:
+      H8116:
+      - id: 1311-9588
+        name: Service Exchange Unit
+      - id: 1311-9590
+        name: Commercial and Journalists
+      - id: 1313-2373
+        name: Customized IT
+      - id: 1313-3189
+        name: Customized IBE
+      - id: 1313-7948
+        name: Customized UK
+      - id: 1313-8424
+        name: EE UK
+      H8166:
+      - id: 1311-9667
+        name: Commercial and Journalists
+      - id: 1311-9668
+        name: Service Exchange Unit
+      - id: 1313-2394
+        name: Customized HK
+      - id: 1313-2540
+        name: Customized FR
+      - id: 1313-3195
+        name: Customized CE1
+      - id: 1313-4039
+        name: Customized CN
+      - id: 1313-4638
+        name: Customized UA
+      - id: 1313-4731
+        name: Customized SG
+      - id: 1313-4768
+        name: Customized TH
+      - id: 1313-4769
+        name: Customized VN
+      - id: 1313-4770
+        name: Customized MY
+      - id: 1313-6159
+        name: Customized NOBA
+      - id: 1313-6168
+        name: Customized TW
+      - id: 1313-6325
+        name: Customized US
+      - id: 1313-8119
+        name: Customized UK
+      - id: 1316-1570
+        name: Customized DACHBLX
+      - id: 1316-5142
+        name: Customized RU
+      SO-04K:
+      - id: 1316-0388
+        name: NTT DoCoMo JP
+      SOV38:
+      - id: 1314-0765
+        name: KDDI JP
+    year: 2018
+  Apollo:
+    label: Xperia XZ2 Compact
+    device_type: phone
+    models:
+      H8314:
+      - id: 1311-9895
+        name: Commercial and Journalists
+      - id: 1313-0031
+        name: Customized US
+      - id: 1313-2247
+        name: Customized CH
+      - id: 1313-2248
+        name: 3 AT
+      - id: 1313-2374
+        name: Customized IT
+      - id: 1313-2385
+        name: Customized IL
+      - id: 1313-2468
+        name: Customized FR
+      - id: 1313-3190
+        name: Customized IBE
+      - id: 1313-3414
+        name: O2 Pay monthly UK
+      - id: 1313-5249
+        name: Videotron CA
+      - id: 1313-5398
+        name: Customized UK
+      - id: 1313-6138
+        name: Altice FR/PT
+      - id: 1313-6140
+        name: Customized KR
+      - id: 1313-6142
+        name: Customized GEL
+      - id: 1313-6144
+        name: Swisscom CH
+      - id: 1313-6147
+        name: Proximus (Vfe) BE
+      - id: 1313-6149
+        name: Mobilkom A1 AT
+      - id: 1313-8437
+        name: Orange MCV
+      - id: 1313-8438
+        name: Customized BLX
+      - id: 1313-8786
+        name: Commercial and Journalists
+      - id: 1313-9020
+        name: T-Mobile AT
+      - id: 1313-9022
+        name: Telekom.de DE
+      - id: 1313-9023
+        name: T-Mobile NL
+      - id: 1313-9972
+        name: T-Mobile CZ
+      - id: 1313-9976
+        name: Telenor HU
+      - id: 1314-8800
+        name: StoreFront
+      - id: 1315-1037
+        name: StoreFront
+      - id: 1315-1178
+        name: Telefonica O2 CZ
+      - id: 1315-1694
+        name: Customized BR
+      - id: 1315-7397
+        name: Customized CL
+      - id: 1316-0774
+        name: Customized CE1
+      - id: 1316-4058
+        name: 2Degrees NZ
+      H8324:
+      - id: 1311-9911
+        name: Commercial and Journalists
+      - id: 1313-2469
+        name: Customized FR
+      - id: 1313-2491
+        name: Customized HK
+      - id: 1313-3194
+        name: Customized CE1
+      - id: 1313-4451
+        name: Customized SA
+      - id: 1313-4636
+        name: CIS RU/UA/KZ/BY
+      - id: 1313-4680
+        name: Customized UA
+      - id: 1313-4814
+        name: Customized MY
+      - id: 1313-4827
+        name: Customized SG
+      - id: 1313-4828
+        name: Customized TH
+      - id: 1313-5469
+        name: Customized UK
+      - id: 1313-6167
+        name: Customized NOBA
+      - id: 1313-6204
+        name: Customized DE
+      - id: 1313-8784
+        name: Commercial and Journalists
+      - id: 1313-9975
+        name: Cosmote GR
+      - id: 1314-0055
+        name: T-Mobile PL
+      - id: 1314-0268
+        name: Customized MM
+      - id: 1314-6976
+        name: Customized AU
+      - id: 1314-8801
+        name: StoreFront
+      - id: 1315-1039
+        name: StoreFront
+      SO-05K:
+      - id: 1315-7886
+        name: NTT DoCoMo JP
+    year: 2018
+  Akari:
+    label: Xperia XZ2
+    device_type: phone
+    models:
+      H8216:
+      - id: 1311-9684
+        name: Commercial and Journalists
+      - id: 1313-2244
+        name: 3 AT
+      - id: 1313-2245
+        name: TIM IT
+      - id: 1313-2246
+        name: Customized CH
+      - id: 1313-2371
+        name: Pelephone IL
+      - id: 1313-2377
+        name: Customized IT
+      - id: 1313-2390
+        name: Customized IL
+      - id: 1313-2477
+        name: Polkomtel PLUS PL
+      - id: 1313-2478
+        name: Customized FR
+      - id: 1313-3186
+        name: 3 UK
+      - id: 1313-3191
+        name: Customized IBE
+      - id: 1313-3375
+        name: Customized GR
+      - id: 1313-3413
+        name: O2 Pay monthly UK
+      - id: 1313-4067
+        name: Virgin Mobile UK
+      - id: 1313-4071
+        name: Telcel GSM MX
+      - id: 1313-4504
+        name: Mobitel SI
+      - id: 1313-4679
+        name: Customized UK
+      - id: 1313-5432
+        name: Meteor IE
+      - id: 1313-5879
+        name: Customized ZA
+      - id: 1313-6116
+        name: Customized KR
+      - id: 1313-6117
+        name: Altice FR/PT
+      - id: 1313-6118
+        name: Customized GEL
+      - id: 1313-6120
+        name: Mobilkom A1 AT
+      - id: 1313-6121
+        name: Swisscom CH
+      - id: 1313-6123
+        name: Proximus (Vfe) BE
+      - id: 1313-6124
+        name: MobilTel EAD BG
+      - id: 1313-7509
+        name: Vodafone PT
+      - id: 1313-7510
+        name: Vodacom ZA
+      - id: 1313-8219
+        name: Vodafone Global
+      - id: 1313-8220
+        name: Vodafone Global
+      - id: 1313-8452
+        name: Orange MCV
+      - id: 1313-8453
+        name: Customized BLX
+      - id: 1313-8454
+        name: EE UK
+      - id: 1313-8455
+        name: Movistar CL
+      - id: 1313-8456
+        name: Customized CL
+      - id: 1313-8667
+        name: Movistar PE
+      - id: 1313-8792
+        name: Commercial and Journalists
+      - id: 1313-9026
+        name: Telekom.de DE
+      - id: 1313-9027
+        name: T-Mobile AT
+      - id: 1313-9028
+        name: T-Mobile HU
+      - id: 1313-9029
+        name: T-Mobile SK
+      - id: 1313-9030
+        name: T-Mobile NL
+      - id: 1313-9957
+        name: T-Mobile HR
+      - id: 1313-9959
+        name: T-Mobile CZ
+      - id: 1313-9961
+        name: Telenor HU
+      - id: 1314-3451
+        name: Telstra AU
+      - id: 1314-4196
+        name: Comcel 3GSM CO
+      - id: 1314-4197
+        name: Claro CL
+      - id: 1314-4199
+        name: Telcel GSM MX
+      - id: 1314-5385
+        name: 3 IE
+      - id: 1314-8232
+        name: Play PL
+      - id: 1314-8798
+        name: StoreFront
+      - id: 1315-0588
+        name: Customized AR
+      - id: 1315-1036
+        name: StoreFront
+      - id: 1315-1179
+        name: Nextel PE
+      - id: 1315-1668
+        name: Customized BR
+      - id: 1315-2651
+        name: Telenor BG
+      - id: 1315-3311
+        name: Orange DO
+      - id: 1315-4138
+        name: 2Degrees NZ
+      - id: 1315-7394
+        name: Claro DO
+      - id: 1315-9242
+        name: TEMS
+      - id: 1316-0773
+        name: Customized CE1
+      H8266:
+      - id: 1311-9878
+        name: Commercial and Journalists
+      - id: 1313-2481
+        name: Customized FR
+      - id: 1313-3193
+        name: Customized CE1
+      - id: 1313-4442
+        name: Customized MEA
+      - id: 1313-4444
+        name: Customized SA
+      - id: 1313-4500
+        name: Customized US
+      - id: 1313-4630
+        name: Customized UA
+      - id: 1313-4637
+        name: CIS RU/UA/KZ/BY
+      - id: 1313-4799
+        name: Customized TH
+      - id: 1313-4800
+        name: Customized VN
+      - id: 1313-4801
+        name: Singtel SG
+      - id: 1313-4802
+        name: Customized SG
+      - id: 1313-4803
+        name: Customized PH
+      - id: 1313-4805
+        name: Starhub SG
+      - id: 1313-4807
+        name: Customized UK
+      - id: 1313-4808
+        name: Customized MY
+      - id: 1313-6137
+        name: Customized NOBA
+      - id: 1313-6279
+        name: Customized DE
+      - id: 1313-8789
+        name: Commercial and Journalists
+      - id: 1313-9960
+        name: Cosmote GR
+      - id: 1314-0070
+        name: T-Mobile PL
+      - id: 1314-0158
+        name: Customized MM
+      - id: 1314-5133
+        name: Vipnet HR
+      - id: 1314-6948
+        name: Customized AU
+      - id: 1314-8797
+        name: StoreFront
+      - id: 1315-1034
+        name: StoreFront
+      H8276:
+      - id: 1313-3566
+        name: Commercial and Journalists
+      - id: 1313-4002
+        name: Service Exchange Unit
+      - id: 1313-8875
+        name: Bell Mobility CA
+      - id: 1313-8876
+        name: Freedom CA
+      H8296:
+      - id: 1313-1713
+        name: Commercial and Journalists
+      - id: 1313-2475
+        name: Customized HK
+      - id: 1313-4040
+        name: Customized CN
+      - id: 1313-6119
+        name: Customized TW
+      - id: 1314-8799
+        name: StoreFront
+      - id: 1314-9934
+        name: Customized IN
+      - id: 1315-1035
+        name: StoreFront
+      SO-03K:
+      - id: 1315-4322
+        name: NTT DoCoMo JP
+      SOV37:
+      - id: 1313-4752
+        name: KDDI JP
+      702SO:
+      - id: 1313-5471
+        name: SoftBank JP
+    year: 2018
+  Voyager:
+    label: Xperia XA2 Plus
+    device_type: phone
+    models:
+      H3413:
+      - id: 1316-3114
+        name: Bouygues Telecom FR
+      - id: 1316-4089
+        name: Pelephone IL
+      - id: 1317-0297
+        name: StoreFront
+      - id: 1317-0303
+        name: StoreFront
+      - id: 1317-0327
+        name: Commercial and Journalists
+      - id: 1317-0623
+        name: Service Exchange Unit
+      H4413:
+      - id: 1315-9866
+        name: Customized CE1
+      - id: 1315-9868
+        name: Polkomtel PLUS PL
+      - id: 1316-0415
+        name: Customized IT
+      - id: 1316-1834
+        name: Customized FR
+      - id: 1316-2877
+        name: Customized NOBA
+      - id: 1316-3195
+        name: Customized UA
+      - id: 1316-3196
+        name: Customized RU
+      - id: 1316-4177
+        name: Customized DACHBLX
+      - id: 1317-0193
+        name: StoreFront
+      - id: 1317-0302
+        name: StoreFront
+      - id: 1317-0326
+        name: Commercial and Journalists
+      - id: 1317-0622
+        name: Service Exchange Unit
+      - id: 1317-3371
+        name: Customized IBE
+      H4493:
+      - id: 1316-1219
+        name: Customized HK
+      - id: 1316-2234
+        name: Customized TW
+      - id: 1317-0298
+        name: StoreFront
+      - id: 1317-0299
+        name: StoreFront
+      - id: 1317-0329
+        name: Commercial and Journalists
+      - id: 1317-0625
+        name: Service Exchange Unit
+    year: 2018
+  Discovery:
+    label: Xperia XA2 Ultra
+    device_type: phone
+    models:
+      H3213:
+      - id: 1312-1375
+        name: Orange MCV
+      - id: 1312-1376
+        name: Altice FR/PT
+      - id: 1312-2028
+        name: Customized UK
+      - id: 1312-4003
+        name: Customized CH
+      - id: 1312-5057
+        name: Customized IBE
+      - id: 1312-5058
+        name: Customized ZA
+      - id: 1312-7028
+        name: Customized CE5
+      - id: 1312-8601
+        name: Customized BLX
+      - id: 1312-8788
+        name: Telenor BG
+      - id: 1312-8789
+        name: Telenor HU
+      - id: 1313-5427
+        name: Bouygues Telecom FR
+      - id: 1313-9994
+        name: Commercial and Journalists
+      - id: 1314-3493
+        name: Service Exchange Unit
+      H3223:
+      - id: 1312-1373
+        name: Videotron CA
+      - id: 1312-1374
+        name: Freedom CA
+      - id: 1312-1380
+        name: Customized US
+      - id: 1312-5051
+        name: Movistar CO
+      - id: 1312-5053
+        name: Movistar CL
+      - id: 1312-5054
+        name: Movistar PE
+      - id: 1312-5056
+        name: Entel PCS CL
+      - id: 1312-6682
+        name: Claro CL
+      - id: 1312-6684
+        name: Claro GT
+      - id: 1312-6687
+        name: Telcel GSM MX
+      - id: 1312-6688
+        name: Telcel GSM MX
+      - id: 1312-7002
+        name: Nextel PE
+      - id: 1312-7029
+        name: Customized CL
+      - id: 1312-8054
+        name: Customized GEL
+      - id: 1313-3798
+        name: Claro DO
+      - id: 1313-4621
+        name: Orange DO
+      - id: 1313-9993
+        name: Commercial and Journalists
+      - id: 1314-3492
+        name: Service Exchange Unit
+      H4213:
+      - id: 1312-1378
+        name: Customized FR
+      - id: 1312-1384
+        name: Customized CE1
+      - id: 1312-1385
+        name: Customized SA
+      - id: 1312-1387
+        name: Customized MAA
+      - id: 1312-1390
+        name: Customized MEA
+      - id: 1312-3073
+        name: Customized IT
+      - id: 1312-5149
+        name: CIS RU/UA/KZ/BY
+      - id: 1312-7004
+        name: Customized ZA
+      - id: 1313-1417
+        name: Customized UK
+      - id: 1313-3216
+        name: Customized NOBA
+      - id: 1313-4734
+        name: Customized UA
+      - id: 1313-6486
+        name: Customized DACHBLX
+      - id: 1313-7447
+        name: Customized GR
+      - id: 1313-9995
+        name: Commercial and Journalists
+      - id: 1314-3494
+        name: Service Exchange Unit
+      H4233:
+      - id: 1312-1382
+        name: Customized HK
+      - id: 1312-1383
+        name: Customized TW
+      - id: 1312-6000
+        name: Customized TH
+      - id: 1312-6002
+        name: Customized VN
+      - id: 1312-6003
+        name: Customized SG
+      - id: 1312-6004
+        name: Customized MY
+      - id: 1312-6005
+        name: Customized PH
+      - id: 1312-6006
+        name: Customized MM
+      - id: 1312-8053
+        name: Customized BR
+      - id: 1312-8231
+        name: Customized CN
+      - id: 1313-9999
+        name: Commercial and Journalists
+      - id: 1314-3496
+        name: Service Exchange Unit
+    year: 2018
+  Pioneer:
+    label: Xperia XA2
+    device_type: phone
+    models:
+      H3113:
+      - id: 1312-1442
+        name: EE UK
+      - id: 1312-1443
+        name: Vodafone DE
+      - id: 1312-1445
+        name: Orange MCV
+      - id: 1312-1447
+        name: Vodafone ES
+      - id: 1312-1448
+        name: Vodafone UK
+      - id: 1312-1449
+        name: Customized FR
+      - id: 1312-1450
+        name: Altice FR/PT
+      - id: 1312-1452
+        name: Customized CE1
+      - id: 1312-1456
+        name: Vipnet HR
+      - id: 1312-1458
+        name: MobilTel EAD BG
+      - id: 1312-1459
+        name: Swisscom CH
+      - id: 1312-1460
+        name: Mobilkom A1 AT
+      - id: 1312-1461
+        name: Vodafone RO
+      - id: 1312-1462
+        name: Vodafone PT
+      - id: 1312-1463
+        name: Vodafone HU
+      - id: 1312-1464
+        name: 3 UK
+      - id: 1312-2061
+        name: Meteor IE
+      - id: 1312-2150
+        name: O2 Pay monthly UK
+      - id: 1312-2464
+        name: Service Exchange Unit
+      - id: 1312-2606
+        name: Customized DE
+      - id: 1312-3622
+        name: T-Mobile CZ
+      - id: 1312-3623
+        name: Cosmote GR
+      - id: 1312-3631
+        name: Telekom.de DE
+      - id: 1312-3632
+        name: T-Mobile HR
+      - id: 1312-3637
+        name: T-Mobile SK
+      - id: 1312-3639
+        name: T-Mobile HU
+      - id: 1312-3652
+        name: T-Mobile PL
+      - id: 1312-3653
+        name: T-Mobile NL
+      - id: 1312-3737
+        name: Customized UK
+      - id: 1312-3759
+        name: Proximus (Vfe) BE
+      - id: 1312-3760
+        name: Vodafone CZ
+      - id: 1312-3991
+        name: Telekom Srbija RS
+      - id: 1312-3992
+        name: Telenor RS
+      - id: 1312-3997
+        name: BH Telecom BA
+      - id: 1312-3998
+        name: Telekom Srpske BA
+      - id: 1312-3999
+        name: Virgin Mobile UK
+      - id: 1312-4000
+        name: Mobitel SI
+      - id: 1312-4017
+        name: Customized CH
+      - id: 1312-5061
+        name: TIM IT
+      - id: 1312-5075
+        name: Customized IL
+      - id: 1312-5086
+        name: Customized CE5
+      - id: 1312-7152
+        name: Customized IT
+      - id: 1312-7158
+        name: Customized IBE
+      - id: 1312-8059
+        name: Telenor BG
+      - id: 1312-8558
+        name: Telenor HU
+      - id: 1312-9169
+        name: Vodafone IE
+      - id: 1312-9352
+        name: Play PL
+      - id: 1313-1006
+        name: Customized BLX
+      - id: 1313-7716
+        name: StoreFront
+      - id: 1314-0000
+        name: Commercial and Journalists
+      - id: 1314-1612
+        name: Telefonica O2 CZ
+      - id: 1314-2331
+        name: Vivacom BG
+      - id: 1316-2343
+        name: T-Mobile AT
+      - id: 1316-8809
+        name: 3 IE
+      H3123:
+      - id: 1312-1356
+        name: Freedom CA
+      - id: 1312-1441
+        name: Videotron CA
+      - id: 1312-1865
+        name: Customized US
+      - id: 1312-2462
+        name: Service Exchange Unit
+      - id: 1312-5062
+        name: Entel PCS CL
+      - id: 1312-5085
+        name: Customized GEL
+      - id: 1312-5807
+        name: Telcel GSM MX
+      - id: 1312-5829
+        name: Claro PE
+      - id: 1312-5845
+        name: Claro CL
+      - id: 1312-5859
+        name: Claro DO
+      - id: 1312-5871
+        name: Comcel 3GSM CO
+      - id: 1312-5939
+        name: Telcel GSM MX
+      - id: 1312-7144
+        name: Customized CL
+      - id: 1313-4959
+        name: Movistar CO
+      - id: 1313-7715
+        name: StoreFront
+      - id: 1314-0002
+        name: Commercial and Journalists
+      H3133:
+      - id: 1312-2463
+        name: Service Exchange Unit
+      - id: 1313-7717
+        name: StoreFront
+      - id: 1314-0018
+        name: Commercial and Journalists
+      - id: 1314-0605
+        name: Telstra AU
+      - id: 1315-6174
+        name: 2Degrees NZ
+      H4113:
+      - id: 1312-1454
+        name: Customized CE1
+      - id: 1312-1455
+        name: Customized FR
+      - id: 1312-1465
+        name: Customized SA
+      - id: 1312-1467
+        name: Customized MEA
+      - id: 1312-1468
+        name: Customized MAA
+      - id: 1312-2465
+        name: Service Exchange Unit
+      - id: 1312-3738
+        name: Customized IT
+      - id: 1312-4063
+        name: CIS RU/UA/KZ/BY
+      - id: 1312-5069
+        name: Customized IBE
+      - id: 1312-7133
+        name: Customized ZA
+      - id: 1312-8563
+        name: Customized NOBA
+      - id: 1313-0771
+        name: Customized UK
+      - id: 1313-2975
+        name: Polkomtel PLUS PL
+      - id: 1313-5433
+        name: Customized UA
+      - id: 1313-6485
+        name: Customized DACHBLX
+      - id: 1313-7718
+        name: StoreFront
+      - id: 1313-7721
+        name: Customized GR
+      - id: 1314-0019
+        name: Commercial and Journalists
+      H4133:
+      - id: 1312-1453
+        name: Customized HK
+      - id: 1312-1457
+        name: Customized TW
+      - id: 1312-2466
+        name: Service Exchange Unit
+      - id: 1312-5091
+        name: Customized BR
+      - id: 1312-7142
+        name: Customized MM
+      - id: 1312-7157
+        name: Customized VN
+      - id: 1313-7719
+        name: StoreFront
+      - id: 1314-0020
+        name: Commercial and Journalists
+      - id: 1314-0234
+        name: Customized MY
+      - id: 1314-5131
+        name: Customized AU
+    year: 2018
+  Ranger:
+    label: Xperia L2
+    device_type: phone
+    models:
+      H3311:
+      - id: 1311-6579
+        name: Service Exchange Unit
+      - id: 1312-1843
+        name: Orange MCV
+      - id: 1312-2021
+        name: Customized UK
+      - id: 1312-2025
+        name: Meteor IE
+      - id: 1312-2157
+        name: O2 Pay monthly UK
+      - id: 1312-2605
+        name: Customized IT
+      - id: 1312-3660
+        name: Customized CE1
+      - id: 1312-3928
+        name: Customized CE5
+      - id: 1312-4876
+        name: Customized ZA
+      - id: 1312-5071
+        name: Customized IBE
+      - id: 1312-5083
+        name: Movistar CR
+      - id: 1312-7423
+        name: T-Mobile HR
+      - id: 1312-8112
+        name: T-Mobile SK
+      - id: 1313-1076
+        name: Customized DACHBLX
+      - id: 1313-9091
+        name: Commercial and Journalists
+      - id: 1314-1007
+        name: StoreFront
+      - id: 1315-3217
+        name: SmarTone HK
+      H3321:
+      - id: 1311-6592
+        name: Service Exchange Unit
+      - id: 1312-4873
+        name: Customized GEL
+      - id: 1312-5070
+        name: Entel PCS CL
+      - id: 1312-5078
+        name: Movistar EC
+      - id: 1312-5079
+        name: Movistar CO
+      - id: 1312-5080
+        name: Movistar MX
+      - id: 1312-5081
+        name: Movistar PE
+      - id: 1312-5082
+        name: Movistar CL
+      - id: 1312-5084
+        name: Movistar SV
+      - id: 1312-5448
+        name: Nextel PE
+      - id: 1312-5449
+        name: Customized US
+      - id: 1312-6538
+        name: Comcel 3GSM CO
+      - id: 1312-6540
+        name: Claro PE
+      - id: 1312-6541
+        name: Iusacell MX
+      - id: 1312-6543
+        name: Conecel Porta EC
+      - id: 1312-6545
+        name: Claro CL
+      - id: 1312-6549
+        name: Telcel GSM MX
+      - id: 1312-6949
+        name: Customized CL
+      - id: 1312-8113
+        name: Telcel GSM MX
+      - id: 1313-2748
+        name: Claro AR
+      - id: 1313-3212
+        name: Movistar AR
+      - id: 1313-4662
+        name: Customized AR
+      - id: 1313-9092
+        name: Commercial and Journalists
+      - id: 1314-1006
+        name: StoreFront
+      H4311:
+      - id: 1312-1800
+        name: Customized MEA
+      - id: 1312-1805
+        name: Customized MAA
+      - id: 1312-1806
+        name: Customized SA
+      - id: 1312-1846
+        name: Customized FR
+      - id: 1312-1860
+        name: Customized CE1
+      - id: 1312-4205
+        name: CIS RU/UA/KZ/BY
+      - id: 1312-4877
+        name: Customized ZA
+      - id: 1312-6950
+        name: Customized NOBA
+      - id: 1313-0772
+        name: Customized UK
+      - id: 1313-4661
+        name: Customized UA
+      - id: 1313-5742
+        name: Service Exchange Unit
+      - id: 1313-6441
+        name: Customized DACHBLX
+      - id: 1313-9094
+        name: Commercial and Journalists
+      - id: 1314-1008
+        name: StoreFront
+      H4331:
+      - id: 1312-1851
+        name: Customized TW
+      - id: 1312-3066
+        name: Customized IN
+      - id: 1312-6535
+        name: Customized VN
+      - id: 1312-6536
+        name: Customized MM
+      - id: 1312-6537
+        name: Customized TH
+      - id: 1312-6539
+        name: Customized MY
+      - id: 1312-6542
+        name: Customized PH
+      - id: 1313-5741
+        name: Service Exchange Unit
+      - id: 1313-7266
+        name: StoreFront
+      - id: 1313-9093
+        name: Commercial and Journalists
+      - id: 1314-6891
+        name: Customized SG
+      - id: 1315-1672
+        name: Starhub SG
+    year: 2018
+  Ivy:
+    label: Xperia Z3+/Z4
+    device_type: phone
+    models:
+      E6533:
+      - id: 1293-8147
+        name: Service Exchange Unit
+      - id: 1293-8151
+        name: Commercial and Journalists
+      - id: 1294-9721
+        name: Customized MAA
+      - id: 1295-0175
+        name: Customized MEA
+      - id: 1295-0221
+        name: Customized SA
+      - id: 1295-0389
+        name: Customized HK
+      - id: 1295-0610
+        name: Customized RU
+      - id: 1295-0980
+        name: Customized UA
+      - id: 1295-2965
+        name: PT. Erajaya Swasembada Tbk ID
+      - id: 1295-3224
+        name: PT. Surya Citra Multimedia ID
+      - id: 1295-5651
+        name: Customized BR
+      - id: 1295-9226
+        name: Customized CN
+      - id: 1296-7092
+        name: Algerika DZ
+      - id: 1296-7093
+        name: GNT Telecom DZ
+      - id: 1297-2306
+        name: Promoter
+      - id: 1297-2416
+        name: StoreFront
+      - id: 1298-0235
+        name: StoreFront China
+      - id: 1298-0242
+        name: Customized MY
+      E6553:
+      - id: 1293-4072
+        name: Generic GLOBAL
+      - id: 1293-8177
+        name: Commercial and Journalists
+      - id: 1293-8183
+        name: Service Exchange Unit
+      - id: 1294-9651
+        name: Customized TW
+      - id: 1294-9652
+        name: Singtel SG
+      - id: 1294-9653
+        name: Customized SG
+      - id: 1294-9654
+        name: Customized HK
+      - id: 1294-9967
+        name: Customized VN
+      - id: 1294-9984
+        name: Customized US
+      - id: 1295-0156
+        name: Customized IN
+      - id: 1295-0592
+        name: Customized RU
+      - id: 1295-3975
+        name: Customized GEL
+      - id: 1295-4108
+        name: Claro PR
+      - id: 1295-4109
+        name: Telcel GSM MX
+      - id: 1295-4110
+        name: Telcel GSM MX
+      - id: 1295-4111
+        name: Comcel 3GSM CO
+      - id: 1295-4728
+        name: Customized BAL
+      - id: 1295-4729
+        name: Customized GR
+      - id: 1295-4730
+        name: Customized NL
+      - id: 1295-4731
+        name: Customized TR
+      - id: 1295-4733
+        name: Customized NCB
+      - id: 1295-4741
+        name: Turkcell TR
+      - id: 1295-5465
+        name: 3 SE
+      - id: 1295-5510
+        name: Customized FR
+      - id: 1295-5681
+        name: Vodafone UK
+      - id: 1295-5682
+        name: Vodafone IE
+      - id: 1295-6965
+        name: Customized CH
+      - id: 1295-6967
+        name: Customized CE1
+      - id: 1295-6968
+        name: Customized DE
+      - id: 1295-6974
+        name: Customized BE
+      - id: 1295-7703
+        name: Customized UK
+      - id: 1295-7867
+        name: Telia DK
+      - id: 1295-7868
+        name: Customized IT
+      - id: 1295-7871
+        name: WIND IT
+      - id: 1295-9354
+        name: Telenor SE
+      - id: 1295-9358
+        name: Telenor Mobil NO
+      - id: 1296-0022
+        name: Claro PE
+      - id: 1296-0227
+        name: O2 Pay monthly UK
+      - id: 1296-2721
+        name: Orange PL
+      - id: 1296-2974
+        name: o2 DE
+      - id: 1296-4315
+        name: Virgin Mobile UK
+      - id: 1297-2307
+        name: Promoter
+      - id: 1297-2415
+        name: StoreFront
+      - id: 1297-4236
+        name: Claro CL
+      402SO:
+      - id: 1293-2805
+        name: SoftBank JP
+      - id: 1299-5068
+        name: TEMS
+    year: 2015
+  Lavender:
+    label: Xperia C5 Ultra
+    device_type: phone
+    models:
+      E5506:
+      - id: 1296-7530
+        name: Service Exchange Unit
+      - id: 1296-8545
+        name: Movistar CL
+      - id: 1296-8546
+        name: Customized GEL
+      - id: 1296-8547
+        name: Iusacell MX
+      - id: 1297-6788
+        name: Movistar MX
+      - id: 1297-6789
+        name: Movistar CO
+      - id: 1297-8015
+        name: Telcel GSM MX
+      - id: 1297-8016
+        name: Telcel GSM MX
+      - id: 1297-8469
+        name: Comcel 3GSM CO
+      - id: 1297-8470
+        name: Claro CL
+      - id: 1298-1568
+        name: Commercial and Journalists
+      - id: 1298-9769
+        name: Nextel PE
+      - id: 1299-5125
+        name: Freedom CA
+      - id: 1299-5697
+        name: Customized US
+      - id: 1300-5232
+        name: Conecel Porta EC
+      - id: 1300-6725
+        name: Movistar PE
+      E5533:
+      - id: 1296-7531
+        name: Service Exchange Unit
+      - id: 1296-8536
+        name: Algerika DZ
+      - id: 1296-8537
+        name: GNT Telecom DZ
+      - id: 1296-8538
+        name: Customized UA
+      - id: 1296-8539
+        name: Customized RU
+      - id: 1296-8542
+        name: Customized MEA
+      - id: 1296-8543
+        name: Customized MAA
+      - id: 1296-8544
+        name: Customized SA
+      - id: 1298-1567
+        name: Commercial and Journalists
+      - id: 1298-7059
+        name: Customized FR
+      - id: 1298-7060
+        name: Customized ES
+      - id: 1299-6225
+        name: SFR FR
+      - id: 1299-8926
+        name: Customized GR
+      - id: 1299-9100
+        name: Customized NOBA
+      - id: 1300-0250
+        name: Customized BE
+      - id: 1300-0967
+        name: Customized NL
+      - id: 1300-7515
+        name: Customized IT
+      - id: 1301-3487
+        name: Yoigo ES
+      - id: 1301-8214
+        name: Customized PT
+      - id: 1301-8215
+        name: Customized IL
+      E5553:
+      - id: 1296-7529
+        name: Service Exchange Unit
+      - id: 1296-8549
+        name: Customized TW
+      - id: 1296-9002
+        name: Singtel SG
+      - id: 1296-9003
+        name: Customized SG
+      - id: 1297-0280
+        name: Customized PH
+      - id: 1297-0356
+        name: Customized TH
+      - id: 1297-2437
+        name: Customized TR
+      - id: 1298-1566
+        name: Commercial and Journalists
+      - id: 1298-2870
+        name: Turkcell TR
+      - id: 1298-3967
+        name: Customized AU
+      - id: 1300-0254
+        name: Orange DO
+      - id: 1300-4407
+        name: Globe PH
+      E5563:
+      - id: 1296-7528
+        name: Service Exchange Unit
+      - id: 1296-8550
+        name: Customized BR
+      - id: 1296-8551
+        name: Customized HK
+      - id: 1296-8999
+        name: Customized VN
+      - id: 1296-9001
+        name: Customized MY
+      - id: 1296-9004
+        name: Customized SG
+      - id: 1297-0278
+        name: PT. Erajaya Swasembada Tbk ID
+      - id: 1297-0279
+        name: PT. Surya Citra Multimedia ID
+      - id: 1298-1565
+        name: Commercial and Journalists
+      - id: 1298-2220
+        name: Customized IN
+      - id: 1299-5891
+        name: TIM BR
+    year: 2015
+  Cosmos:
+    label: Xperia C4
+    device_type: phone
+    models:
+      E5303:
+      - id: 1293-5878
+        name: Service Exchange Unit
+      - id: 1293-5886
+        name: Commercial and Journalists
+      - id: 1295-0293
+        name: Customized FR
+      - id: 1295-1453
+        name: Customized IT
+      - id: 1295-1543
+        name: Customized PT
+      - id: 1295-1899
+        name: Customized ES
+      - id: 1295-8462
+        name: Customized IL
+      - id: 1295-8463
+        name: Customized GR
+      - id: 1295-8468
+        name: Customized TR
+      - id: 1295-8478
+        name: Vodacom ZA
+      - id: 1296-6012
+        name: Customized RU
+      - id: 1296-9552
+        name: SFR FR
+      - id: 1297-0941
+        name: Customized BE
+      - id: 1297-1722
+        name: Customized NL
+      - id: 1299-9831
+        name: Customized UK
+      - id: 1301-2926
+        name: Customized RU
+      E5306:
+      - id: 1293-5885
+        name: Service Exchange Unit
+      - id: 1293-5891
+        name: Commercial and Journalists
+      - id: 1295-1817
+        name: Movistar MX
+      - id: 1295-8049
+        name: Telcel GSM MX
+      - id: 1295-8050
+        name: Telcel GSM MX
+      - id: 1295-8051
+        name: Customized US
+      - id: 1295-8474
+        name: Customized GEL
+      - id: 1296-7306
+        name: Claro PE
+      - id: 1297-6743
+        name: Nextel CL
+      - id: 1298-7080
+        name: Claro PR
+      E5333:
+      - id: 1293-5880
+        name: Service Exchange Unit
+      - id: 1293-5887
+        name: Commercial and Journalists
+      - id: 1295-0292
+        name: Customized MEA
+      - id: 1295-2408
+        name: Customized PT
+      - id: 1295-8460
+        name: Customized FR
+      - id: 1295-8466
+        name: PT. Surya Citra Multimedia ID
+      - id: 1295-8467
+        name: PT. Erajaya Swasembada Tbk ID
+      - id: 1295-8470
+        name: Customized VN
+      - id: 1295-8471
+        name: Customized SG
+      - id: 1295-8472
+        name: Customized MY
+      - id: 1295-8473
+        name: Customized TH
+      - id: 1295-8475
+        name: Customized SA
+      - id: 1295-8477
+        name: Customized MAA
+      - id: 1296-0305
+        name: Customized ZA
+      - id: 1296-6013
+        name: Customized RU
+      - id: 1296-6015
+        name: Customized UA
+      - id: 1296-6787
+        name: Algerika DZ
+      - id: 1296-6788
+        name: GNT Telecom DZ
+      - id: 1300-4321
+        name: Customized GEL
+      - id: 1304-8603
+        name: Customized PH
+      E5343:
+      - id: 1293-5884
+        name: Service Exchange Unit
+      - id: 1296-6258
+        name: Customized BR
+      E5353:
+      - id: 1293-5881
+        name: Service Exchange Unit
+      - id: 1293-5888
+        name: Commercial and Journalists
+      - id: 1295-0279
+        name: Customized SG
+      - id: 1295-0280
+        name: Customized AU
+      - id: 1295-8481
+        name: Customized PH
+      - id: 1295-8483
+        name: Customized TW
+      - id: 1296-7304
+        name: Claro CL
+      - id: 1296-8806
+        name: Smart Communications PH
+      E5363:
+      - id: 1293-5883
+        name: Service Exchange Unit
+      - id: 1293-5889
+        name: Commercial and Journalists
+      - id: 1295-0601
+        name: Customized IN
+      - id: 1295-8482
+        name: Customized HK
+    year: 2015
+  Tulip:
+    label: Xperia M4 Aqua
+    device_type: phone
+    models:
+      E2303:
+      - id: 1293-4939
+        name: Service Exchange Unit
+      - id: 1293-4994
+        name: Commercial and Journalists
+      - id: 1293-7713
+        name: Yoigo ES
+      - id: 1293-7714
+        name: Customized ES
+      - id: 1293-7715
+        name: T-Mobile PL
+      - id: 1293-7716
+        name: T-Mobile MK
+      - id: 1293-7717
+        name: Jazztel ES
+      - id: 1293-7718
+        name: TMN PT
+      - id: 1293-7720
+        name: Play PL
+      - id: 1293-7721
+        name: Polkomtel PLUS PL
+      - id: 1293-7722
+        name: Telekom Srbija RS
+      - id: 1293-7723
+        name: Vip mobile RS
+      - id: 1293-7724
+        name: Telenor RS
+      - id: 1293-7725
+        name: Telekom Srpske BA
+      - id: 1293-7726
+        name: Customized PT
+      - id: 1293-7727
+        name: BH Telecom BA
+      - id: 1293-7729
+        name: Mobilkom A1 AT
+      - id: 1293-7730
+        name: Mobitel SI
+      - id: 1293-7731
+        name: Customized CH
+      - id: 1293-7735
+        name: Virgin Mobile FR
+      - id: 1293-7737
+        name: Free FR
+      - id: 1293-7738
+        name: Customized FR
+      - id: 1293-7743
+        name: Customized NCB
+      - id: 1293-9369
+        name: Customized UK
+      - id: 1293-9375
+        name: T-Mobile HR
+      - id: 1293-9377
+        name: T-Mobile HU
+      - id: 1293-9378
+        name: Telekom RO
+      - id: 1293-9383
+        name: Customized CE5
+      - id: 1293-9387
+        name: DTAG DE
+      - id: 1294-2772
+        name: TIM IT
+      - id: 1294-2793
+        name: Customized IT
+      - id: 1294-3881
+        name: o2 DE
+      - id: 1294-3885
+        name: WIND IT
+      - id: 1294-3888
+        name: 3 UK
+      - id: 1294-3890
+        name: 3 AT
+      - id: 1294-3891
+        name: 3 IE
+      - id: 1294-3892
+        name: 3 SE
+      - id: 1294-3895
+        name: Customized BAL
+      - id: 1294-3896
+        name: O2 Pay monthly UK
+      - id: 1294-3911
+        name: Cosmote GR
+      - id: 1294-3912
+        name: Customized IL
+      - id: 1294-3914
+        name: Customized GR
+      - id: 1294-3917
+        name: Telia DK
+      - id: 1294-3919
+        name: Turkcell TR
+      - id: 1294-3920
+        name: Customized TR
+      - id: 1294-3925
+        name: KPN Mobile NL
+      - id: 1294-3926
+        name: Customized NL
+      - id: 1294-3927
+        name: Customized BE
+      - id: 1294-4801
+        name: Virgin Mobile UK
+      - id: 1294-4802
+        name: Meteor IE
+      - id: 1294-4813
+        name: Telenor HU
+      - id: 1294-4814
+        name: Telenor BG
+      - id: 1294-4815
+        name: Customized CE1
+      - id: 1294-6064
+        name: Vodafone UK
+      - id: 1294-6065
+        name: Vodafone DE
+      - id: 1294-6066
+        name: Vodafone ES
+      - id: 1294-6067
+        name: Vodacom ZA
+      - id: 1294-6068
+        name: Vodafone RO
+      - id: 1294-6069
+        name: Vodafone PT
+      - id: 1294-6070
+        name: Vodafone NL
+      - id: 1294-6071
+        name: Vodafone IT
+      - id: 1294-6072
+        name: Vodafone IE
+      - id: 1294-6073
+        name: Vodafone HU
+      - id: 1294-6074
+        name: Vodafone GR
+      - id: 1294-6075
+        name: Vodafone CZ
+      - id: 1294-6424
+        name: SFR FR
+      - id: 1294-7213
+        name: Orange FR
+      - id: 1294-7221
+        name: Orange PL
+      - id: 1294-7225
+        name: Orange SK
+      - id: 1294-7228
+        name: Orange RO
+      - id: 1294-7235
+        name: Optimus PT
+      - id: 1294-7239
+        name: EE UK
+      - id: 1294-7343
+        name: Orange ES
+      - id: 1294-7432
+        name: Vipnet HR
+      - id: 1294-7433
+        name: Swisscom CH
+      - id: 1294-7434
+        name: MobilTel EAD BG
+      - id: 1295-2647
+        name: MTN ZA
+      - id: 1295-2672
+        name: T-Mobile CZ
+      - id: 1295-2833
+        name: T-Mobile SK
+      - id: 1295-2939
+        name: Cellcom IL
+      - id: 1295-2941
+        name: Pelephone IL
+      - id: 1295-3911
+        name: Telefonica O2 CZ
+      - id: 1295-6080
+        name: T-Mobile AT
+      - id: 1295-6657
+        name: Customized DE
+      - id: 1295-7055
+        name: Customized RU
+      - id: 1295-8266
+        name: Customized ZA
+      - id: 1296-0107
+        name: Orange DO
+      - id: 1297-0118
+        name: Movistar CR
+      - id: 1297-1763
+        name: StoreFront
+      - id: 1298-3463
+        name: iD IE
+      - id: 1299-7012
+        name: postfone IE
+      - id: 1302-5005
+        name: Customized GEL
+      E2306:
+      - id: 1293-4958
+        name: Service Exchange Unit
+      - id: 1293-4992
+        name: Commercial and Journalists
+      - id: 1293-9367
+        name: Freedom CA
+      - id: 1293-9368
+        name: Videotron CA
+      - id: 1294-0464
+        name: Rogers Wireless CA
+      - id: 1294-0465
+        name: Bell Mobility CA
+      - id: 1294-3882
+        name: Tigo CO
+      - id: 1294-3883
+        name: Nextel PE
+      - id: 1294-3884
+        name: Iusacell MX
+      - id: 1294-3897
+        name: Movistar MX
+      - id: 1294-3898
+        name: Movistar PE
+      - id: 1294-3899
+        name: Movistar UY
+      - id: 1294-3900
+        name: Movistar CL
+      - id: 1294-3902
+        name: Customized GEL
+      - id: 1294-3903
+        name: Personal AR
+      - id: 1294-3904
+        name: Movistar AR
+      - id: 1294-3905
+        name: Entel PCS CL
+      - id: 1294-3910
+        name: Customized US
+      - id: 1294-3923
+        name: Ancel UY
+      - id: 1294-3924
+        name: Tigo GT
+      - id: 1294-3930
+        name: Movistar EC
+      - id: 1294-5144
+        name: Claro AR
+      - id: 1294-5145
+        name: Claro CL
+      - id: 1294-5146
+        name: Claro PE
+      - id: 1294-5147
+        name: Claro BR
+      - id: 1294-5149
+        name: Comcel 3GSM CO
+      - id: 1294-5150
+        name: Telcel GSM MX
+      - id: 1294-5151
+        name: Telcel GSM MX
+      - id: 1294-7437
+        name: Nextel CL
+      - id: 1295-3272
+        name: Customized AR
+      - id: 1295-5603
+        name: Conecel Porta EC
+      - id: 1295-5604
+        name: Claro DO
+      - id: 1295-5630
+        name: Claro SV
+      - id: 1295-5631
+        name: Claro PR
+      - id: 1295-5632
+        name: Claro GT
+      - id: 1295-5782
+        name: Movistar GT
+      - id: 1295-5783
+        name: Movistar SV
+      - id: 1295-5784
+        name: Movistar CO
+      - id: 1297-0125
+        name: Movistar NI
+      - id: 1297-1471
+        name: Claro UY
+      - id: 1297-2947
+        name: Amazon US
+      - id: 1297-2948
+        name: Claro NI
+      - id: 1297-2949
+        name: Claro PA
+      - id: 1297-2950
+        name: Claro HN
+      E2312:
+      - id: 1293-4957
+        name: Service Exchange Unit
+      - id: 1293-4991
+        name: Commercial and Journalists
+      - id: 1293-8827
+        name: Customized MY
+      - id: 1293-8829
+        name: Customized SG
+      - id: 1293-9370
+        name: Customized VN
+      - id: 1295-7072
+        name: Customized RU
+      - id: 1295-7073
+        name: Customized UA
+      - id: 1297-1756
+        name: StoreFront
+      - id: 1298-6195
+        name: Customized VN
+      E2333:
+      - id: 1293-4956
+        name: Service Exchange Unit
+      - id: 1293-4990
+        name: Commercial and Journalists
+      - id: 1293-7728
+        name: Customized PT
+      - id: 1293-7732
+        name: Customized FR
+      - id: 1293-7740
+        name: Customized SA
+      - id: 1293-7741
+        name: Customized MAA
+      - id: 1293-7742
+        name: Customized MEA
+      - id: 1294-3913
+        name: Customized GR
+      - id: 1295-6478
+        name: Customized RU
+      - id: 1295-7075
+        name: Customized UA
+      - id: 1295-9129
+        name: Customized ZA
+      - id: 1296-2317
+        name: Customized NOBA
+      - id: 1296-6764
+        name: GNT Telecom DZ
+      - id: 1296-6765
+        name: Algerika DZ
+      - id: 1297-2613
+        name: StoreFront
+      - id: 1298-0420
+        name: Customized IL
+      - id: 1298-9675
+        name: Customized NL
+      - id: 1299-3208
+        name: Customized BE
+      - id: 1300-4320
+        name: Customized GEL
+      E2353:
+      - id: 1293-4955
+        name: Service Exchange Unit
+      - id: 1293-4988
+        name: Commercial and Journalists
+      - id: 1293-7712
+        name: Telecom NZ
+      - id: 1293-8818
+        name: Customized TH
+      - id: 1293-8821
+        name: Customized PH
+      - id: 1293-8831
+        name: Singtel SG
+      - id: 1293-8832
+        name: Customized SG
+      - id: 1293-8834
+        name: Customized AU
+      - id: 1293-9386
+        name: Optus AU
+      - id: 1295-2137
+        name: PT. Surya Citra Multimedia ID
+      - id: 1295-2139
+        name: PT. Erajaya Swasembada Tbk ID
+      - id: 1295-2299
+        name: Starhub SG
+      - id: 1296-8805
+        name: Smart Communications PH
+      - id: 1297-0366
+        name: Globe PH
+      - id: 1301-9247
+        name: Optus AU
+      - id: 1302-1921
+        name: Customized VN
+      E2363:
+      - id: 1293-4954
+        name: Service Exchange Unit
+      - id: 1293-4986
+        name: Commercial and Journalists
+      - id: 1294-3906
+        name: Vivo BR
+      - id: 1294-3907
+        name: Oi BR
+      - id: 1294-3908
+        name: Customized BR
+      - id: 1294-3915
+        name: Customized HK
+      - id: 1295-2357
+        name: Customized IN
+      - id: 1295-8267
+        name: Customized TW
+      - id: 1297-1755
+        name: StoreFront
+    year: 2015
+  Karin:
+    label: Xperia Z4 Tablet
+    device_type: tablet
+    models:
+      SGP712:
+      - id: 1294-0896
+        name: Generic GLOBAL
+      - id: 1294-0944
+        name: Service Exchange Unit
+      - id: 1295-4684
+        name: Customized GR
+      - id: 1295-4711
+        name: Customized DE
+      - id: 1295-4762
+        name: Customized FR
+      - id: 1295-5864
+        name: Customized MEA
+      - id: 1295-5871
+        name: Customized TW
+      - id: 1295-5872
+        name: Customized MX
+      - id: 1295-5874
+        name: Customized SG
+      - id: 1295-6561
+        name: Customized UK
+      - id: 1295-6583
+        name: Customized US
+      - id: 1295-6958
+        name: Customized CH
+      - id: 1295-6959
+        name: Customized IL
+      - id: 1295-6962
+        name: Customized IBE
+      - id: 1295-6963
+        name: Customized CE1
+      - id: 1295-7241
+        name: CIS RU/UA/KZ/BY
+      - id: 1295-7706
+        name: Customized IT
+      - id: 1295-7866
+        name: Customized NOBA
+      - id: 1295-8983
+        name: VMo JP
+      - id: 1295-9283
+        name: VMo AU/NZ
+      - id: 1295-9724
+        name: Customized GEL
+      - id: 1295-9729
+        name: Customized AR
+      - id: 1297-1701
+        name: StoreFront
+      - id: 1297-1717
+        name: StoreFront
+      - id: 1297-1723
+        name: Promoter
+      - id: 1297-1724
+        name: Promoter
+      SGP771:
+      - id: 1295-0770
+        name: Customized SG
+      - id: 1295-0771
+        name: Customized TW
+      - id: 1295-0783
+        name: Customized SA
+      - id: 1295-0785
+        name: Customized MEA
+      - id: 1295-4506
+        name: Customized US
+      - id: 1295-4692
+        name: Customized GR
+      - id: 1295-4697
+        name: Customized UK
+      - id: 1295-4698
+        name: Customized IBE
+      - id: 1295-4742
+        name: Customized FR
+      - id: 1295-6952
+        name: Mobitel SI
+      - id: 1295-6955
+        name: Customized DE
+      - id: 1295-6957
+        name: Customized CH
+      - id: 1295-6960
+        name: Customized IL
+      - id: 1295-6961
+        name: Customized CE1
+      - id: 1295-6964
+        name: Customized BLX
+      - id: 1295-7138
+        name: CIS RU/UA/KZ/BY
+      - id: 1295-7256
+        name: O2 Pay monthly UK
+      - id: 1295-7869
+        name: Customized NOBA
+      - id: 1295-8484
+        name: Customized KR
+      - id: 1295-8508
+        name: o2 DE
+      - id: 1295-9709
+        name: Customized GEL
+      - id: 1296-0044
+        name: Telcel GSM MX
+      - id: 1296-0097
+        name: Telcel GSM MX
+      - id: 1296-0518
+        name: T-Mobile HR
+      - id: 1296-0531
+        name: Swisscom CH
+      - id: 1296-2777
+        name: Orange FR
+      - id: 1296-3119
+        name: Vodafone DE
+      - id: 1296-3680
+        name: PT. Matahari Mobile Seluler ID
+      - id: 1296-4830
+        name: Customized HK
+      - id: 1296-5371
+        name: Orange PL
+      - id: 1296-7077
+        name: Customized IT
+      - id: 1296-9315
+        name: StoreFront
+      - id: 1296-9316
+        name: Promoter
+      - id: 1297-1716
+        name: StoreFront
+      - id: 1297-1726
+        name: Promoter
+      - id: 1297-3293
+        name: Telstra AU
+      SO-05G:
+      - id: 1297-4710
+        name: NTT DoCoMo JP
+      SOT31:
+      - id: 1295-0427
+        name: KDDI JP

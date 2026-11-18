@@ -168,6 +168,29 @@ def load(db, kind, key):
     return json.loads(rows[0]['last_cursor_val']) if rows else None
 
 
+def load_bundle_record(db, key):
+    """Load Sony R2 bundle manifest from v4 `firmware_delivery_specs`, falling back to legacy `crawler_sources`."""
+    legacy = load(db, 'sony_bundle', key)
+    if legacy is not None:
+        return legacy
+    try:
+        rows = db.query(
+            "SELECT public_token, resolver_json FROM firmware_delivery_specs "
+            "WHERE content_hash=? AND delivery_mode='r2_bundle' LIMIT 1",
+            (key,),
+        )
+    except Exception as exc:
+        if 'no such table' in str(exc).lower():
+            return None
+        raise
+    if not rows:
+        return None
+    return {
+        'public_token': rows[0]['public_token'],
+        'manifest': json.loads(rows[0]['resolver_json']),
+    }
+
+
 def main():
     if os.environ.get('GITHUB_ACTIONS') != 'true':
         raise ValueError('Real Sony downloads are cloud-only')
@@ -215,7 +238,7 @@ def main():
                 return 0
             key = rows[0]['source_target']
             current = json.loads(rows[0]['last_cursor_val'])
-            record = load(db, 'sony_bundle', key)
+            record = load_bundle_record(db, key)
             manifest = record['manifest']
             if manifest_digest(manifest) != key:
                 raise ValueError('Sony manifest integrity mismatch')

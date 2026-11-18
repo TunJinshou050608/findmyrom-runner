@@ -137,6 +137,10 @@ def get_adapter(vendor_id: str, **kwargs: Any) -> VendorAdapter:
         from .transsion import TranssionAdapter
 
         return TranssionAdapter(key, **kwargs)
+    if key == "sony":
+        from .sony import SonyAdapter
+
+        return SonyAdapter(**kwargs)
 
     raise KeyError(f"No official adapter registered for vendor {vendor_id!r}")
 

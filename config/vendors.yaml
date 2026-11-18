@@ -155,13 +155,14 @@ vendors:
     display_name: itel
 
   sony:
-    enabled: false
+    enabled: true
     adapter: sony
-    status: awaiting_r2_and_cdf_seed
+    status: active_official
     tier: official
-    bucket: 11
+    bucket: 1
     max_collect_seconds: 600
     verify_workers: 4
+    max_devices: 15
     display_name: Sony
 
   huawei:

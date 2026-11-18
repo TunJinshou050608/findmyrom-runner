@@ -499,6 +499,7 @@ def test_vendor_configs_8_active_official_staggered_and_get_adapter() -> None:
         "tecno",
         "infinix",
         "itel",
+        "sony",
     }
     assert set(enabled_vendors.keys()) == expected_active
 
@@ -513,8 +514,6 @@ def test_vendor_configs_8_active_official_staggered_and_get_adapter() -> None:
     # Check disabled / covered / suppressed vendor statuses
     assert configs["rog"].enabled is False
     assert configs["rog"].status == "covered_by_asus_adapter"
-    assert configs["sony"].enabled is False
-    assert configs["sony"].status == "awaiting_r2_and_cdf_seed"
     assert configs["motorola"].enabled is False
     assert configs["motorola"].status == "requires_lmsa_oauth_token"
     for checkin_vid in ("nothing",):
@@ -537,6 +536,7 @@ def test_vendor_configs_8_active_official_staggered_and_get_adapter() -> None:
         "tecno",
         "infinix",
         "itel",
+        "sony",
     ):
         inst = get_adapter(registered_vid)
         assert isinstance(inst, VendorAdapter)
