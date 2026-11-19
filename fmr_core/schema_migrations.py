@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 
 ROOT = Path(__file__).with_name('migrations')
-CURRENT = 7
+CURRENT = 8
 
 _V7_EXPECTED_COLUMNS = [
     ('public_token', 'TEXT', 1),
@@ -16,6 +16,13 @@ _V7_EXPECTED_COLUMNS = [
     ('resolver_json', 'TEXT', 0),
     ('content_hash', 'TEXT', 0),
     ('updated_at', 'INTEGER', 0),
+]
+
+_V8_EXPECTED_FACET_COLUMNS = [
+    ('device_codename', 'TEXT', 1),
+    ('region_code', 'TEXT', 2),
+    ('model_key', 'TEXT', 3),
+    ('release_count', 'INTEGER', 0),
 ]
 
 
@@ -35,6 +42,32 @@ def _verify_v7_delivery_specs(db) -> None:
         raise RuntimeError('Missing idx_delivery_specs_hash index on firmware_delivery_specs')
 
 
+def _verify_v8_web_read_indexes(db) -> None:
+    indices = {
+        r['name']
+        for r in db.query('PRAGMA index_list(stock_firmwares)')
+        if not r['name'].startswith('sqlite_autoindex_')
+    }
+    for required_idx in ('idx_fw_device_region_ver_date', 'idx_fw_device_ver_lookup'):
+        if required_idx not in indices:
+            raise RuntimeError(f'Missing {required_idx} index on stock_firmwares')
+    cols = [
+        (r['name'], str(r['type']).upper(), int(r['pk']))
+        for r in db.query('PRAGMA table_info(device_stock_facets)')
+    ]
+    if cols != _V8_EXPECTED_FACET_COLUMNS:
+        raise RuntimeError('Unexpected or missing device_stock_facets columns')
+    triggers = {
+        r['name']
+        for r in db.query(
+            "SELECT name FROM sqlite_master WHERE type='trigger' AND tbl_name='stock_firmwares'"
+        )
+    }
+    for required_trg in ('facets_fw_insert', 'facets_fw_delete', 'facets_fw_update'):
+        if required_trg not in triggers:
+            raise RuntimeError(f'Missing {required_trg} trigger on stock_firmwares')
+
+
 def ensure_schema(db, *, allow_migration=False, through=5):
     if getattr(db, '_fmr_schema_ready', 0) >= through:
         return
@@ -51,6 +84,8 @@ def ensure_schema(db, *, allow_migration=False, through=5):
                 raise RuntimeError('Applied D1 migration checksum mismatch: ' + path.name)
             if version == 7:
                 _verify_v7_delivery_specs(db)
+            elif version == 8:
+                _verify_v8_web_read_indexes(db)
             continue
         if not allow_migration:
             raise RuntimeError('D1 schema migration required before publication: ' + path.name)
@@ -147,13 +182,15 @@ def ensure_schema(db, *, allow_migration=False, through=5):
         )
         if version == 7:
             _verify_v7_delivery_specs(db)
+        elif version == 8:
+            _verify_v8_web_read_indexes(db)
     db._fmr_schema_ready = through
 
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--apply', action='store_true')
-    parser.add_argument('--through', type=int, choices=[5, 6, 7], default=CURRENT)
+    parser.add_argument('--through', type=int, choices=[5, 6, 7, 8], default=CURRENT)
     args = parser.parse_args()
     from .d1_client import D1Client
     db = D1Client(timeout=180.0)

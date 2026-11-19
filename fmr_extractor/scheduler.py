@@ -68,8 +68,14 @@ def run_extraction_batch(
        WHERE extract_status='processing' AND updated_at<=?""",
         (now, now - 1800),
     )["changes"]
+    has_pending_idx = bool(
+        db_client.query(
+            "SELECT 1 FROM sqlite_master WHERE type='index' AND name='idx_fw_pending_order'"
+        )
+    )
+    indexed_hint = " INDEXED BY idx_fw_pending_order" if has_pending_idx else ""
     rows = db_client.query(
-        "SELECT * FROM stock_firmwares WHERE extract_status='pending' AND extract_retries<3 ORDER BY COALESCE(published_date,'') DESC,id DESC LIMIT ?",
+        f"SELECT * FROM stock_firmwares{indexed_hint} WHERE extract_status='pending' AND extract_retries<3 ORDER BY COALESCE(published_date,'') DESC,id DESC LIMIT ?",
         (batch_limit,),
     )
     stats = dict(

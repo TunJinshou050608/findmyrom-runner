@@ -147,3 +147,19 @@ def test_jumper_edition_labels_replace_internal_grouping_keys(tmp_path):
         assert 'marble__pro' not in page and 'OS2__pro' not in page
         assert '/verify/fw_aaaaaaaaaa' in page
     finally:db.close()
+
+
+def test_jumper_scans_stock_firmwares_only_once(tmp_path):
+    db = fixture(tmp_path)
+    try:
+        sqls = []
+        orig_query = db.query
+        def spy(sql, params=()):
+            sqls.append(sql)
+            return orig_query(sql, params)
+        db.query = spy
+        generate_jumper_markdown_tree(db, tmp_path / 'single_scan')
+        fw_main_queries = [s for s in sqls if 'FROM stock_firmwares' in s]
+        assert len(fw_main_queries) == 1
+    finally:
+        db.close()

@@ -1274,3 +1274,182 @@ def test_publisher_stops_before_utc_midnight_window(tmp_path: Path) -> None:
             ledger_conn.close()
     finally:
         db.close()
+
+
+def test_publisher_coalesces_small_outbox_files_and_skips_redundant_device_brand_upserts(
+    tmp_path: Path,
+) -> None:
+    state_dir = tmp_path / "state"
+    d1_path = tmp_path / "d1.sqlite"
+    base_db = _init_d1_sqlite(d1_path)
+    base_db.close()
+
+    specs = _make_google_specs(30)
+    outbox = OutboxSpool(state_dir)
+    # 10 tiny 3-spec outbox files (like small scheduled/daemon bursts)
+    for idx in range(0, 30, 3):
+        outbox.enqueue_specs("google", specs[idx : idx + 3], batch_size=3)
+    assert len(outbox.list_pending()) == 10
+
+    executed_batches: list[list[str]] = []
+
+    class RecordingD1Client(D1Client):
+        def execute_batch(self, statements: Sequence[tuple[str, Sequence[Any]]]) -> dict[str, Any]:
+            executed_batches.append([sql.strip().splitlines()[0] for sql, _ in statements])
+            return super().execute_batch(statements)
+
+    db = RecordingD1Client(local_sqlite_path=str(d1_path))
+    try:
+        res1 = run_publisher(
+            state_dir=state_dir,
+            db=db,
+            private_key_hex=TEST_PRIVATE_KEY_HEX,
+            batch_size=40,
+            utc_day_fn=lambda: "2026-11-19",
+            now_fn=lambda: 1763510400,
+        )
+        assert res1["status"] == "ok"
+        assert res1["batches_committed"] == 1
+        assert res1["files_completed"] == 10
+        assert res1["published_specs"] == 30
+        assert res1["pending_files_remaining"] == 0
+        assert len(executed_batches) == 1
+        assert any("INTO brands" in s for s in executed_batches[0])
+        assert any("INTO devices" in s for s in executed_batches[0])
+
+        # Second publish with another firmware for the SAME device & brand must skip brands/devices SQL!
+        executed_batches.clear()
+        dev = AdapterDevice(
+            brand_id="google",
+            codename="husky",
+            marketing_name="Pixel 8 Pro",
+            model_numbers=("GC3VE",),
+        )
+        url_new = "https://dl.google.com/dl/android/aosp/husky-v99.zip"
+        new_spec = AdapterRelease(
+            device_codename="husky",
+            model_code="husky",
+            region_code="GLOBAL",
+            version_str="AP4A.250305.099",
+            android_version="15",
+            package_type="factory_zip",
+            original_official_url=url_new,
+            fast_cdn_url=url_new,
+            file_size_bytes=2_500_000_000,
+            file_size_str="2.33 GB",
+        ).to_publish_spec(dev)
+        outbox.enqueue_specs("google", [new_spec], batch_size=1)
+
+        res2 = run_publisher(
+            state_dir=state_dir,
+            db=db,
+            private_key_hex=TEST_PRIVATE_KEY_HEX,
+            batch_size=40,
+            utc_day_fn=lambda: "2026-11-19",
+            now_fn=lambda: 1763510500,
+        )
+        assert res2["batches_committed"] == 1
+        assert res2["published_specs"] == 1
+        assert not any("INTO brands" in s for s in executed_batches[0])
+        assert not any("INTO devices" in s for s in executed_batches[0])
+
+        # Updating marketing_name MUST re-emit the devices upsert!
+        executed_batches.clear()
+        dev_updated = AdapterDevice(
+            brand_id="google",
+            codename="husky",
+            marketing_name="Google Pixel 8 Pro",
+            model_numbers=("GC3VE",),
+        )
+        url_upd = "https://dl.google.com/dl/android/aosp/husky-v100.zip"
+        upd_spec = AdapterRelease(
+            device_codename="husky",
+            model_code="husky",
+            region_code="GLOBAL",
+            version_str="AP4A.250405.100",
+            android_version="15",
+            package_type="factory_zip",
+            original_official_url=url_upd,
+            fast_cdn_url=url_upd,
+            file_size_bytes=2_500_000_000,
+            file_size_str="2.33 GB",
+        ).to_publish_spec(dev_updated)
+        outbox.enqueue_specs("google", [upd_spec], batch_size=1)
+
+        res3 = run_publisher(
+            state_dir=state_dir,
+            db=db,
+            private_key_hex=TEST_PRIVATE_KEY_HEX,
+            batch_size=40,
+            utc_day_fn=lambda: "2026-11-19",
+            now_fn=lambda: 1763510600,
+        )
+        assert res3["batches_committed"] == 1
+        assert not any("INTO brands" in s for s in executed_batches[0])
+        assert any("INTO devices" in s for s in executed_batches[0])
+        assert db.query("SELECT marketing_name FROM devices WHERE codename='husky'")[0]["marketing_name"] == "Google Pixel 8 Pro"
+    finally:
+        db.close()
+
+
+def test_publisher_coalesced_cross_file_quota_checkpoint_resume(tmp_path: Path) -> None:
+    state_dir = tmp_path / "state"
+    d1_path = tmp_path / "d1.sqlite"
+    base_db = _init_d1_sqlite(d1_path)
+    base_db.close()
+
+    specs = _make_google_specs(7)
+    outbox = OutboxSpool(state_dir)
+    outbox.enqueue_specs("google", specs[:3], batch_size=3)
+    outbox.enqueue_specs("google", specs[3:], batch_size=4)
+    assert len(outbox.list_pending()) == 2
+
+    class QuotaOnSecondBatchClient(D1Client):
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            super().__init__(*args, **kwargs)
+            self.batch_calls = 0
+
+        def execute_batch(self, statements: Sequence[tuple[str, Sequence[Any]]]) -> dict[str, Any]:
+            self.batch_calls += 1
+            if self.batch_calls == 2:
+                raise D1QuotaExceededError("Daily quota reached", error_codes=(7500,))
+            return super().execute_batch(statements)
+
+    db = QuotaOnSecondBatchClient(local_sqlite_path=str(d1_path))
+    try:
+        # batch_size=5 coalesces all 3 of file0 + first 2 of file1 into Batch 1;
+        # Batch 2 fails on quota -> file0 marked done, file1 rewritten to remaining 2 specs.
+        res1 = run_publisher(
+            state_dir=state_dir,
+            db=db,
+            private_key_hex=TEST_PRIVATE_KEY_HEX,
+            batch_size=5,
+            utc_day_fn=lambda: "2026-11-19",
+            now_fn=lambda: 1763510400,
+        )
+        assert res1["status"] == "paused_d1_quota"
+        assert res1["batches_committed"] == 1
+        assert res1["files_completed"] == 1
+        assert res1["published_specs"] == 5
+        pending = outbox.list_pending()
+        assert len(pending) == 1
+        assert [s.release.version_str for s in outbox.read_specs(pending[0])] == [
+            "AP4A.250205.005",
+            "AP4A.250205.006",
+        ]
+
+        res2 = run_publisher(
+            state_dir=state_dir,
+            db=db,
+            private_key_hex=TEST_PRIVATE_KEY_HEX,
+            batch_size=5,
+            utc_day_fn=lambda: "2026-11-20",
+            now_fn=lambda: 1763596800,
+        )
+        assert res2["status"] == "ok"
+        assert res2["published_specs"] == 2
+        assert res2["files_completed"] == 1
+        assert res2["pending_files_remaining"] == 0
+        assert len(db.query("SELECT id FROM stock_firmwares")) == 7
+    finally:
+        db.close()

@@ -566,3 +566,34 @@ def test_samsung_stored_ap_tar_extraction_and_rejection(setup,encoding):
         assert inventory=={'format':'samsung_ap_tar','partitions':['boot']}
         consumed=sum(len(server.rom[int(r.headers['range'].split('=')[1].split('-')[0]):int(r.headers['range'].split('-')[-1])+1]) for r in server.calls if r.url.host=='firmware.example.com')
         assert consumed<1024*1024  # Never read the irrelevant system.img body.
+
+
+def test_scheduler_pending_query_uses_partial_index_without_temp_btree(tmp_path):
+    import sqlite3
+    from fmr_core.schema_migrations import ensure_schema
+    from fmr_ingest_stock.d1_budget import BudgetDB
+
+    db_path = tmp_path / "migrated.sqlite"
+    db = BudgetDB(local_sqlite_path=str(db_path))
+    try:
+        db.execute_script((Path(__file__).resolve().parents[1] / "fmr_core" / "schema.sql").read_text())
+        db.execute("INSERT INTO brands(id,name,bl_unlock_status) VALUES ('xiaomi','Xiaomi','easy')")
+        db.execute("INSERT INTO devices(codename,brand_id,marketing_name) VALUES ('sample','xiaomi','Sample')")
+        ensure_schema(db, allow_migration=True, through=8)
+    finally:
+        db.close()
+
+    conn = sqlite3.connect(str(db_path))
+    try:
+        plan = " ".join(
+            r[3]
+            for r in conn.execute(
+                "EXPLAIN QUERY PLAN SELECT * FROM stock_firmwares INDEXED BY idx_fw_pending_order "
+                "WHERE extract_status='pending' AND extract_retries<3 "
+                "ORDER BY COALESCE(published_date,'') DESC,id DESC LIMIT 200"
+            ).fetchall()
+        )
+        assert "idx_fw_pending_order" in plan
+        assert "TEMP B-TREE" not in plan
+    finally:
+        conn.close()

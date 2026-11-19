@@ -528,7 +528,7 @@ def test_identity_maintenance_artifacts_deleted():
 
 
 def test_ensure_schema_through_v7_creates_and_verifies_delivery_specs(tmp_path, monkeypatch):
-    assert CURRENT == 7
+    assert CURRENT == 8
     sqlite_path = tmp_path / "schema_v7.sqlite"
     db = D1Client(local_sqlite_path=str(sqlite_path))
     try:
@@ -578,6 +578,19 @@ def test_ensure_schema_through_v7_creates_and_verifies_delivery_specs(tmp_path, 
         ensure_schema(db, allow_migration=False, through=7)
         assert db._fmr_schema_ready == 7
 
+        # Upgrading through=8 applies 0008 cleanly and verifies indexes, facets table & triggers
+        ensure_schema(db, allow_migration=True, through=8)
+        assert [r["version"] for r in db.query("SELECT version FROM fmr_schema_migrations ORDER BY version")] == [
+            4,
+            5,
+            6,
+            7,
+            8,
+        ]
+        db._fmr_schema_ready = 0
+        ensure_schema(db, allow_migration=False, through=8)
+        assert db._fmr_schema_ready == 8
+
         # Dropping idx_delivery_specs_hash triggers verification failure on next check
         db.execute("DROP INDEX idx_delivery_specs_hash")
         db._fmr_schema_ready = 0
@@ -586,8 +599,8 @@ def test_ensure_schema_through_v7_creates_and_verifies_delivery_specs(tmp_path, 
     finally:
         db.close()
 
-    # Verify CLI main() defaults --through to CURRENT (7)
-    fresh_path = tmp_path / "cli_v7.sqlite"
+    # Verify CLI main() defaults --through to CURRENT (8)
+    fresh_path = tmp_path / "cli_v8.sqlite"
     fresh_db = D1Client(local_sqlite_path=str(fresh_path))
     fresh_db.execute_script((RUNNER_ROOT / "schema.sql").read_text(encoding="utf-8"))
     fresh_db.close()
@@ -599,9 +612,42 @@ def test_ensure_schema_through_v7_creates_and_verifies_delivery_specs(tmp_path, 
     verify_db = D1Client(local_sqlite_path=str(fresh_path))
     try:
         versions = [r["version"] for r in verify_db.query("SELECT version FROM fmr_schema_migrations ORDER BY version")]
-        assert versions == [4, 5, 6, 7]
+        assert versions == [4, 5, 6, 7, 8]
     finally:
         verify_db.close()
+
+
+def test_ensure_schema_through_v8_verifies_indexes_facets_and_triggers(tmp_path):
+    sqlite_path = tmp_path / "schema_v8.sqlite"
+    db = D1Client(local_sqlite_path=str(sqlite_path))
+    try:
+        db.execute_script((RUNNER_ROOT / "schema.sql").read_text(encoding="utf-8"))
+        ensure_base_brands_and_anchor(db)
+        db.execute(
+            "INSERT INTO devices(codename, brand_id, marketing_name) VALUES ('sample', 'xiaomi', 'Sample')"
+        )
+        db.execute(
+            """INSERT INTO stock_firmwares(public_token, device_codename, region_code, model_code, version_str,
+               android_version, package_type, original_official_url, fast_cdn_url, ed25519_signature)
+               VALUES ('fw_pre01', 'sample', 'Global', 'sample', 'V1', '14', 'recovery_zip', 'u', 'u', 's'),
+                      ('fw_pre02', 'sample', 'Global', '', 'V1', '14', 'fastboot_tgz', 'u', 'u', 's'),
+                      ('fw_pre03', 'sample', 'CN', 'sample_cn', 'V2', '15', 'recovery_zip', 'u', 'u', 's')"""
+        )
+        ensure_schema(db, allow_migration=True, through=8)
+        facets = db.query(
+            "SELECT device_codename, region_code, model_key, release_count FROM device_stock_facets ORDER BY region_code, model_key"
+        )
+        assert facets == [
+            {"device_codename": "sample", "region_code": "CN", "model_key": "sample_cn", "release_count": 1},
+            {"device_codename": "sample", "region_code": "Global", "model_key": "sample", "release_count": 1},
+        ]
+        # Dropping an index or trigger breaks verification
+        db.execute("DROP INDEX idx_fw_device_ver_lookup")
+        db._fmr_schema_ready = 0
+        with pytest.raises(RuntimeError, match="idx_fw_device_ver_lookup"):
+            ensure_schema(db, allow_migration=False, through=8)
+    finally:
+        db.close()
 
 
 def test_migration_mains_use_extended_d1_timeout(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -659,9 +705,9 @@ def test_ensure_schema_skips_internal_cf_and_sqlite_tables(tmp_path: Path, monke
 
         monkeypatch.setattr(db, "query", guarded_query)
 
-        ensure_schema(db, allow_migration=True, through=7)
+        ensure_schema(db, allow_migration=True, through=8)
         versions = [r["version"] for r in orig_query("SELECT version FROM fmr_schema_migrations ORDER BY version")]
-        assert versions == [4, 5, 6, 7]
+        assert versions == [4, 5, 6, 7, 8]
     finally:
         db.close()
 

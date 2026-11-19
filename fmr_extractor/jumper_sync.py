@@ -47,22 +47,48 @@ def generate_jumper_markdown_tree(db_client, output_dir: Path, base_site_url: st
     site = public_site(base_site_url)
     devices = db_client.query("""SELECT codename,brand_id,marketing_name FROM devices
         WHERE codename!='__global__' ORDER BY brand_id ASC,codename ASC""")
-    # One ranked union chooses the newest 50 *versions*, shared by both tables.
-    versions = """WITH versions AS (
-        SELECT device_codename,version_str,MAX(COALESCE(published_date,'')) AS release_date FROM stock_firmwares GROUP BY device_codename,version_str
-        UNION ALL SELECT i.device_codename,i.version_str,MAX(COALESCE(f.published_date,'')) FROM extracted_boot_images i LEFT JOIN stock_firmwares f ON f.id=i.firmware_id GROUP BY i.device_codename,i.version_str),
-        combined AS (SELECT device_codename,version_str,MAX(release_date) AS release_date FROM versions GROUP BY device_codename,version_str),
-        ranked AS (SELECT device_codename,version_str,ROW_NUMBER() OVER
-          (PARTITION BY device_codename ORDER BY release_date DESC,version_str DESC) AS rn FROM combined)
-    """
-    images = db_client.query(versions + """SELECT i.device_codename,i.version_str,i.partition_name,
-        i.variant_type,i.file_size_bytes,i.sha256_hash,i.public_token FROM extracted_boot_images i
-        JOIN ranked r USING(device_codename,version_str) WHERE r.rn<=50 AND i.device_codename!='__global__'
+    # Fetch boot images (small table) + top-50 firmware versions per device (single stock_firmwares pass),
+    # then apply the unified 50-version cap across both in Python to avoid scanning stock_firmwares twice.
+    all_images = db_client.query("""SELECT i.device_codename,i.version_str,i.partition_name,
+        i.variant_type,i.file_size_bytes,i.sha256_hash,i.public_token,COALESCE(f.published_date,'') AS release_date
+        FROM extracted_boot_images i LEFT JOIN stock_firmwares f ON f.id=i.firmware_id
+        WHERE i.device_codename!='__global__'
         ORDER BY i.device_codename,i.version_str DESC,i.partition_name,i.variant_type,i.public_token""")
-    firmwares = db_client.query(versions + """SELECT f.device_codename,f.version_str,f.region_code,
-        f.model_code,f.package_type,f.public_token FROM stock_firmwares f
-        JOIN ranked r USING(device_codename,version_str) WHERE r.rn<=50 AND f.device_codename!='__global__'
+    all_firmwares = db_client.query("""WITH fw_versions AS (
+        SELECT device_codename,version_str,MAX(COALESCE(published_date,'')) AS release_date
+        FROM stock_firmwares WHERE device_codename!='__global__' GROUP BY device_codename,version_str),
+        ranked AS (SELECT device_codename,version_str,release_date,ROW_NUMBER() OVER
+          (PARTITION BY device_codename ORDER BY release_date DESC,version_str DESC) AS rn FROM fw_versions)
+        SELECT f.device_codename,f.version_str,f.region_code,f.model_code,f.package_type,f.public_token,r.release_date
+        FROM stock_firmwares f JOIN ranked r USING(device_codename,version_str)
+        WHERE r.rn<=50 AND f.device_codename!='__global__'
         ORDER BY f.device_codename,f.version_str DESC,f.region_code,f.package_type,f.public_token""")
+    version_dates: dict[str, dict[str, str]] = {}
+    for row in all_images:
+        d = version_dates.setdefault(row['device_codename'], {})
+        prev = d.get(row['version_str'], '')
+        cur = row.get('release_date') or ''
+        if cur >= prev:
+            d[row['version_str']] = cur
+    for row in all_firmwares:
+        d = version_dates.setdefault(row['device_codename'], {})
+        prev = d.get(row['version_str'], '')
+        cur = row.get('release_date') or ''
+        if cur >= prev:
+            d[row['version_str']] = cur
+    top_versions: dict[str, set[str]] = {
+        code: {
+            ver
+            for ver, _ in sorted(
+                ver_map.items(),
+                key=lambda kv: (kv[1], kv[0]),
+                reverse=True,
+            )[:50]
+        }
+        for code, ver_map in version_dates.items()
+    }
+    images = [r for r in all_images if r['version_str'] in top_versions.get(r['device_codename'], ())]
+    firmwares = [r for r in all_firmwares if r['version_str'] in top_versions.get(r['device_codename'], ())]
     # Public projection consumes the same stored display metadata as the website.
     labels={}
     for offset in range(0,len(firmwares),60):

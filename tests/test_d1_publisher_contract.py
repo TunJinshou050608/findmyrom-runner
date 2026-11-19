@@ -163,9 +163,9 @@ def test_compact_search_preserves_mid_version_matching_and_tracks_rekeys_deletes
 
 def test_schema_v7_delivery_specs_upgrade_and_current_constant(db):
     x, _, _ = db
-    assert CURRENT == 7
-    ensure_schema(x, allow_migration=True, through=7)
-    assert [r['version'] for r in x.query('SELECT version FROM fmr_schema_migrations ORDER BY version')] == [4, 5, 6, 7]
+    assert CURRENT == 8
+    ensure_schema(x, allow_migration=True, through=8)
+    assert [r['version'] for r in x.query('SELECT version FROM fmr_schema_migrations ORDER BY version')] == [4, 5, 6, 7, 8]
     x.execute(
         "INSERT INTO firmware_delivery_specs(public_token,delivery_mode,resolver_json,content_hash) VALUES ('fw_v7','direct_cdn','{}','hash0')"
     )

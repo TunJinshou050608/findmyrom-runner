@@ -48,6 +48,18 @@ CREATE TABLE IF NOT EXISTS quarantined_4tuple_collisions (
     spec_json TEXT NOT NULL,
     detected_at INTEGER NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS ledger_brands (
+    brand_id TEXT PRIMARY KEY,
+    brand_name TEXT NOT NULL,
+    updated_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS ledger_devices (
+    codename TEXT PRIMARY KEY,
+    device_sha256 TEXT NOT NULL,
+    updated_at INTEGER NOT NULL
+);
 """
 
 DEFAULT_BRAND_DISPLAY_NAMES: dict[str, str] = {
@@ -151,6 +163,20 @@ def _four_tuple_key(spec: PublishSpecV1) -> str:
         [r.device_codename, r.region_code, r.version_str, r.package_type],
         separators=(",", ":"),
     )
+
+
+def _publisher_device_sha256(dev: Any) -> str:
+    payload = {
+        "codename": dev.codename,
+        "brand_id": dev.brand_id,
+        "marketing_name": dev.marketing_name,
+        "model_numbers": list(dev.model_numbers),
+        "soc_name": dev.soc_name,
+        "boot_partition_type": dev.boot_partition_type,
+        "has_vbmeta": dev.has_vbmeta,
+    }
+    canonical = json.dumps(payload, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 def _open_ledger_db(ledger_path: Path) -> sqlite3.Connection:
@@ -314,16 +340,26 @@ def _build_batch_statements_and_ledger_updates(
     *,
     specs: Sequence[PublishSpecV1],
     ledger_map: dict[str, dict[str, Any]],
+    ledger_brands_map: Mapping[str, str],
+    ledger_devices_map: Mapping[str, str],
     four_tuple_owners: dict[str, str],
     caps: _D1Capabilities,
     private_key_hex: str,
     now_ts: int,
     brand_names: Mapping[str, str],
     conn: sqlite3.Connection,
-) -> tuple[list[tuple[str, Sequence[Any]]], list[tuple[Any, ...]], int]:
+) -> tuple[
+    list[tuple[str, Sequence[Any]]],
+    list[tuple[Any, ...]],
+    list[tuple[str, str, int]],
+    list[tuple[str, str, int]],
+    int,
+]:
     """Construct atomic D1 batch SQL statements and matching ledger updates."""
     statements: list[tuple[str, Sequence[Any]]] = []
     ledger_updates: list[tuple[Any, ...]] = []
+    brand_updates: list[tuple[str, str, int]] = []
+    device_updates: list[tuple[str, str, int]] = []
     quarantined_4tuple = 0
 
     seen_brands: set[str] = set()
@@ -358,7 +394,7 @@ def _build_batch_statements_and_ledger_updates(
         conn.commit()
 
     if not publishable_specs:
-        return [], [], quarantined_4tuple
+        return [], [], [], [], quarantined_4tuple
 
     delivery_hashes: dict[str, str | None] = {
         spec.identity_key: _compute_delivery_sha256(spec) for spec in publishable_specs
@@ -398,47 +434,52 @@ def _build_batch_statements_and_ledger_updates(
             brand_label = brand_names.get(brand_id) or DEFAULT_BRAND_DISPLAY_NAMES.get(
                 brand_id, brand_id.capitalize()
             )
-            statements.append(
-                (
-                    "INSERT OR IGNORE INTO brands (id, name, bl_unlock_status, sort_order) VALUES (?, ?, ?, ?)",
-                    (brand_id, brand_label, "unlockable", 100),
+            if ledger_brands_map.get(brand_id) != brand_label:
+                statements.append(
+                    (
+                        "INSERT OR IGNORE INTO brands (id, name, bl_unlock_status, sort_order) VALUES (?, ?, ?, ?)",
+                        (brand_id, brand_label, "unlockable", 100),
+                    )
                 )
-            )
+                brand_updates.append((brand_id, brand_label, now_ts))
 
     for spec in publishable_specs:
         dev = spec.device
         if dev.codename in seen_devices:
             continue
         seen_devices.add(dev.codename)
-        statements.append(
-            (
-                """
-                INSERT INTO devices (
-                    codename, brand_id, marketing_name, model_numbers_json,
-                    soc_name, boot_partition_type, has_vbmeta, updated_at
-                )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(codename) DO UPDATE SET
-                    marketing_name = excluded.marketing_name,
-                    model_numbers_json = excluded.model_numbers_json,
-                    boot_partition_type = excluded.boot_partition_type,
-                    updated_at = excluded.updated_at
-                WHERE devices.marketing_name IS NOT excluded.marketing_name
-                   OR devices.model_numbers_json IS NOT excluded.model_numbers_json
-                   OR devices.boot_partition_type IS NOT excluded.boot_partition_type
-                """,
+        dev_sha = _publisher_device_sha256(dev)
+        if ledger_devices_map.get(dev.codename) != dev_sha:
+            statements.append(
                 (
-                    dev.codename,
-                    dev.brand_id,
-                    dev.marketing_name,
-                    json.dumps(list(dev.model_numbers)),
-                    dev.soc_name,
-                    dev.boot_partition_type,
-                    dev.has_vbmeta,
-                    now_ts,
-                ),
+                    """
+                    INSERT INTO devices (
+                        codename, brand_id, marketing_name, model_numbers_json,
+                        soc_name, boot_partition_type, has_vbmeta, updated_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(codename) DO UPDATE SET
+                        marketing_name = excluded.marketing_name,
+                        model_numbers_json = excluded.model_numbers_json,
+                        boot_partition_type = excluded.boot_partition_type,
+                        updated_at = excluded.updated_at
+                    WHERE devices.marketing_name IS NOT excluded.marketing_name
+                       OR devices.model_numbers_json IS NOT excluded.model_numbers_json
+                       OR devices.boot_partition_type IS NOT excluded.boot_partition_type
+                    """,
+                    (
+                        dev.codename,
+                        dev.brand_id,
+                        dev.marketing_name,
+                        json.dumps(list(dev.model_numbers)),
+                        dev.soc_name,
+                        dev.boot_partition_type,
+                        dev.has_vbmeta,
+                        now_ts,
+                    ),
+                )
             )
-        )
+            device_updates.append((dev.codename, dev_sha, now_ts))
 
     conflict_clause = (
         "ON CONFLICT(device_codename, COALESCE(NULLIF(model_code, ''), device_codename), region_code, version_str, package_type)"
@@ -611,7 +652,7 @@ def _build_batch_statements_and_ledger_updates(
             )
         )
 
-    return statements, ledger_updates, quarantined_4tuple
+    return statements, ledger_updates, brand_updates, device_updates, quarantined_4tuple
 
 
 def run_publisher(
@@ -764,6 +805,14 @@ def _execute_publisher_locked(
             str(r["identity_key"]): dict(r)
             for r in conn.execute("SELECT * FROM ledger_entries").fetchall()
         }
+        ledger_brands_map: dict[str, str] = {
+            str(r["brand_id"]): str(r["brand_name"])
+            for r in conn.execute("SELECT brand_id, brand_name FROM ledger_brands").fetchall()
+        }
+        ledger_devices_map: dict[str, str] = {
+            str(r["codename"]): str(r["device_sha256"])
+            for r in conn.execute("SELECT codename, device_sha256 FROM ledger_devices").fetchall()
+        }
         four_tuple_owners: dict[str, str] = {}
         for ikey in ledger_map:
             try:
@@ -776,123 +825,222 @@ def _execute_publisher_locked(
 
         caps: _D1Capabilities | None = None
 
-        for pending_path in pending_files:
-            file_specs = outbox.read_specs(pending_path)
-            committed_in_file = 0
+        @dataclass
+        class _PendingFileCursor:
+            path: Path
+            specs: list[PublishSpecV1]
+            committed: int = 0
+            staged_end: int = 0
+
+        loaded_files: dict[int, _PendingFileCursor] = {}
+
+        def _get_file(idx: int) -> _PendingFileCursor:
+            cur = loaded_files.get(idx)
+            if cur is None:
+                p = pending_files[idx]
+                cur = _PendingFileCursor(path=p, specs=outbox.read_specs(p))
+                loaded_files[idx] = cur
+            return cur
+
+        def _finalize_pauses() -> None:
+            for cur in loaded_files.values():
+                if cur.committed >= len(cur.specs):
+                    outbox.mark_done(cur.path)
+                elif cur.committed > 0:
+                    outbox.rewrite_uncommitted(cur.path, cur.specs[cur.committed :])
+
+        cur_file_idx = 0
+        cur_spec_idx = 0
+
+        while cur_file_idx < len(pending_files):
+            batch_dirty_map: dict[str, PublishSpecV1] = {}
+            batch_touched_files: list[_PendingFileCursor] = []
+            batch_touched_ids: set[int] = set()
+
+            while cur_file_idx < len(pending_files) and len(batch_dirty_map) < batch_size:
+                if _should_stop_for_utc_rollover(
+                    day_clock,
+                    ts_clock,
+                    start_utc_day,
+                    stop_before_utc_midnight_seconds,
+                ):
+                    _finalize_pauses()
+                    return {
+                        "status": "paused_utc_rollover",
+                        "phase": "publish",
+                        "utc_day": day_clock(),
+                        "start_utc_day": start_utc_day,
+                        "bootstrapped_rows": bootstrapped_rows,
+                        "published_specs": published_specs,
+                        "skipped_unchanged": skipped_unchanged,
+                        "batches_committed": batches_committed,
+                        "files_completed": files_completed,
+                        "quarantined_4tuple_collisions": quarantined_4tuple_total,
+                        "pending_files_remaining": len(outbox.list_pending()),
+                    }
+
+                cursor = _get_file(cur_file_idx)
+                if cur_file_idx not in batch_touched_ids:
+                    batch_touched_ids.add(cur_file_idx)
+                    batch_touched_files.append(cursor)
+
+                while cur_spec_idx < len(cursor.specs) and len(batch_dirty_map) < batch_size:
+                    spec = cursor.specs[cur_spec_idx]
+                    prior = ledger_map.get(spec.identity_key)
+                    delivery_hash = _compute_delivery_sha256(spec)
+                    if (
+                        prior is not None
+                        and prior.get("spec_sha256") == spec.spec_sha256
+                        and prior.get("enrichment_sha256") == spec.enrichment_sha256
+                        and prior.get("delivery_sha256") == delivery_hash
+                    ):
+                        skipped_unchanged += 1
+                    else:
+                        batch_dirty_map[spec.identity_key] = spec
+                    cur_spec_idx += 1
+                    cursor.staged_end = cur_spec_idx
+
+                if cur_spec_idx >= len(cursor.specs):
+                    # File had zero dirty specs across this empty scan and no earlier uncommitted work -> mark done immediately
+                    if not batch_dirty_map and cursor.committed == 0:
+                        outbox.mark_done(cursor.path)
+                        files_completed += 1
+                        loaded_files.pop(cur_file_idx, None)
+                        batch_touched_files.pop()
+                        batch_touched_ids.discard(cur_file_idx)
+                    cur_file_idx += 1
+                    cur_spec_idx = 0
+
+            if not batch_dirty_map:
+                continue
+
+            if _should_stop_for_utc_rollover(
+                day_clock,
+                ts_clock,
+                start_utc_day,
+                stop_before_utc_midnight_seconds,
+            ):
+                _finalize_pauses()
+                return {
+                    "status": "paused_utc_rollover",
+                    "phase": "publish",
+                    "utc_day": day_clock(),
+                    "start_utc_day": start_utc_day,
+                    "bootstrapped_rows": bootstrapped_rows,
+                    "published_specs": published_specs,
+                    "skipped_unchanged": skipped_unchanged,
+                    "batches_committed": batches_committed,
+                    "files_completed": files_completed,
+                    "quarantined_4tuple_collisions": quarantined_4tuple_total,
+                    "pending_files_remaining": len(outbox.list_pending()),
+                }
 
             try:
-                for offset in range(0, len(file_specs), batch_size):
-                    if _should_stop_for_utc_rollover(
-                        day_clock,
-                        ts_clock,
-                        start_utc_day,
-                        stop_before_utc_midnight_seconds,
-                    ):
-                        remaining_in_file = file_specs[committed_in_file:]
-                        outbox.rewrite_uncommitted(pending_path, remaining_in_file)
-                        return {
-                            "status": "paused_utc_rollover",
-                            "phase": "publish",
-                            "utc_day": day_clock(),
-                            "start_utc_day": start_utc_day,
-                            "bootstrapped_rows": bootstrapped_rows,
-                            "published_specs": published_specs,
-                            "skipped_unchanged": skipped_unchanged,
-                            "batches_committed": batches_committed,
-                            "files_completed": files_completed,
-                            "quarantined_4tuple_collisions": quarantined_4tuple_total,
-                            "pending_files_remaining": len(outbox.list_pending()),
-                        }
+                if caps is None:
+                    caps = _detect_d1_capabilities(db)
 
-                    chunk = file_specs[offset : offset + batch_size]
+                now_ts = ts_clock()
+                (
+                    statements,
+                    ledger_updates,
+                    brand_updates,
+                    device_updates,
+                    q4,
+                ) = _build_batch_statements_and_ledger_updates(
+                    specs=list(batch_dirty_map.values()),
+                    ledger_map=ledger_map,
+                    ledger_brands_map=ledger_brands_map,
+                    ledger_devices_map=ledger_devices_map,
+                    four_tuple_owners=four_tuple_owners,
+                    caps=caps,
+                    private_key_hex=private_key_hex,
+                    now_ts=now_ts,
+                    brand_names=brand_names,
+                    conn=conn,
+                )
+                quarantined_4tuple_total += q4
 
-                    # Deduplicate identical identity_keys within the same chunk (keep latest)
-                    dedup_chunk_map: dict[str, PublishSpecV1] = {}
-                    for spec in chunk:
-                        dedup_chunk_map[spec.identity_key] = spec
+                if statements:
+                    db.execute_batch(statements)
+                    batches_committed += 1
 
-                    dirty_specs: list[PublishSpecV1] = []
-                    for spec in dedup_chunk_map.values():
-                        prior = ledger_map.get(spec.identity_key)
-                        delivery_hash = _compute_delivery_sha256(spec)
-                        if (
-                            prior is not None
-                            and prior.get("spec_sha256") == spec.spec_sha256
-                            and prior.get("enrichment_sha256") == spec.enrichment_sha256
-                            and prior.get("delivery_sha256") == delivery_hash
-                        ):
-                            skipped_unchanged += 1
-                        else:
-                            dirty_specs.append(spec)
-
-                    if dirty_specs:
-                        if caps is None:
-                            caps = _detect_d1_capabilities(db)
-
-                        now_ts = ts_clock()
-                        statements, ledger_updates, q4 = _build_batch_statements_and_ledger_updates(
-                            specs=dirty_specs,
-                            ledger_map=ledger_map,
-                            four_tuple_owners=four_tuple_owners,
-                            caps=caps,
-                            private_key_hex=private_key_hex,
-                            now_ts=now_ts,
-                            brand_names=brand_names,
-                            conn=conn,
-                        )
-                        quarantined_4tuple_total += q4
-
-                        if statements:
-                            db.execute_batch(statements)
-                            batches_committed += 1
-
-                        if ledger_updates:
-                            conn.executemany(
-                                """
-                                INSERT INTO ledger_entries (
-                                    identity_key, d1_id, public_token, spec_sha256,
-                                    enrichment_sha256, delivery_sha256, updated_at
-                                )
-                                VALUES (?, ?, ?, ?, ?, ?, ?)
-                                ON CONFLICT(identity_key) DO UPDATE SET
-                                    d1_id = COALESCE(excluded.d1_id, ledger_entries.d1_id),
-                                    public_token = excluded.public_token,
-                                    spec_sha256 = excluded.spec_sha256,
-                                    enrichment_sha256 = excluded.enrichment_sha256,
-                                    delivery_sha256 = excluded.delivery_sha256,
-                                    updated_at = excluded.updated_at
-                                """,
-                                ledger_updates,
+                if ledger_updates or brand_updates or device_updates:
+                    if ledger_updates:
+                        conn.executemany(
+                            """
+                            INSERT INTO ledger_entries (
+                                identity_key, d1_id, public_token, spec_sha256,
+                                enrichment_sha256, delivery_sha256, updated_at
                             )
-                            conn.commit()
-                            for (
-                                ikey,
-                                d1_id,
-                                pub_tok,
-                                s_hash,
-                                e_hash,
-                                d_hash,
-                                upd_ts,
-                            ) in ledger_updates:
-                                ledger_map[ikey] = {
-                                    "identity_key": ikey,
-                                    "d1_id": d1_id,
-                                    "public_token": pub_tok,
-                                    "spec_sha256": s_hash,
-                                    "enrichment_sha256": e_hash,
-                                    "delivery_sha256": d_hash,
-                                    "updated_at": upd_ts,
-                                }
-                            published_specs += len(ledger_updates)
+                            VALUES (?, ?, ?, ?, ?, ?, ?)
+                            ON CONFLICT(identity_key) DO UPDATE SET
+                                d1_id = COALESCE(excluded.d1_id, ledger_entries.d1_id),
+                                public_token = excluded.public_token,
+                                spec_sha256 = excluded.spec_sha256,
+                                enrichment_sha256 = excluded.enrichment_sha256,
+                                delivery_sha256 = excluded.delivery_sha256,
+                                updated_at = excluded.updated_at
+                            """,
+                            ledger_updates,
+                        )
+                    if brand_updates:
+                        conn.executemany(
+                            """
+                            INSERT INTO ledger_brands (brand_id, brand_name, updated_at)
+                            VALUES (?, ?, ?)
+                            ON CONFLICT(brand_id) DO UPDATE SET
+                                brand_name = excluded.brand_name,
+                                updated_at = excluded.updated_at
+                            """,
+                            brand_updates,
+                        )
+                    if device_updates:
+                        conn.executemany(
+                            """
+                            INSERT INTO ledger_devices (codename, device_sha256, updated_at)
+                            VALUES (?, ?, ?)
+                            ON CONFLICT(codename) DO UPDATE SET
+                                device_sha256 = excluded.device_sha256,
+                                updated_at = excluded.updated_at
+                            """,
+                            device_updates,
+                        )
+                    conn.commit()
+                    for (
+                        ikey,
+                        d1_id,
+                        pub_tok,
+                        s_hash,
+                        e_hash,
+                        d_hash,
+                        upd_ts,
+                    ) in ledger_updates:
+                        ledger_map[ikey] = {
+                            "identity_key": ikey,
+                            "d1_id": d1_id,
+                            "public_token": pub_tok,
+                            "spec_sha256": s_hash,
+                            "enrichment_sha256": e_hash,
+                            "delivery_sha256": d_hash,
+                            "updated_at": upd_ts,
+                        }
+                    for b_id, b_label, _ in brand_updates:
+                        ledger_brands_map[b_id] = b_label
+                    for d_code, d_sha, _ in device_updates:
+                        ledger_devices_map[d_code] = d_sha
+                    published_specs += len(ledger_updates)
 
-                    committed_in_file += len(chunk)
-
-                outbox.mark_done(pending_path)
-                files_completed += 1
+                for cursor in batch_touched_files:
+                    cursor.committed = cursor.staged_end
+                    if cursor.committed >= len(cursor.specs):
+                        outbox.mark_done(cursor.path)
+                        files_completed += 1
+                        for k, v in list(loaded_files.items()):
+                            if v is cursor:
+                                loaded_files.pop(k, None)
 
             except D1QuotaExceededError as qe:
-                remaining_in_file = file_specs[committed_in_file:]
-                outbox.rewrite_uncommitted(pending_path, remaining_in_file)
+                _finalize_pauses()
                 _set_state(conn, "blocked_until_utc_day", current_utc_day)
                 conn.commit()
                 return {

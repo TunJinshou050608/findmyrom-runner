@@ -44,6 +44,39 @@ def test_website_failure_reuses_last_order_and_never_invents_age_order(tmp_path)
         store.close()
 
 
+def test_website_refresh_backs_off_after_429_and_resets_on_recovery(tmp_path):
+    store = SearchStore(tmp_path / 'backoff.sqlite')
+    calls = []
+    mode = ['429']
+    def serve(request):
+        calls.append(request.url.path)
+        if mode[0] == '429':
+            return httpx.Response(429, headers={'Retry-After': '3000'})
+        pages = {'/': html(['/brands/xiaomi']), '/brands/xiaomi': html(['/devices/aaa'])}
+        return httpx.Response(200, text=pages[request.url.path], headers={'content-type': 'text/html'})
+    try:
+        store.set_meta(KEY, {'fetched_at': 0, 'devices': ['aaa'], 'brand_counts': {'xiaomi': 1}})
+        with httpx.Client(transport=httpx.MockTransport(serve)) as client:
+            ordered, info = read_order(store, {'aaa': []}, client=client, now=TTL + 1)
+            assert ordered == ['aaa'] and info['stale_cache'] and info['refresh_error'] == 'HTTPStatusError'
+            assert calls == ['/']
+
+            # Repeated calls inside Retry-After/backoff window must make zero HTTP requests
+            ordered2, info2 = read_order(store, {'aaa': []}, client=client, now=TTL + 100)
+            assert ordered2 == ['aaa'] and info2['stale_cache'] and info2['refresh_error'] == 'HTTPStatusError'
+            assert calls == ['/']
+
+            # Once window expires and site recovers, refresh succeeds and clears backoff
+            mode[0] = 'ok'
+            ordered3, info3 = read_order(store, {'aaa': []}, client=client, now=TTL + 3005)
+            assert ordered3 == ['aaa'] and not info3['stale_cache'] and info3['refresh_error'] is None
+            assert calls == ['/', '/', '/brands/xiaomi']
+            from fmr_tg_scanner.website_order import BACKOFF_KEY
+            assert store.meta(BACKOFF_KEY) is None
+    finally:
+        store.close()
+
+
 def test_empty_devices_yield_to_entire_directory_and_backoff_is_bounded():
     ordered = [f'dev{i:04}' for i in range(1241)]
     state = {}; visited = []
