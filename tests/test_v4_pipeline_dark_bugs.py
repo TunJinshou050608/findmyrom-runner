@@ -9,6 +9,7 @@ from pathlib import Path
 import socket
 import sqlite3
 from typing import Any, Sequence
+from unittest.mock import patch
 import zipfile
 
 import httpx
@@ -1400,8 +1401,13 @@ def test_publisher_coalesced_cross_file_quota_checkpoint_resume(tmp_path: Path) 
 
     specs = _make_google_specs(7)
     outbox = OutboxSpool(state_dir)
-    outbox.enqueue_specs("google", specs[:3], batch_size=3)
-    outbox.enqueue_specs("google", specs[3:], batch_size=4)
+    # Force strictly increasing ms timestamps so fast CI execution preserves FIFO filename order.
+    with patch(
+        "fmr_ingest_stock.pipeline.outbox.time.time_ns",
+        side_effect=[1_763_510_000_000_000_000, 1_763_510_000_005_000_000],
+    ):
+        outbox.enqueue_specs("google", specs[:3], batch_size=3)
+        outbox.enqueue_specs("google", specs[3:], batch_size=4)
     assert len(outbox.list_pending()) == 2
 
     class QuotaOnSecondBatchClient(D1Client):
