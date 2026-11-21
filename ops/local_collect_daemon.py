@@ -145,6 +145,7 @@ def _sync_git_checkout(runner_dir: Path) -> bool:
 
     watched = (
         runner_dir / "requirements.txt",
+        runner_dir / "config" / "vendors.yaml",
         runner_dir / "ops" / "local_collect_daemon.py",
         runner_dir / "ops" / "run_local_collect.sh",
     )

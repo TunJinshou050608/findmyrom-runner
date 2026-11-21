@@ -8,6 +8,7 @@ pure-Python Android GOTA checkin (`https://android.googleapis.com/checkin`) via
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
+from concurrent.futures import ThreadPoolExecutor
 import csv
 import datetime
 import io
@@ -74,6 +75,7 @@ DEFAULT_TRANSSION_REGIONS: tuple[str, ...] = (
 
 DEFAULT_MAX_PROBES_PER_DEVICE = 40
 DEFAULT_REQUEST_DELAY_SECONDS = 0.05
+DEFAULT_PROBE_WORKERS = 6
 MIN_FULL_PACKAGE_BYTES = 50 * 1024 * 1024  # 50 MiB
 
 _SDK_TO_ANDROID: dict[int, str] = {
@@ -108,6 +110,39 @@ TRANSSION_DISPLAY_BRANDS: dict[str, str] = {
 }
 _RE_OTA_SHA1 = re.compile(r"/packages/ota-api/package/([0-9a-fA-F]{40})\.zip$")
 _RE_SAFE_FILENAME = re.compile(r"^[A-Za-z0-9._()+-]{1,200}$")
+_RE_TRANSSION_MODERN_NAMES = re.compile(
+    r"\b(?:PHANTOM|CAMON\s*(?:3\d|4\d)|POVA\s*(?:6|7|Curve)|SPARK\s*(?:2\d|3\d|Go\s*1)|MEGAPAD|"
+    r"GT\s*(?:2\d|3\d)|NOTE\s*(?:4\d|5\d)|ZERO\s*(?:3\d|4\d|Flip)|HOT\s*(?:4\d|5\d)|XPAD|"
+    r"S24|S25|P55|P65|A70|A80|RS4|CITY|VistaTab)\b",
+    re.IGNORECASE,
+)
+_RE_TRANSSION_MID_NAMES = re.compile(
+    r"\b(?:CAMON\s*(?:18|19|2\d)|POVA\s*(?:4|5)|SPARK\s*(?:9|1\d)|"
+    r"GT\s*1\d|NOTE\s*(?:12|3\d)|ZERO\s*(?:2\d|ULTRA)|HOT\s*(?:2\d|3\d)|SMART\s*(?:7|8|9)|"
+    r"S23|P40|A60)\b",
+    re.IGNORECASE,
+)
+_RE_TRANSSION_LEGACY_CODES = re.compile(
+    r"^(?:itel-(?:a1\d|a2\d|a3\d|a4\d|w\d+)|tecno-(?:y\d|wx\d|in\d|a571|a7)|infinix-(?:x4\d\d|x5\d\d|x60\d|x61\d|x62\d|up09))",
+    re.IGNORECASE,
+)
+
+
+def _transsion_collect_priority(brand_id: str, marketing_name: str, codename: str) -> int:
+    """Order recent Transsion releases ahead of legacy pre-GOTA models on cold scans."""
+    if _RE_TRANSSION_MODERN_NAMES.search(marketing_name):
+        return 10
+    if _RE_TRANSSION_MID_NAMES.search(marketing_name):
+        return 30
+    if _RE_TRANSSION_LEGACY_CODES.search(codename):
+        return 900
+    if brand_id == "infinix" and re.match(r"^infinix-x(?:6[5-9]|11)", codename):
+        return 100
+    if brand_id == "itel" and re.match(r"^itel-(?:a6|p6|s6)", codename):
+        return 100
+    if brand_id == "tecno" and re.match(r"^tecno-(?:ad|ae|c[klm]|k[lj]|l[hi]|b[gf])", codename):
+        return 100
+    return 500
 
 
 def _strip_brand_prefix(value: str) -> str:
@@ -174,6 +209,7 @@ class TranssionAdapter(VendorAdapter):
         regions: Sequence[str] = DEFAULT_TRANSSION_REGIONS,
         max_probes_per_device: int = DEFAULT_MAX_PROBES_PER_DEVICE,
         request_delay_seconds: float = DEFAULT_REQUEST_DELAY_SECONDS,
+        probe_workers: int = DEFAULT_PROBE_WORKERS,
         sleep_fn: Callable[[float], None] | None = None,
     ) -> None:
         key = vendor_id.strip().lower()
@@ -187,6 +223,7 @@ class TranssionAdapter(VendorAdapter):
         self.regions = tuple(str(r).strip().upper() for r in regions if str(r).strip())
         self.max_probes_per_device = max(1, int(max_probes_per_device))
         self.request_delay_seconds = max(0.0, float(request_delay_seconds))
+        self.probe_workers = max(1, int(probe_workers))
         self._sleep_fn = sleep_fn
 
     def discover_devices(self, http: OfficialMetadataHTTP) -> list[AdapterDevice]:
@@ -304,17 +341,21 @@ class TranssionAdapter(VendorAdapter):
             elif not re.match(rf"^{re.escape(brand_prefix)}\b", clean_label, re.IGNORECASE):
                 clean_label = f"{brand_prefix} {clean_label}"
 
+            final_name = clean_label or f"{brand_prefix} {codename}"
             devices.append(
                 AdapterDevice(
                     codename=codename,
                     brand_id=self.vendor_id,
-                    marketing_name=clean_label or f"{brand_prefix} {codename}",
+                    marketing_name=final_name,
                     model_numbers=tuple(models),
                     boot_partition_type="init_boot",
                     has_vbmeta=1,
                     vendor_meta={
                         "models": list(models),
                         "raw_codenames": list(raw_codes),
+                        "collect_priority": _transsion_collect_priority(
+                            self.vendor_id, final_name, codename
+                        ),
                     },
                 )
             )
@@ -502,45 +543,72 @@ class TranssionAdapter(VendorAdapter):
             return []
 
         fp_brand = TRANSSION_FINGERPRINT_BRANDS[self.vendor_id]
-        sleep_fn = self._sleep_fn or _default_sleep_fn(http)
-
-        releases: list[AdapterRelease] = []
-        seen_urls: set[str] = set()
-        seen_identities: set[tuple[str, str, str]] = set()
-        probes_sent = 0
-
+        probe_jobs: list[tuple[str, str, str]] = []
         # Interleave across regions first so every region gets sampled even under probe cap
         for android_ver, build_id in self.build_seeds:
             for region in self.regions:
                 for model, raw_code in targets:
-                    if probes_sent >= self.max_probes_per_device:
-                        return releases
-                    if probes_sent > 0 and self.request_delay_seconds > 0:
-                        sleep_fn(self.request_delay_seconds)
-
+                    if len(probe_jobs) >= self.max_probes_per_device:
+                        break
                     fingerprint = (
                         f"{fp_brand}/{model}-{region}/{raw_code}:{android_ver}/{build_id}/1:user/release-keys"
                     )
-                    probes_sent += 1
-                    rel = self._probe_single_fingerprint(
-                        http=http,
-                        fingerprint=fingerprint,
-                        model=model,
-                        region_hint=region,
-                        device=device,
+                    probe_jobs.append((model, region, fingerprint))
+                if len(probe_jobs) >= self.max_probes_per_device:
+                    break
+            if len(probe_jobs) >= self.max_probes_per_device:
+                break
+
+        if not probe_jobs:
+            return []
+
+        releases: list[AdapterRelease] = []
+        seen_urls: set[str] = set()
+        seen_identities: set[tuple[str, str, str]] = set()
+
+        def _record(rel: AdapterRelease | None) -> None:
+            if rel is None or rel.fast_cdn_url in seen_urls:
+                return
+            ikey = (rel.model_code, rel.region_code, rel.canonical_version)
+            if ikey in seen_identities:
+                return
+            seen_urls.add(rel.fast_cdn_url)
+            seen_identities.add(ikey)
+            releases.append(rel)
+
+        is_mock = isinstance(getattr(http._client, "_transport", None), httpx.MockTransport)
+        if self.probe_workers > 1 and self._sleep_fn is None and not is_mock and len(probe_jobs) > 1:
+            workers = min(self.probe_workers, len(probe_jobs))
+            with ThreadPoolExecutor(max_workers=workers) as executor:
+                results = list(
+                    executor.map(
+                        lambda item: self._probe_single_fingerprint(
+                            http=http,
+                            fingerprint=item[2],
+                            model=item[0],
+                            region_hint=item[1],
+                            device=device,
+                        ),
+                        probe_jobs,
                     )
-                    if rel is None:
-                        continue
+                )
+            for rel in results:
+                _record(rel)
+            return releases
 
-                    if rel.fast_cdn_url in seen_urls:
-                        continue
-                    ikey = (rel.model_code, rel.region_code, rel.canonical_version)
-                    if ikey in seen_identities:
-                        continue
-
-                    seen_urls.add(rel.fast_cdn_url)
-                    seen_identities.add(ikey)
-                    releases.append(rel)
+        sleep_fn = self._sleep_fn or _default_sleep_fn(http)
+        for idx, (model, region, fingerprint) in enumerate(probe_jobs):
+            if idx > 0 and self.request_delay_seconds > 0:
+                sleep_fn(self.request_delay_seconds)
+            _record(
+                self._probe_single_fingerprint(
+                    http=http,
+                    fingerprint=fingerprint,
+                    model=model,
+                    region_hint=region,
+                    device=device,
+                )
+            )
 
         return releases
 
@@ -548,6 +616,7 @@ class TranssionAdapter(VendorAdapter):
 __all__ = [
     "DEFAULT_ANDROID_BUILD_SEEDS",
     "DEFAULT_MAX_PROBES_PER_DEVICE",
+    "DEFAULT_PROBE_WORKERS",
     "DEFAULT_REQUEST_DELAY_SECONDS",
     "DEFAULT_TRANSSION_REGIONS",
     "SUPPORTED_TRANSSION_VENDORS",

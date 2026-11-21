@@ -463,3 +463,27 @@ def test_local_collect_daemon_adaptive_sleep_and_next_due(tmp_path: Path):
         assert local_collect_daemon.compute_vendor_sleep_seconds(db_path, now_ts=now_ts, last_rc=1) == 30
     finally:
         conn.close()
+
+
+def test_local_collect_daemon_restarts_when_vendors_yaml_changes(tmp_path: Path, monkeypatch):
+    from ops import local_collect_daemon
+
+    repo = tmp_path / 'runner'
+    (repo / '.git').mkdir(parents=True)
+    (repo / 'config').mkdir(parents=True)
+    (repo / 'ops').mkdir(parents=True)
+    (repo / 'requirements.txt').write_text('httpx\n', encoding='utf-8')
+    (repo / 'config' / 'vendors.yaml').write_text('vendors:\n  google:\n    enabled: true\n', encoding='utf-8')
+    (repo / 'ops' / 'local_collect_daemon.py').write_text('# daemon\n', encoding='utf-8')
+    (repo / 'ops' / 'run_local_collect.sh').write_text('#!/usr/bin/env bash\n', encoding='utf-8')
+
+    def fake_run(cmd, **_kwargs):
+        if 'reset' in cmd:
+            (repo / 'config' / 'vendors.yaml').write_text(
+                'vendors:\n  google:\n    enabled: true\n  tecno:\n    enabled: true\n',
+                encoding='utf-8',
+            )
+        return subprocess.CompletedProcess(cmd, 0, stdout='', stderr='')
+
+    monkeypatch.setattr(local_collect_daemon.subprocess, 'run', fake_run)
+    assert local_collect_daemon._sync_git_checkout(repo) is True

@@ -384,3 +384,92 @@ def test_transsion_data_cleaning_dedup_crossbrand_and_sdk36_priority() -> None:
         assert itel_devs["itel-a669l"] == "itel A50C"
         assert "_" not in itel_devs["itel-itell-k4700q"]
         assert itel_devs["itel-itell-k4700q"] == "itel ITELL K4700Q"
+
+
+def test_transsion_collect_priority_and_brand_sort_order(tmp_path: Path) -> None:
+    from fmr_core.d1_client import D1Client
+    from fmr_ingest_stock.pipeline.publisher import (
+        DEFAULT_BRAND_SORT_ORDERS,
+        run_publisher,
+    )
+
+    play_csv = (
+        "Retail Branding,Marketing Name,Device,Model\n"
+        "itel,itel A11,itel-A11,A11\n"
+        "itel,itel S25 Ultra,itel-S686LN,S686LN\n"
+    ).encode("utf-8")
+
+    s25_url = "https://android.googleapis.com/packages/ota-api/package/da4474145e5f5e00000000000000000000000000.zip"
+    probed_codenames: list[str] = []
+
+    def meta_handler(req: httpx.Request) -> httpx.Response:
+        if req.url.host == "storage.googleapis.com":
+            return httpx.Response(200, content=play_csv)
+        if req.url.host == "android.googleapis.com" and req.url.path == "/checkin":
+            fp = _extract_checkin_fingerprint(req.content)
+            probed_codenames.append(fp.split("/")[1])
+            if "S686LN-OP/" in fp and ":15/" in fp:
+                return httpx.Response(
+                    200,
+                    content=_build_checkin_response_bytes(
+                        {
+                            "update_url": s25_url,
+                            "update_title": "Tcard_S686LN-15.1.2.118SP01-OP001PF001AZ",
+                            "update_size_value": "6180000000",
+                            "update_target_sdk_level": "35",
+                        }
+                    ),
+                )
+            return httpx.Response(200, content=b"")
+        return httpx.Response(404)
+
+    def range_handler(req: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            206,
+            headers={"Content-Range": "bytes 0-63/6180000000", "ETag": '"etag1"'},
+            content=b"PK\x03\x04" + b"\x00" * 60,
+        )
+
+    state_dir = tmp_path / "state"
+    with (
+        httpx.Client(transport=httpx.MockTransport(meta_handler)) as meta_client,
+        httpx.Client(transport=httpx.MockTransport(range_handler)) as range_client,
+    ):
+        summary = run_collector(
+            "itel",
+            state_dir=state_dir,
+            adapter=TranssionAdapter("itel", regions=("OP",), build_seeds=((15, "AP3A.240905.015.A2"),)),
+            metadata_client=meta_client,
+            range_client=range_client,
+            max_devices=1,
+            resolve_dns=False,
+        )
+
+    assert summary["devices_discovered"] == 2
+    assert summary["devices_checked"] == 1
+    assert summary["spooled_specs"] == 1
+    # S25 Ultra (collect_priority=10) MUST be checked before legacy itel A11 (collect_priority=900)
+    assert probed_codenames == ["S686LN-OP"]
+
+    # Publishing itel inserts brands row with sort_order before 'other' (99)
+    assert DEFAULT_BRAND_SORT_ORDERS["tecno"] < DEFAULT_BRAND_SORT_ORDERS["other"]
+    assert DEFAULT_BRAND_SORT_ORDERS["infinix"] < DEFAULT_BRAND_SORT_ORDERS["other"]
+    assert DEFAULT_BRAND_SORT_ORDERS["itel"] < DEFAULT_BRAND_SORT_ORDERS["other"]
+
+    db = D1Client(local_sqlite_path=str(tmp_path / "d1.sqlite"))
+    try:
+        schema_sql = (Path(__file__).resolve().parents[1] / "fmr_core" / "schema.sql").read_text(encoding="utf-8")
+        db.execute_script(schema_sql)
+        res = run_publisher(
+            state_dir=state_dir,
+            db=db,
+            private_key_hex="11" * 32,
+            brand_names={"itel": "itel"},
+        )
+        assert res["status"] == "ok"
+        assert res["published_specs"] == 1
+        brand_row = db.query("SELECT id, name, sort_order FROM brands WHERE id = 'itel'")[0]
+        assert brand_row["name"] == "itel"
+        assert brand_row["sort_order"] == DEFAULT_BRAND_SORT_ORDERS["itel"]
+    finally:
+        db.close()

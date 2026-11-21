@@ -278,7 +278,11 @@ def _execute_collector_locked(
 
             devices = sorted(
                 devices,
-                key=lambda d: (prior_last_checked_at.get(d.codename, 0), d.codename),
+                key=lambda d: (
+                    prior_last_checked_at.get(d.codename, 0),
+                    int((d.vendor_meta or {}).get("collect_priority", 1000)),
+                    d.codename,
+                ),
             )
 
             existing_rows: dict[str, dict[str, Any]] = {

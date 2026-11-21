@@ -512,9 +512,9 @@ def test_vendors_yaml_and_cli_max_devices() -> None:
         "realme": 25,
         "asus": 60,
         "vivo": 60,
-        "tecno": 20,
-        "infinix": 20,
-        "itel": 20,
+        "tecno": 40,
+        "infinix": 40,
+        "itel": 40,
         "sony": 15,
     }
     assert configs["google"].verify_workers == 1

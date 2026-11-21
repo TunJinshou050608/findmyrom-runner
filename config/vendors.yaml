@@ -129,7 +129,7 @@ vendors:
     bucket: 5
     max_collect_seconds: 600
     verify_workers: 4
-    max_devices: 20
+    max_devices: 40
     display_name: TECNO
 
   infinix:
@@ -140,7 +140,7 @@ vendors:
     bucket: 5
     max_collect_seconds: 600
     verify_workers: 4
-    max_devices: 20
+    max_devices: 40
     display_name: Infinix
 
   itel:
@@ -151,7 +151,7 @@ vendors:
     bucket: 11
     max_collect_seconds: 600
     verify_workers: 4
-    max_devices: 20
+    max_devices: 40
     display_name: itel
 
   sony:

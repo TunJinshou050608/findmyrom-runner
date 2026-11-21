@@ -80,6 +80,25 @@ DEFAULT_BRAND_DISPLAY_NAMES: dict[str, str] = {
     "xiaomi": "Xiaomi",
 }
 
+DEFAULT_BRAND_SORT_ORDERS: dict[str, int] = {
+    "xiaomi": 10,
+    "oneplus": 20,
+    "sony": 30,
+    "google": 40,
+    "samsung": 50,
+    "motorola": 60,
+    "oppo": 65,
+    "vivo": 66,
+    "realme": 67,
+    "rog": 68,
+    "asus": 69,
+    "nothing": 70,
+    "tecno": 71,
+    "infinix": 72,
+    "itel": 73,
+    "other": 99,
+}
+
 BOOTSTRAP_PAGE_SIZE = 1000
 
 
@@ -435,10 +454,11 @@ def _build_batch_statements_and_ledger_updates(
                 brand_id, brand_id.capitalize()
             )
             if ledger_brands_map.get(brand_id) != brand_label:
+                sort_order = DEFAULT_BRAND_SORT_ORDERS.get(brand_id, 95)
                 statements.append(
                     (
                         "INSERT OR IGNORE INTO brands (id, name, bl_unlock_status, sort_order) VALUES (?, ?, ?, ?)",
-                        (brand_id, brand_label, "unlockable", 100),
+                        (brand_id, brand_label, "unlockable", sort_order),
                     )
                 )
                 brand_updates.append((brand_id, brand_label, now_ts))
