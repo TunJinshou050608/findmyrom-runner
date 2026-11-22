@@ -24,7 +24,7 @@ for module in service.py streaming_probe.py prepared.py; do
   curl --disable --noproxy '*' --fail --silent --show-error --location --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 30 \
     "$base_url/$module" --output "$work_dir/app/fmr_extractor/$module"
 done
-printf '%s  %s\n' '7d93595397fbbd8057bf8d1e60f6b75aa6785cdb8995813d80de623d7c008bad' "$work_dir/app/fmr_extractor/service.py" '9c4656a3b7da8eb67c598cb3655cd668220fff30853b565c719e4784d26cb2ea' "$work_dir/app/fmr_extractor/streaming_probe.py" '56ab1dc5e67c84c03f6f284881bae444827977ab158435d805c9d8abc02b21b1' "$work_dir/app/fmr_extractor/prepared.py" | sha256sum --check --status
+printf '%s  %s\n' 'e79bba10f7778d190ddc3159609b44406b567dd70e4b86c56c847d17debab945' "$work_dir/app/fmr_extractor/service.py" '9c4656a3b7da8eb67c598cb3655cd668220fff30853b565c719e4784d26cb2ea' "$work_dir/app/fmr_extractor/streaming_probe.py" '2d58bd9b2ce922d5be1c0abbaa69b8ebe0a3af7a3dcd25c4fba480eee6acb6bb' "$work_dir/app/fmr_extractor/prepared.py" | sha256sum --check --status
 "$python_bin" -B - "$work_dir/app" <<'PYTEST'
 import sys, json, time, hmac, hashlib
 sys.path.insert(0, sys.argv[1])

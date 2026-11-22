@@ -173,3 +173,29 @@ def test_full_package_does_not_block_partition_slot():
             server.full_slot.release()
     finally:
         server.shutdown(); server.server_close(); thread.join(timeout=2)
+
+
+def test_unthrottled_and_multi_concurrency_server():
+    from fmr_extractor.service import Server
+    @contextlib.contextmanager
+    def opener(_job):
+        yield iter([b'ANDROID!' + bytes(65528)]), {'output_size': 65536}, SimpleNamespace(used=10)
+    try:
+        server = Server(('127.0.0.1', 0), SECRET, opener=opener, bytes_per_second=0, concurrency=3, full_concurrency=2)
+    except PermissionError:
+        pytest.skip('Host sandbox forbids listening sockets')
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        import httpx
+        assert server.full_slot.acquire(False)
+        assert server.full_slot.acquire(False)
+        assert not server.full_slot.acquire(False)
+        server.full_slot.release()
+        server.full_slot.release()
+        with httpx.Client(trust_env=False) as client:
+            b1, s1 = payload(id='00000000-0000-0000-0000-000000000011')
+            r1 = client.post(f'http://127.0.0.1:{server.server_port}/v1/extract', content=b1, headers={'X-FMR-Signature': s1})
+            assert r1.status_code == 200 and len(r1.content) == 65536
+    finally:
+        server.shutdown(); server.server_close(); thread.join(timeout=2)

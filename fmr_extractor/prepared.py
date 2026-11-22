@@ -30,9 +30,14 @@ class PreparedImages:
     def __init__(self, server):
         self.server = server
         self.lock = threading.RLock()
-        self.job = None
+        self.jobs = {}
         self.closed = threading.Event()
         threading.Thread(target=self._reaper, daemon=True).start()
+
+    @property
+    def job(self):
+        with self.lock:
+            return next(iter(self.jobs.values()), None)
 
     def _reaper(self):
         while not self.closed.wait(5):
@@ -46,31 +51,28 @@ class PreparedImages:
         if not item['released']:
             item['released'] = True
             self.server.slot.release()
-        if self.job is item:
-            self.job = None
+        self.jobs.pop(item['id'], None)
 
     def expire(self):
         with self.lock:
-            item = self.job
-            if item is None:
-                return
             now = time.monotonic()
-            if item['state'] == 'preparing' and (now - item['seen'] > 120 or now - item['started'] > 480):
-                item['cancel'].set()  # Producer closes its own file/decoder.
-            elif item['state'] in {'ready', 'failed'} and now > item['deadline']:
-                self._dispose(item)
+            for item in list(self.jobs.values()):
+                if item['state'] == 'preparing' and (now - item['seen'] > 120 or now - item['started'] > 480):
+                    item['cancel'].set()  # Producer closes its own file/decoder.
+                elif item['state'] in {'ready', 'failed'} and now > item['deadline']:
+                    self._dispose(item)
 
     def start(self, job):
         self.expire()
         with self.lock:
-            if self.job is not None or not self.server.slot.acquire(False):
+            if job['id'] in self.jobs or not self.server.slot.acquire(False):
                 return False
             now = time.monotonic()
             item = dict(id=job['id'], state='preparing', bytes=0, total=None, sha256=None,
                         file=None, started=now, seen=now, deadline=now+480,
                         cancel=threading.Event(), released=False)
             item['filename'] = re.sub(r'[^A-Za-z0-9_.-]', '_', f"{job['device']}_{job['version']}_{job['partition']}.img")[-180:]
-            self.job = item
+            self.jobs[job['id']] = item
             threading.Thread(target=self._produce, args=(item, job), daemon=True).start()
             return True
 
@@ -125,8 +127,8 @@ class PreparedImages:
     def status(self, job_id):
         self.expire()
         with self.lock:
-            item = self.job
-            if item is None or item['id'] != job_id:
+            item = self.jobs.get(job_id)
+            if item is None:
                 return None
             item['seen'] = time.monotonic()
             elapsed = max(time.monotonic()-item['started'], 0.001)
@@ -137,8 +139,8 @@ class PreparedImages:
     @contextlib.contextmanager
     def claim(self, job_id):
         with self.lock:
-            item = self.job
-            if item is None or item['id'] != job_id or item['state'] != 'ready' or time.monotonic() > item['deadline']:
+            item = self.jobs.get(job_id)
+            if item is None or item['state'] != 'ready' or time.monotonic() > item['deadline']:
                 raise ValueError('Image expired or not ready')
             item['state'] = 'downloading'
         try:
@@ -149,8 +151,8 @@ class PreparedImages:
 
     def cancel(self, job_id):
         with self.lock:
-            item = self.job
-            if item is None or item['id'] != job_id:
+            item = self.jobs.get(job_id)
+            if item is None:
                 return
             item['cancel'].set()
             if item['state'] in {'ready', 'failed'}:
@@ -159,5 +161,5 @@ class PreparedImages:
     def close(self):
         self.closed.set()
         with self.lock:
-            if self.job is not None:
-                self.cancel(self.job['id'])
+            for item in list(self.jobs.values()):
+                self.cancel(item['id'])

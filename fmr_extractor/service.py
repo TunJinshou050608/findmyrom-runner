@@ -100,13 +100,13 @@ class Server(ThreadingHTTPServer):
     daemon_threads = True
     request_queue_size = 8
 
-    def __init__(self, address, secret, opener=open_image, bytes_per_second=2500000):
+    def __init__(self, address, secret, opener=open_image, bytes_per_second=2500000, concurrency=1, full_concurrency=1):
         self.secret = secret
         self.opener = opener
         self.bytes_per_second = bytes_per_second
-        self.slot = threading.BoundedSemaphore(1)
-        self.full_slot = threading.BoundedSemaphore(1)
-        self.connections = threading.BoundedSemaphore(12)
+        self.slot = threading.BoundedSemaphore(concurrency)
+        self.full_slot = threading.BoundedSemaphore(full_concurrency)
+        self.connections = threading.BoundedSemaphore(max(12, (concurrency + full_concurrency) * 6))
         self.replays = {}
         self.lock = threading.Lock()
         super().__init__(address, Handler)
@@ -231,9 +231,10 @@ class Handler(BaseHTTPRequestHandler):
                     self.wfile.flush()
                     total += len(chunk)
                     digest.update(chunk)
-                    delay = total / self.server.bytes_per_second - (time.monotonic() - stream_begin)
-                    if delay > 0:
-                        time.sleep(min(delay, 1))
+                    if self.server.bytes_per_second > 0:
+                        delay = total / self.server.bytes_per_second - (time.monotonic() - stream_begin)
+                        if delay > 0:
+                            time.sleep(min(delay, 1))
                     chunk = next(chunks, None)
                     if chunk is None:
                         break
@@ -286,9 +287,10 @@ class Handler(BaseHTTPRequestHandler):
                     self.wfile.write(chunk)
                     self.wfile.flush()
                     sent += len(chunk)
-                    delay = sent/self.server.bytes_per_second - (time.monotonic()-begin)
-                    if delay > 0:
-                        time.sleep(min(delay, 1))
+                    if self.server.bytes_per_second > 0:
+                        delay = sent/self.server.bytes_per_second - (time.monotonic()-begin)
+                        if delay > 0:
+                            time.sleep(min(delay, 1))
         except Exception:
             if not started:
                 self.reply(409, 'Image expired or not ready')
@@ -304,10 +306,15 @@ def main():
     logging.getLogger('httpx').setLevel(logging.WARNING)
     logging.getLogger('httpcore').setLevel(logging.WARNING)
     rate = int(os.environ.get('FMR_BYTES_PER_SECOND', '2500000'))
-    if not 65536 <= rate <= 6250000:
+    if rate != 0 and not 65536 <= rate <= 6250000:
         raise SystemExit('Invalid bandwidth cap')
+    concurrency = int(os.environ.get('FMR_CONCURRENCY', '1'))
+    full_concurrency = int(os.environ.get('FMR_FULL_CONCURRENCY', '1'))
+    if not 1 <= concurrency <= 16 or not 1 <= full_concurrency <= 8:
+        raise SystemExit('Invalid concurrency cap')
     # Always loopback: internet access requires the separate tunnel connector.
-    server = Server(('127.0.0.1', 18765), secret, bytes_per_second=rate)
+    server = Server(('127.0.0.1', 18765), secret, bytes_per_second=rate,
+                    concurrency=concurrency, full_concurrency=full_concurrency)
     LOG.info('Extraction service listening on loopback port 18765')
     try:
         server.serve_forever()

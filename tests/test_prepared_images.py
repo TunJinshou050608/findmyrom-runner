@@ -107,3 +107,28 @@ def test_real_http_prepare_status_and_native_download():
             while server.prepared.job is not None and time.monotonic()<deadline:time.sleep(0.005)
             assert server.prepared.job is None
     finally:server.shutdown();server.server_close();thread.join(timeout=2)
+
+
+def test_parallel_prepared_jobs_respect_concurrency_cap():
+    @contextlib.contextmanager
+    def opener(_job):
+        yield iter([b'ANDROID!'+bytes(65528)]), {'output_size':65536}, SimpleNamespace(used=10)
+    server=SimpleNamespace(opener=opener,slot=threading.BoundedSemaphore(2))
+    manager=PreparedImages(server)
+    try:
+        j1=dict(job(),id='00000000-0000-0000-0000-000000000001')
+        j2=dict(job(),id='00000000-0000-0000-0000-000000000002')
+        j3=dict(job(),id='00000000-0000-0000-0000-000000000003')
+        assert manager.start(j1) and manager.start(j2)
+        assert not manager.start(j3)
+        for jid in (j1['id'], j2['id']):
+            deadline=time.monotonic()+2
+            while time.monotonic()<deadline:
+                st=manager.status(jid)
+                if st and st['state']=='ready': break
+                time.sleep(0.005)
+            assert manager.status(jid)['state']=='ready'
+            with manager.claim(jid) as item:
+                assert len(item['file'].read())==65536
+        assert server.slot.acquire(False)
+    finally:manager.close()
