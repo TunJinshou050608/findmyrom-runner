@@ -94,8 +94,6 @@ def clean_once(root):
                         ('INSERT INTO tg_search_records('+','.join(keys)+') VALUES ('+','.join('?' for _ in keys)+') ON CONFLICT(key) DO UPDATE SET '+','.join(k+'=excluded.'+k for k in keys if k!='key'),tuple(row[k] for k in keys)),
                         ('INSERT INTO local_merge_versions VALUES (?,?) ON CONFLICT(key) DO UPDATE SET version=excluded.version',(row['key'],row['updated']))])
                     versions[row['key']]=row['updated']
-                for row in db.execute("SELECT key,value FROM tg_search_meta WHERE key LIKE 'profile:%' OR key='device_aliases_v3'"):
-                    store.execute('INSERT INTO tg_search_meta VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value',(row['key'],row['value']))
             from .evidence_store import sync_raw_and_queue_from_snapshot
             sync_raw_and_queue_from_snapshot(store,snap)
     finally:store.close()

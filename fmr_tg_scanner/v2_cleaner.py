@@ -61,6 +61,7 @@ def sync_workers_to_clean(root: Path, *, workers: int = WORKERS) -> dict[str, in
 
     total_raw = 0
     total_queue = 0
+    total_profiles = 0
     store = EvidenceStore(clean_db)
     try:
         for idx, src in enumerate(sources):
@@ -71,9 +72,10 @@ def sync_workers_to_clean(root: Path, *, workers: int = WORKERS) -> dict[str, in
             merged = store.sync_raw_and_queue_from_snapshot(snap)
             total_raw += merged["raw_synced"]
             total_queue += merged["queue_synced"]
+            total_profiles += merged.get("profiles_synced", 0)
     finally:
         store.close()
-    return {"raw_synced": total_raw, "queue_synced": total_queue}
+    return {"raw_synced": total_raw, "queue_synced": total_queue, "profiles_synced": total_profiles}
 
 
 def _find_active_ledger_targets(
@@ -120,7 +122,7 @@ def clean_v2_once(
     root = Path(state_dir)
     now_ts = time.time() if now is None else float(now)
 
-    sync_stats = {"raw_synced": 0, "queue_synced": 0}
+    sync_stats = {"raw_synced": 0, "queue_synced": 0, "profiles_synced": 0}
     if sync_workers and not dry_run:
         sync_stats = sync_workers_to_clean(root)
 

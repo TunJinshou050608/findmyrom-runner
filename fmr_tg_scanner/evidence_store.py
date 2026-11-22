@@ -697,11 +697,30 @@ class EvidenceStore(SQLiteDB):
 
 
 def sync_raw_and_queue_from_snapshot(store: SQLiteDB, snap_db_path: str | Path) -> dict[str, int]:
-    """Merge tg_raw_messages & pending tg_cleaning_queue rows from a backup snapshot into store."""
-    stats = {"raw_synced": 0, "queue_synced": 0}
+    """Merge tg_raw_messages, pending tg_cleaning_queue, and tg_search_meta profiles from a backup snapshot."""
+    stats = {"raw_synced": 0, "queue_synced": 0, "profiles_synced": 0}
     with sqlite3.connect(f"file:{Path(snap_db_path).resolve()}?mode=ro", uri=True, timeout=15.0) as db:
         db.row_factory = sqlite3.Row
         tables = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        if "tg_search_meta" in tables:
+            meta_rows = db.execute(
+                "SELECT key, value FROM tg_search_meta WHERE key LIKE 'profile:%' OR key='device_aliases_v3'"
+            ).fetchall()
+            if meta_rows:
+                store.execute(
+                    "CREATE TABLE IF NOT EXISTS tg_search_meta(key TEXT PRIMARY KEY, value TEXT NOT NULL)"
+                )
+                store.execute_batch(
+                    [
+                        (
+                            "INSERT INTO tg_search_meta(key, value) VALUES (?, ?) "
+                            "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                            (row["key"], row["value"]),
+                        )
+                        for row in meta_rows
+                    ]
+                )
+                stats["profiles_synced"] = len(meta_rows)
         if "tg_raw_messages" in tables:
             raw_rows = [dict(r) for r in db.execute("SELECT * FROM tg_raw_messages")]
             if raw_rows:

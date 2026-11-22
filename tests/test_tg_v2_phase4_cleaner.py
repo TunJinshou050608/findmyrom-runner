@@ -709,3 +709,44 @@ def test_llm_sample_decisions_preserved_when_many_skipped(tmp_path: Path) -> Non
     latest = json.loads((root / "v2-clean-latest.json").read_text(encoding="utf-8"))
     assert len(latest["llm_sample_decisions"]) == 1
     assert latest["llm_sample_decisions"][0]["post_key"] == "mixromhub|999"
+
+
+def test_sync_workers_merges_profile_meta_into_clean(tmp_path: Path) -> None:
+    root, clean_store = _make_state_dir(tmp_path)
+    clean_store.close()
+
+    w0_path = root / "workers" / "0" / "search-v3" / "search.sqlite"
+    w0_path.parent.mkdir(parents=True, exist_ok=True)
+    w0 = EvidenceStore(w0_path)
+    w0.execute("CREATE TABLE IF NOT EXISTS tg_search_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+    w0.execute(
+        "INSERT INTO tg_search_meta (key, value) VALUES (?, ?)",
+        ("profile:pocof5worker", json.dumps("POCO F5 (marble) Official & Unofficial Updates")),
+    )
+    msg = _base_msg(
+        "pocof5worker",
+        1001,
+        "crDroid 10.6 Unofficial | Android 14\nMaintainer: Ali Dev (@alidev)",
+        link_items=[{"url": "https://sourceforge.net/files/cr_marble.zip", "label": "ROM"}],
+    )
+    w0.ingest_message(msg, now=50.0)
+    w0.close()
+
+    async def req(_payload: dict):
+        return json.dumps(
+            _valid_model_payload(target_devices={"codenames": [], "marketing_names": [], "evidence_quote": None})
+        ), {}
+
+    res = clean_v2_once(
+        root,
+        catalogue_names=SAMPLE_CATALOGUE,
+        sync_workers=True,
+        classifier=_DummyClassifier(),
+        llm_client=DeepSeekAttributedClient(api_key="k", requester=req),
+        now=60.0,
+    )
+    assert res["sync"]["profiles_synced"] == 1
+    assert res["sync"]["queue_synced"] == 1
+    assert res["counts"]["channel_profile_fallback_used"] == 1
+    assert res["counts"]["outbox_added"] == 1
+    assert res["llm_sample_decisions"][0]["resolved_devices"] == ["marble"]
