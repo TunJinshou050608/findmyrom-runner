@@ -145,19 +145,23 @@ def loop(root, role, worker=0, duration=6000, period=600):
                     has_new=int(result.get('new_qualified_products') or 0)>0
                     record_business_success(root,'fetch',worker=worker,has_new_items=has_new,summary={'status':result.get('status',result.get('activity','ok')),'new_qualified_products':result.get('new_qualified_products',0)})
                 else:
-                    if os.getenv('FMR_TG_V2_CLEANER')=='true':
+                    v2_mode=os.getenv('FMR_TG_V2_CLEANER')=='true'
+                    if v2_mode:
                         from .v2_cleaner import clean_v2_once
                         result=clean_v2_once(
                             root,
+                            queue_limit=int(os.getenv('FMR_TG_V2_QUEUE_LIMIT','200')),
                             max_llm_calls=int(os.getenv('FMR_TG_CLEAN_MAX_CALLS','50')),
                             backlog_limit=int(os.getenv('FMR_TG_V2_BACKLOG_LIMIT','0')),
                         )
                         has_new=int(result.get('outbox_new_operations') or 0)>0
+                        should_dispatch=has_new and os.getenv('FMR_TG_DISPATCH_PUBLISH')=='true'
                     else:
                         result=clean_once(root)
                         has_new=result.get('status')=='audit_ready'
+                        should_dispatch=has_new
                     record_business_success(root,'clean',worker=None,has_new_items=has_new,summary={'status':result.get('status'),'outbox_new_operations':result.get('outbox_new_operations')})
-                    if has_new:dispatch('catalogue_publish.yml',{'scope':'tg'})
+                    if should_dispatch:dispatch('catalogue_publish.yml',{'scope':'tg'})
                 atomic_json(root/(role+'-'+str(worker)+'-latest.json'),{'at':time.time(),'worker':worker,'result':result})
                 print(json.dumps({'event':'local_TG_cycle','role':role,'worker':worker,'cycle':cycle,'status':result.get('status',result.get('activity'))}),flush=True)
             except Exception as exc:

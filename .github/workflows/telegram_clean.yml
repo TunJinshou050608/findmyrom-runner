@@ -10,8 +10,8 @@ name: TG · 清洗
   workflow_dispatch:
     inputs:
       max_calls:
-        description: 'Max LLM calls (production 50; canary 5)'
-        default: '50'
+        description: 'Max LLM calls per cycle (production 150; canary 5)'
+        default: '150'
       duration:
         description: 'Cleaner duration seconds (production 600; canary 120)'
         default: '600'
@@ -21,9 +21,12 @@ name: TG · 清洗
       self_continue:
         description: 'Re-dispatch this workflow after the batch (production loop)'
         default: 'false'
+      queue_limit:
+        description: 'Max real-time tg_cleaning_queue items fetched per cycle'
+        default: '200'
       backlog_limit:
-        description: 'Optional bounded uncleaned_backlog items per cycle (default 0 incremental-only)'
-        default: '0'
+        description: 'Bounded historical uncleaned_backlog items scanned per cycle'
+        default: '400'
 permissions:
   contents: read
   actions: write
@@ -42,8 +45,10 @@ jobs:
       FMR_TG_V2_CLEANER: 'true'
       FMR_TG_INTENT_MODEL_DIR: /var/lib/findmyrom/models/tg-intent-v2
       FMR_TG_GROUNDED_CLEANER: 'true'
-      FMR_TG_CLEAN_MAX_CALLS: ${{ inputs.max_calls || '50' }}
-      FMR_TG_V2_BACKLOG_LIMIT: ${{ inputs.backlog_limit || '0' }}
+      FMR_TG_CLEAN_MAX_CALLS: ${{ inputs.max_calls || '150' }}
+      FMR_TG_V2_QUEUE_LIMIT: ${{ inputs.queue_limit || '200' }}
+      FMR_TG_V2_BACKLOG_LIMIT: ${{ inputs.backlog_limit || '400' }}
+      FMR_TG_DISPATCH_PUBLISH: 'false'
       LLM_MODEL_NAME: deepseek-flash
       LLM_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
       LLM_MAX_TOKENS: '1500'

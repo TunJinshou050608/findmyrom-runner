@@ -53,6 +53,7 @@ def publish_latest(root, db_factory=None, publisher=publish, verifier=verify_sit
                 store,
                 db,
                 os.environ.get('SIGN_PRIVATE_KEY_HEX', '').strip(),
+                max_operations=int(os.getenv('FMR_TG_PUBLISH_MAX_OPS', '500')),
             )
         except D1BudgetReached:
             return {'status': 'deferred_budget', 'pending_outbox': pending_outbox}
