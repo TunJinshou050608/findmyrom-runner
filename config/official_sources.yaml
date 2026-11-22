@@ -1,0 +1,340 @@
+# FindMyROM Official Custom ROM / Recovery / Stock Tracker Registry
+# Single source of truth for:
+#   1. TG Pipeline v2 Layer 1 (pre-E5 metadata-only channel blocklist — NO body-text regex)
+#   2. TG Pipeline v2 Layer 3 (post-DeepSeek semantic filter for official mainstream builds)
+#   3. Future standardized official ROM / Recovery ingest adapters
+#
+# Audited against live GitHub / official portals: 2026-11-21
+schema_version: 1
+last_verified: "2026-11-21"
+
+# ---------------------------------------------------------------------------
+# Layer 1: Pure metadata-only TG channel blocklist (exact lowercase username)
+# Policy: NEVER run body-text regex before E5. Only skip channels verified to
+# broadcast exclusively official OEM stock/firmware or official mainstream builds.
+# ---------------------------------------------------------------------------
+tg_layer1_channel_blocklist:
+  oem_stock_trackers:
+    - username: miuiupdatestracker
+      covers: [xiaomi_stock]
+      url: https://t.me/MIUIUpdatesTracker
+    - username: xiaomifirmwareupdater
+      covers: [xiaomi_firmware]
+      url: https://t.me/XiaomiFirmwareUpdater
+    - username: miui_download
+      covers: [xiaomi_stock]
+      url: https://t.me/miui_download
+
+  official_custom_rom_broadcasts:
+    - username: crdroidupdates
+      project: crdroid
+      url: https://t.me/s/crDroidUpdates
+    - username: evolutionxofficial
+      project: evolution_x
+      url: https://t.me/s/EvolutionXOfficial
+    - username: pixelosofficial
+      project: pixelos
+      url: https://t.me/s/PixelOSOfficial
+    - username: infinityxupdate
+      project: project_infinity_x
+      url: https://t.me/s/InfinityXUpdate
+    - username: risingrevived
+      project: risingos_revived
+      url: https://t.me/s/RisingRevived
+    - username: voltageosannouncements
+      project: voltageos
+      url: https://t.me/s/voltageosannouncements
+    - username: paranoidandroidofficial
+      project: paranoid_android
+      url: https://t.me/s/paranoidandroidofficial
+    - username: mydataismydata
+      project: eos
+      url: https://t.me/s/mydataismydata
+
+  official_recovery_broadcasts:
+    - username: orangefoxupdates
+      project: orangefox
+      url: https://t.me/s/OrangeFoxUpdates
+
+# Optional metadata-only OEM direct-download hosts (for stock firmware detection)
+oem_stock_domains:
+  - bigota.d.miui.com
+  - hugeota.d.miui.com
+  - bkt-sgp-miui-ota-update-alisgp.oss-ap-southeast-1.aliyuncs.com
+  - dl.google.com
+
+# ---------------------------------------------------------------------------
+# Layer 3: Standardized official projects (planned/active official adapters)
+# Policy: When DeepSeek extracts a matching project AND release_status == "official",
+# suppress from TG output (unofficial / port / community builds are ALWAYS kept).
+# ---------------------------------------------------------------------------
+projects:
+  # --- Tier 1: Active Custom ROMs with GitHub OTA JSON / Official APIs ---
+  lineageos:
+    display_name: LineageOS
+    aliases: ["lineageos", "lineage", "los"]
+    resource_kind: rom
+    tier: custom_rom_mainstream
+    status: active
+    exclude_official_in_tg: true
+    ingest_strategy: github_json_and_updater_api
+    official_urls:
+      devices_repo: https://github.com/LineageOS/hudson
+      updater_api_repo: https://github.com/lineageos-infra/updater
+    tg_official_channels: []
+
+  crdroid:
+    display_name: crDroid
+    aliases: ["crdroid", "crdroid android"]
+    resource_kind: rom
+    tier: custom_rom_mainstream
+    status: active
+    exclude_official_in_tg: true
+    ingest_strategy: github_ota_json
+    official_urls:
+      ota_repo: https://github.com/crdroidandroid/android_vendor_crDroidOTA
+      portal: https://crdroid.net/
+    tg_official_channels: [crdroidupdates]
+
+  evolution_x:
+    display_name: Evolution X
+    aliases: ["evolution x", "evolutionx", "evox"]
+    resource_kind: rom
+    tier: custom_rom_mainstream
+    status: active
+    exclude_official_in_tg: true
+    ingest_strategy: github_ota_json
+    official_urls:
+      ota_repo: https://github.com/Evolution-X/OTA
+      github_org: https://github.com/evolution-x
+    tg_official_channels: [evolutionxofficial]
+
+  pixelos:
+    display_name: PixelOS
+    aliases: ["pixelos", "pixel os"]
+    resource_kind: rom
+    tier: custom_rom_mainstream
+    status: active
+    exclude_official_in_tg: true
+    ingest_strategy: github_ota_json
+    official_urls:
+      ota_repo: https://github.com/PixelOS-AOSP/official_devices
+      portal: https://pixelos.net/
+    tg_official_channels: [pixelosofficial]
+
+  project_infinity_x:
+    display_name: Project Infinity X
+    aliases: ["project infinity x", "infinity x", "infinity-x"]
+    resource_kind: rom
+    tier: custom_rom_mainstream
+    status: active
+    exclude_official_in_tg: true
+    ingest_strategy: github_ota_json
+    official_urls:
+      ota_repo: https://github.com/ProjectInfinity-X/official_devices
+      portal: https://projectinfinity-x.com/downloads/
+    tg_official_channels: [infinityxupdate]
+
+  risingos_revived:
+    display_name: RisingOS Revived
+    aliases: ["risingos revived", "risingos", "rising revived"]
+    resource_kind: rom
+    tier: custom_rom_mainstream
+    status: active
+    exclude_official_in_tg: true
+    ingest_strategy: github_ota_json
+    official_urls:
+      ota_repo: https://github.com/RisingOS-Revived/official_devices
+    tg_official_channels: [risingrevived]
+
+  derpfest:
+    display_name: DerpFest AOSP
+    aliases: ["derpfest", "derp fest", "derpfest aosp"]
+    resource_kind: rom
+    tier: custom_rom_mainstream
+    status: active
+    exclude_official_in_tg: true
+    ingest_strategy: github_ota_json
+    official_urls:
+      ota_repo: https://github.com/DerpFest-AOSP/Updater-Stuff
+      github_org: https://github.com/DerpFest-AOSP
+    tg_official_channels: []
+
+  axionos:
+    display_name: AxionOS
+    aliases: ["axionos", "axionaosp", "axion os"]
+    resource_kind: rom
+    tier: custom_rom_mainstream
+    status: active
+    exclude_official_in_tg: true
+    ingest_strategy: github_ota_json
+    official_urls:
+      ota_repo: https://github.com/AxionAOSP/official_devices
+      github_org: https://github.com/AxionAOSP
+    tg_official_channels: []
+
+  alphadroid:
+    display_name: AlphaDroid
+    aliases: ["alphadroid"]
+    resource_kind: rom
+    tier: custom_rom_mainstream
+    status: active
+    exclude_official_in_tg: true
+    ingest_strategy: github_ota_json
+    official_urls:
+      devices_org: https://github.com/AlphaDroid-devices
+      portal: https://alphadroid.org/
+    tg_official_channels: []
+
+  voltageos:
+    display_name: VoltageOS
+    aliases: ["voltageos", "voltage os"]
+    resource_kind: rom
+    tier: custom_rom_mainstream
+    status: active
+    exclude_official_in_tg: true
+    ingest_strategy: github_ota_json
+    official_urls:
+      ota_repo: https://github.com/VoltageOS/android_vendor_voltageota
+      portal: https://www.voltageos.com/
+    tg_official_channels: [voltageosannouncements]
+
+  yaap:
+    display_name: YAAP
+    aliases: ["yaap", "yet another aosp project"]
+    resource_kind: rom
+    tier: custom_rom_mainstream
+    status: active
+    exclude_official_in_tg: true
+    ingest_strategy: github_ota_json
+    official_urls:
+      ota_repo: https://github.com/yaap/ota-info
+      portal: https://yaaprom.org/
+    tg_official_channels: []
+
+  blissroms:
+    display_name: BlissROMs
+    aliases: ["blissroms", "blissrom", "bliss rom"]
+    resource_kind: rom
+    tier: custom_rom_mainstream
+    status: active
+    exclude_official_in_tg: true
+    ingest_strategy: github_ota_json
+    official_urls:
+      devices_repo: https://github.com/BlissRoms-Devices/official-devices
+      portal: https://blissroms.org/downloads
+    tg_official_channels: []
+
+  paranoid_android:
+    display_name: Paranoid Android
+    aliases: ["paranoid android", "aospa"]
+    resource_kind: rom
+    tier: custom_rom_mainstream
+    status: active
+    exclude_official_in_tg: true
+    ingest_strategy: official_portal_api
+    official_urls:
+      github_org: https://github.com/AOSPA
+      portal: https://paranoidandroid.co/
+    tg_official_channels: [paranoidandroidofficial]
+
+  # --- Tier 2: Privacy OSes, Standardized Stock-Mod, Official Recoveries ---
+  grapheneos:
+    display_name: GrapheneOS
+    aliases: ["grapheneos", "graphene os"]
+    resource_kind: rom
+    tier: privacy_os
+    status: active
+    exclude_official_in_tg: true
+    ingest_strategy: deterministic_release_url
+    official_urls:
+      releases: https://grapheneos.org/releases
+      faq: https://grapheneos.org/faq
+    tg_official_channels: []
+
+  calyxos:
+    display_name: CalyxOS
+    aliases: ["calyxos", "calyx os"]
+    resource_kind: rom
+    tier: privacy_os
+    status: active
+    exclude_official_in_tg: true
+    ingest_strategy: official_portal
+    official_urls:
+      portal: https://calyxos.org/install/
+      news: https://calyxos.org/news/2026/11/10/november-security-updates/
+    tg_official_channels: []
+
+  eos:
+    display_name: /e/OS
+    aliases: ["/e/os", "e/os", "murena"]
+    resource_kind: rom
+    tier: privacy_os
+    status: active
+    exclude_official_in_tg: true
+    ingest_strategy: official_portal
+    official_urls:
+      devices: https://doc.e.foundation/devices/
+      portal: https://e.foundation/get-e-os/
+    tg_official_channels: [mydataismydata]
+
+  xiaomi_eu:
+    display_name: Xiaomi.eu
+    aliases: ["xiaomi.eu", "xiaomieu"]
+    resource_kind: rom
+    tier: stock_mod_standardized
+    status: active
+    exclude_official_in_tg: true
+    ingest_strategy: sourceforge_directory
+    official_urls:
+      sourceforge: https://sourceforge.net/projects/xiaomi-eu-multilang-miui-roms/files/xiaomi.eu/
+    tg_official_channels: []
+
+  orangefox:
+    display_name: OrangeFox Recovery
+    aliases: ["orangefox", "ofrp", "orangefox recovery"]
+    resource_kind: recovery
+    tier: recovery_official
+    status: active
+    exclude_official_in_tg: true
+    ingest_strategy: official_portal_api
+    official_urls:
+      portal: https://orangefox.download/
+    tg_official_channels: [orangefoxupdates]
+
+  twrp:
+    display_name: TWRP
+    aliases: ["twrp", "teamwin recovery project"]
+    resource_kind: recovery
+    tier: recovery_official
+    status: active
+    exclude_official_in_tg: true
+    ingest_strategy: official_directory
+    official_urls:
+      devices: http://twrp.me/Devices/
+      downloads: https://eu.dl.twrp.me/
+    tg_official_channels: []
+
+# ---------------------------------------------------------------------------
+# Discontinued / Archived reference (DO NOT exclude in TG)
+# Kept here explicitly so legacy code lists are not accidentally re-added.
+# ---------------------------------------------------------------------------
+archived_or_unmanaged:
+  project_matrixx:
+    display_name: Project Matrixx
+    status: archived
+    archived_date: "2026-09-07"
+    exclude_official_in_tg: false
+    reference_url: https://github.com/ProjectMatrixx
+  pixelexperience:
+    display_name: PixelExperience
+    status: discontinued
+    archived_date: "2024-04"
+    exclude_official_in_tg: false
+    reference_url: https://github.com/devadigax/awesome-android-custom-rom/blob/main/README.md
+  divestos:
+    display_name: DivestOS
+    status: discontinued
+    archived_date: "2024-12"
+    exclude_official_in_tg: false
+    reference_url: https://www.reddit.com/r/fossdroid/comments/1hl6q7j/divestos_discontinued/
