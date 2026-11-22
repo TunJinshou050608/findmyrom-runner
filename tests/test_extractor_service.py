@@ -139,3 +139,37 @@ def test_xiaomi_cdn_lookalikes_and_arbitrary_buckets_rejected():
     for host in ('bigota.d.miui.com.evil.test', 'unrelated.oss-ap-southeast-1.aliyuncs.com'):
         body, sig = payload(brand='xiaomi', url=f'https://{host}/miui.zip')
         with pytest.raises(ValueError): verify_job(body, sig, SECRET)
+
+
+def test_full_package_does_not_block_partition_slot():
+    from fmr_extractor.service import Server
+    @contextlib.contextmanager
+    def opener(_job):
+        yield iter([b'ANDROID!' + bytes(65528)]), {'output_size': 65536}, SimpleNamespace(used=10)
+    try:
+        server = Server(('127.0.0.1', 0), SECRET, opener=opener, bytes_per_second=6250000)
+    except PermissionError:
+        pytest.skip('Host sandbox forbids listening sockets')
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        import httpx
+        assert server.full_slot.acquire(False)
+        try:
+            body, sig = payload()
+            with httpx.Client(trust_env=False) as client:
+                r = client.post(f'http://127.0.0.1:{server.server_port}/v1/prepare', content=body, headers={'X-FMR-Signature': sig})
+                assert r.status_code == 202
+                full_body, full_sig = payload(
+                    id='00000000-0000-0000-0000-000000000001',
+                    brand='samsung', device='SM-S928B', partition='full',
+                    package_type='samsung_encrypted',
+                    url='https://cloud-neofussvr.samsungmobile.com/NF_SmartDownloadBinaryForMass.do?file=/test.enc4',
+                    model='SM-S928B', region='EUX',
+                )
+                r_full = client.post(f'http://127.0.0.1:{server.server_port}/v1/extract', content=full_body, headers={'X-FMR-Signature': full_sig})
+                assert r_full.status_code == 429
+        finally:
+            server.full_slot.release()
+    finally:
+        server.shutdown(); server.server_close(); thread.join(timeout=2)

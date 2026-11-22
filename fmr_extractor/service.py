@@ -105,6 +105,7 @@ class Server(ThreadingHTTPServer):
         self.opener = opener
         self.bytes_per_second = bytes_per_second
         self.slot = threading.BoundedSemaphore(1)
+        self.full_slot = threading.BoundedSemaphore(1)
         self.connections = threading.BoundedSemaphore(12)
         self.replays = {}
         self.lock = threading.Lock()
@@ -190,7 +191,9 @@ class Handler(BaseHTTPRequestHandler):
                     return self.reply(429, 'Extraction server busy')
                 self.server.replays[job['id']] = job['expires']
             return self.reply(202, json.dumps({'state': 'preparing'}))
-        if not self.server.slot.acquire(False):
+        full = job['partition'] == 'full'
+        slot = getattr(self.server, 'full_slot', self.server.slot) if full else self.server.slot
+        if not slot.acquire(False):
             return self.reply(429, 'Extraction server busy')
         started = False
         begin = time.monotonic()
@@ -208,7 +211,6 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_response(200)
                 self.send_header('Content-Type', 'application/octet-stream')
                 self.send_header('Cache-Control', 'no-store, no-transform')
-                full=job['partition']=='full'
                 self.send_header('Content-Disposition', 'attachment; filename="' + ('firmware.zip' if full else job['partition']+'.img') + '"')
                 known = type(size) is int and 0 < size <= (64*1024**3 if full else LIMITS[job['partition']][1])
                 self.send_header('Content-Length', str(size)) if known else self.send_header('Transfer-Encoding', 'chunked')
@@ -252,7 +254,7 @@ class Handler(BaseHTTPRequestHandler):
             # withheld bytes. A failed extraction must not look like success.
         finally:
             self.close_connection = True
-            self.server.slot.release()
+            slot.release()
 
     def control(self, data):
         if data['op'] == 'status':
