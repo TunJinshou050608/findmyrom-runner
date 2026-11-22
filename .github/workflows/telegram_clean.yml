@@ -21,6 +21,9 @@ name: TG · 清洗
       self_continue:
         description: 'Re-dispatch this workflow after the batch (production loop)'
         default: 'false'
+      backlog_limit:
+        description: 'Optional bounded uncleaned_backlog items per cycle (default 0 incremental-only)'
+        default: '0'
 permissions:
   contents: read
   actions: write
@@ -36,8 +39,11 @@ jobs:
       FMR_TG_STATE_DIR: ${{ vars.FMR_TG_STATE_DIR || format('{0}/tg-v4', vars.FMR_CATALOGUE_STATE_DIR || '/var/lib/findmyrom/catalogue-v3') }}
       FMR_CATALOGUE_STATE_DIR: ${{ vars.FMR_CATALOGUE_STATE_DIR || '/var/lib/findmyrom/catalogue-v3' }}
       FMR_TG_LOCAL_RUNTIME: 'true'
+      FMR_TG_V2_CLEANER: 'true'
+      FMR_TG_INTENT_MODEL_DIR: /var/lib/findmyrom/models/tg-intent-v2
       FMR_TG_GROUNDED_CLEANER: 'true'
       FMR_TG_CLEAN_MAX_CALLS: ${{ inputs.max_calls || '50' }}
+      FMR_TG_V2_BACKLOG_LIMIT: ${{ inputs.backlog_limit || '0' }}
       LLM_MODEL_NAME: deepseek-flash
       LLM_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
       LLM_MAX_TOKENS: '1500'
@@ -57,9 +63,13 @@ jobs:
     - name: Confirm local runner and prepare Python
       run: |-
         printf "Runner: %s; host: %s\n" "$RUNNER_NAME" "$(hostname)"
-        python3 -m venv "$RUNNER_TEMP/fmr-tg-local-${GITHUB_RUN_ID}"
-        printf '%s\n' "$RUNNER_TEMP/fmr-tg-local-${GITHUB_RUN_ID}/bin" >> "$GITHUB_PATH"
-    - run: python -m pip install -r requirements.txt
+        if [ -x /opt/fmr-tg-v2-venv/bin/python ]; then
+          printf '%s\n' "/opt/fmr-tg-v2-venv/bin" >> "$GITHUB_PATH"
+        else
+          python3 -m venv "$RUNNER_TEMP/fmr-tg-local-${GITHUB_RUN_ID}"
+          printf '%s\n' "$RUNNER_TEMP/fmr-tg-local-${GITHUB_RUN_ID}/bin" >> "$GITHUB_PATH"
+          python -m pip install -r requirements.txt
+        fi
     - name: Audit local snapshots; request unified publisher only when a batch changes
       env:
         GH_WORKFLOW_TOKEN: ${{ github.token }}
@@ -69,7 +79,9 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: tg-clean-report-${{ github.run_id }}
-        path: ${{ env.FMR_TG_STATE_DIR }}/clean/audits/full-quality-*/report.json
+        path: |
+          ${{ env.FMR_TG_STATE_DIR }}/v2-clean-latest.json
+          ${{ env.FMR_TG_STATE_DIR }}/clean/audits/full-quality-*/report.json
         if-no-files-found: warn
     - name: Continue the independent cleaner
       if: inputs.self_continue == 'true'
