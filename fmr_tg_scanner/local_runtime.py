@@ -96,30 +96,8 @@ def clean_once(root):
                     versions[row['key']]=row['updated']
                 for row in db.execute("SELECT key,value FROM tg_search_meta WHERE key LIKE 'profile:%' OR key='device_aliases_v3'"):
                     store.execute('INSERT INTO tg_search_meta VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value',(row['key'],row['value']))
-                tables={r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-                if 'tg_raw_messages' in tables:
-                    raw_rows=[dict(r) for r in db.execute('SELECT * FROM tg_raw_messages')]
-                    if raw_rows:
-                        rcols=list(raw_rows[0])
-                        r_sql=(
-                            'INSERT INTO tg_raw_messages('+','.join(rcols)+') VALUES ('+','.join('?' for _ in rcols)+') '
-                            'ON CONFLICT(post_key) DO UPDATE SET '+','.join(c+'=excluded.'+c for c in rcols if c!='post_key')+' '
-                            'WHERE tg_raw_messages.content_revision_hash!=excluded.content_revision_hash '
-                            'OR tg_raw_messages.last_observed_at<excluded.last_observed_at'
-                        )
-                        store.execute_batch([(r_sql,tuple(rr[c] for c in rcols)) for rr in raw_rows])
-                if 'tg_cleaning_queue' in tables:
-                    q_rows=[dict(r) for r in db.execute("SELECT * FROM tg_cleaning_queue WHERE status='pending'")]
-                    if q_rows:
-                        qcols=list(q_rows[0])
-                        q_sql=(
-                            'INSERT INTO tg_cleaning_queue('+','.join(qcols)+') VALUES ('+','.join('?' for _ in qcols)+') '
-                            'ON CONFLICT(post_key) DO UPDATE SET '
-                            'content_revision_hash=excluded.content_revision_hash,shared_body_hash=excluded.shared_body_hash,'
-                            "status='pending',attempts=0,next_retry_at=0,last_error=NULL,updated_at=excluded.updated_at "
-                            'WHERE tg_cleaning_queue.content_revision_hash!=excluded.content_revision_hash'
-                        )
-                        store.execute_batch([(q_sql,tuple(qr[c] for c in qcols)) for qr in q_rows])
+            from .evidence_store import sync_raw_and_queue_from_snapshot
+            sync_raw_and_queue_from_snapshot(store,snap)
     finally:store.close()
     fingerprint.update(('b01-grounded-v1:'+os.getenv('FMR_TG_GROUNDED_CLEANER','false')).encode())
     digest=fingerprint.hexdigest();last=clean/'source-fingerprint.json'
@@ -169,9 +147,18 @@ def loop(root, role, worker=0, duration=6000, period=600):
                     has_new=int(result.get('new_qualified_products') or 0)>0
                     record_business_success(root,'fetch',worker=worker,has_new_items=has_new,summary={'status':result.get('status',result.get('activity','ok')),'new_qualified_products':result.get('new_qualified_products',0)})
                 else:
-                    result=clean_once(root)
-                    has_new=result.get('status')=='audit_ready'
-                    record_business_success(root,'clean',worker=None,has_new_items=has_new,summary={'status':result.get('status')})
+                    if os.getenv('FMR_TG_V2_CLEANER')=='true':
+                        from .v2_cleaner import clean_v2_once
+                        result=clean_v2_once(
+                            root,
+                            max_llm_calls=int(os.getenv('FMR_TG_CLEAN_MAX_CALLS','50')),
+                            backlog_limit=int(os.getenv('FMR_TG_V2_BACKLOG_LIMIT','0')),
+                        )
+                        has_new=int(result.get('outbox_new_operations') or 0)>0
+                    else:
+                        result=clean_once(root)
+                        has_new=result.get('status')=='audit_ready'
+                    record_business_success(root,'clean',worker=None,has_new_items=has_new,summary={'status':result.get('status'),'outbox_new_operations':result.get('outbox_new_operations')})
                     if has_new:dispatch('catalogue_publish.yml',{'scope':'tg'})
                 atomic_json(root/(role+'-'+str(worker)+'-latest.json'),{'at':time.time(),'worker':worker,'result':result})
                 print(json.dumps({'event':'local_TG_cycle','role':role,'worker':worker,'cycle':cycle,'status':result.get('status',result.get('activity'))}),flush=True)

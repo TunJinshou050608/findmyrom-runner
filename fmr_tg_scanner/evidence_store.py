@@ -483,6 +483,235 @@ class EvidenceStore(SQLiteDB):
             ]
         )
 
+    def mark_cleaning_result(
+        self,
+        post_key: str,
+        *,
+        process_status: str,
+        process_reason: str,
+        process_version: str = EVIDENCE_SCHEMA_VERSION,
+        queue_status: str = "done",
+        now: float | None = None,
+    ) -> None:
+        """Atomically record a non-retry v2 cleaning decision on raw message and queue."""
+        now_ts = time.time() if now is None else float(now)
+        rows = self.query(
+            "SELECT content_revision_hash, shared_body_hash FROM tg_raw_messages WHERE post_key=?",
+            (post_key,),
+        )
+        statements: list[tuple[str, tuple[Any, ...]]] = [
+            (
+                """
+                UPDATE tg_raw_messages
+                SET process_status=?,
+                    process_version=?,
+                    process_reason=?
+                WHERE post_key=?
+                """,
+                (process_status, process_version, process_reason[:300], post_key),
+            )
+        ]
+        if rows:
+            statements.append(
+                (
+                    """
+                    INSERT INTO tg_cleaning_queue (
+                        post_key, content_revision_hash, shared_body_hash,
+                        status, attempts, next_retry_at, last_error, enqueued_at, updated_at
+                    ) VALUES (?, ?, ?, ?, 0, 0, NULL, ?, ?)
+                    ON CONFLICT(post_key) DO UPDATE SET
+                        status=excluded.status,
+                        next_retry_at=0,
+                        last_error=NULL,
+                        updated_at=excluded.updated_at
+                    """,
+                    (
+                        post_key,
+                        rows[0]["content_revision_hash"],
+                        rows[0]["shared_body_hash"],
+                        queue_status,
+                        now_ts,
+                        now_ts,
+                    ),
+                )
+            )
+        self.execute_batch(statements)
+
+    def fetch_backlog_batch(self, *, limit: int = 50) -> list[dict[str, Any]]:
+        """Fetch historical uncleaned_backlog posts newest-first without flooding real-time queue."""
+        if limit <= 0:
+            return []
+        return self.query(
+            """
+            SELECT m.post_key, m.content_revision_hash, m.shared_body_hash,
+                   'uncleaned_backlog' AS status, 0 AS attempts,
+                   m.channel_id, m.channel_username, m.msg_id, m.tg_post_url,
+                   m.published_timestamp, m.raw_text, m.attachment_names_json,
+                   m.link_items_json, m.reply_context_json, m.forward_context_json,
+                   m.media_group_context_json, m.sender_context_json,
+                   m.content_revision_no
+            FROM tg_raw_messages m
+            WHERE m.process_status='uncleaned_backlog'
+              AND (m.raw_text != '' OR m.attachment_names_json != '[]' OR m.link_items_json != '[]')
+            ORDER BY m.last_observed_at DESC
+            LIMIT ?
+            """,
+            (limit,),
+        )
+
+    def upsert_pending_evidence(
+        self,
+        post_key: str,
+        *,
+        device_codename: str | None,
+        project_name: str | None,
+        missing_fields: list[str],
+        now: float | None = None,
+    ) -> None:
+        now_ts = time.time() if now is None else float(now)
+        self.execute(
+            """
+            INSERT INTO tg_pending_evidence_queue (
+                post_key, device_codename, project_name, missing_fields_json, created_at
+            ) VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(post_key) DO UPDATE SET
+                device_codename=excluded.device_codename,
+                project_name=excluded.project_name,
+                missing_fields_json=excluded.missing_fields_json,
+                created_at=excluded.created_at
+            """,
+            (
+                post_key,
+                device_codename,
+                project_name,
+                json.dumps(sorted(set(missing_fields)), ensure_ascii=False),
+                now_ts,
+            ),
+        )
+
+    def clear_pending_evidence(self, post_key: str) -> None:
+        self.execute("DELETE FROM tg_pending_evidence_queue WHERE post_key=?", (post_key,))
+
+    def get_extraction_ledger(self, extraction_cache_key: str) -> dict[str, Any] | None:
+        rows = self.query(
+            """
+            SELECT extraction_cache_key, shared_body_hash, model_name, spec_version,
+                   raw_model_json, normalized_json, published_json, updated_at
+            FROM tg_extraction_ledger
+            WHERE extraction_cache_key=?
+            """,
+            (extraction_cache_key,),
+        )
+        if not rows:
+            return None
+        row = dict(rows[0])
+        for col in ("raw_model_json", "normalized_json", "published_json"):
+            try:
+                row[col.removesuffix("_json")] = json.loads(row[col])
+            except ValueError:
+                row[col.removesuffix("_json")] = None
+        return row
+
+    def put_extraction_ledger(
+        self,
+        *,
+        extraction_cache_key: str,
+        shared_body_hash: str,
+        model_name: str,
+        spec_version: str,
+        raw_model: dict[str, Any],
+        normalized: dict[str, Any],
+        published: dict[str, Any] | list[Any],
+        now: float | None = None,
+    ) -> None:
+        now_ts = time.time() if now is None else float(now)
+        self.execute(
+            """
+            INSERT INTO tg_extraction_ledger (
+                extraction_cache_key, shared_body_hash, model_name, spec_version,
+                raw_model_json, normalized_json, published_json, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(extraction_cache_key) DO UPDATE SET
+                shared_body_hash=excluded.shared_body_hash,
+                model_name=excluded.model_name,
+                spec_version=excluded.spec_version,
+                raw_model_json=excluded.raw_model_json,
+                normalized_json=excluded.normalized_json,
+                published_json=excluded.published_json,
+                updated_at=excluded.updated_at
+            """,
+            (
+                extraction_cache_key,
+                shared_body_hash,
+                model_name,
+                spec_version,
+                json.dumps(raw_model, ensure_ascii=False, sort_keys=True),
+                json.dumps(normalized, ensure_ascii=False, sort_keys=True),
+                json.dumps(published, ensure_ascii=False, sort_keys=True),
+                now_ts,
+            ),
+        )
+
+    def sync_raw_and_queue_from_snapshot(self, snap_db_path: str | Path) -> dict[str, int]:
+        """Safely merge tg_raw_messages & pending tg_cleaning_queue rows from a backup snapshot.
+
+        Never overwrites an already-processed clean status when content_revision_hash matches.
+        """
+        return sync_raw_and_queue_from_snapshot(self, snap_db_path)
+
+
+def sync_raw_and_queue_from_snapshot(store: SQLiteDB, snap_db_path: str | Path) -> dict[str, int]:
+    """Merge tg_raw_messages & pending tg_cleaning_queue rows from a backup snapshot into store."""
+    stats = {"raw_synced": 0, "queue_synced": 0}
+    with sqlite3.connect(f"file:{Path(snap_db_path).resolve()}?mode=ro", uri=True, timeout=15.0) as db:
+        db.row_factory = sqlite3.Row
+        tables = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        if "tg_raw_messages" in tables:
+            raw_rows = [dict(r) for r in db.execute("SELECT * FROM tg_raw_messages")]
+            if raw_rows:
+                rcols = list(raw_rows[0])
+                r_sql = (
+                    f"INSERT INTO tg_raw_messages({','.join(rcols)}) VALUES ({','.join('?' for _ in rcols)}) "
+                    "ON CONFLICT(post_key) DO UPDATE SET "
+                    + ",".join(f"{c}=excluded.{c}" for c in rcols if c != "post_key")
+                    + " WHERE tg_raw_messages.content_revision_hash != excluded.content_revision_hash"
+                )
+                store.execute_batch([(r_sql, tuple(rr[c] for c in rcols)) for rr in raw_rows])
+                obs_sql = (
+                    "UPDATE tg_raw_messages SET last_observed_at=? "
+                    "WHERE post_key=? AND content_revision_hash=? AND last_observed_at<?"
+                )
+                store.execute_batch(
+                    [
+                        (
+                            obs_sql,
+                            (
+                                rr["last_observed_at"],
+                                rr["post_key"],
+                                rr["content_revision_hash"],
+                                rr["last_observed_at"],
+                            ),
+                        )
+                        for rr in raw_rows
+                    ]
+                )
+                stats["raw_synced"] = len(raw_rows)
+        if "tg_cleaning_queue" in tables:
+            q_rows = [dict(r) for r in db.execute("SELECT * FROM tg_cleaning_queue WHERE status='pending'")]
+            if q_rows:
+                qcols = list(q_rows[0])
+                q_sql = (
+                    f"INSERT INTO tg_cleaning_queue({','.join(qcols)}) VALUES ({','.join('?' for _ in qcols)}) "
+                    "ON CONFLICT(post_key) DO UPDATE SET "
+                    "content_revision_hash=excluded.content_revision_hash,"
+                    "shared_body_hash=excluded.shared_body_hash,"
+                    "status='pending',attempts=0,next_retry_at=0,last_error=NULL,updated_at=excluded.updated_at "
+                    "WHERE tg_cleaning_queue.content_revision_hash != excluded.content_revision_hash"
+                )
+                store.execute_batch([(q_sql, tuple(qr[c] for c in qcols)) for qr in q_rows])
+                stats["queue_synced"] = len(q_rows)
+    return stats
+
 
 def migrate_existing_state_to_v2(
     tg_state_dir: str | Path,
