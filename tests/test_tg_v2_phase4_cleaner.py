@@ -488,3 +488,224 @@ def test_v2_cleaner_wires_real_intent_classifier_signature(tmp_path: Path, monke
     assert res["counts"]["e5_skipped_irrelevant"] == 1
     assert captured["model_dir"] == tmp_path / "m"
     assert captured["registry"] is not None
+
+
+def test_hard_filtered_and_blindspot_retained_never_call_deepseek(tmp_path: Path) -> None:
+    calls = 0
+
+    async def boom_requester(_payload: dict):
+        nonlocal calls
+        calls += 1
+        raise AssertionError("DeepSeek must NOT be called for hard_filtered or blindspot_retained routes")
+
+    root, store = _make_state_dir(tmp_path)
+    msg_hf = _base_msg("mixromhub", 701, "crDroid 10.6 Unofficial | Android 14\nFor POCO F3 (alioth)\n@alidev")
+    msg_bs = _base_msg("mixromhub", 702, "crDroid 10.6 Unofficial | Android 14\nFor POCO F5 (marble)\n@alidev")
+    store.ingest_message(msg_hf, now=10.0)
+    store.ingest_message(msg_bs, now=11.0)
+    store.close()
+
+    clf = _DummyClassifier(
+        forced_routes={
+            "mixromhub|701": {
+                "layer": "layer1_basic_hard_rules",
+                "action": "hard_filtered",
+                "send_to_deepseek": False,
+                "reason": "empty_post_without_media_or_links",
+                "blindspot_retained": False,
+                "audit_sampled": False,
+                "probs": None,
+            },
+            "mixromhub|702": {
+                "layer": "layer1_basic_hard_rules",
+                "action": "blindspot_retained",
+                "send_to_deepseek": False,
+                "reason": "too_short_without_release_signal",
+                "blindspot_retained": True,
+                "audit_sampled": False,
+                "probs": None,
+            },
+        }
+    )
+    res = clean_v2_once(
+        root,
+        catalogue_names=SAMPLE_CATALOGUE,
+        sync_workers=False,
+        classifier=clf,
+        llm_client=DeepSeekAttributedClient(api_key="k", requester=boom_requester),
+        now=15.0,
+    )
+    assert calls == 0
+    assert res["counts"]["hard_filtered"] == 1
+    assert res["counts"]["blindspot_retained"] == 1
+
+    store = EvidenceStore(root / "clean" / "search-v3" / "search.sqlite")
+    try:
+        r_hf = store.query("SELECT process_status, is_blindspot_sample FROM tg_raw_messages WHERE post_key='mixromhub|701'")[0]
+        r_bs = store.query("SELECT process_status, is_blindspot_sample FROM tg_raw_messages WHERE post_key='mixromhub|702'")[0]
+        assert r_hf["process_status"] == "hard_filtered"
+        assert r_hf["is_blindspot_sample"] == 0
+        assert r_bs["process_status"] == "blindspot_retained"
+        assert r_bs["is_blindspot_sample"] == 1
+    finally:
+        store.close()
+
+
+def test_build_date_format_agnostic_grounding() -> None:
+    msg_slash = _base_msg(
+        "mixromhub",
+        710,
+        "crDroid 10.6 Unofficial | Android 14\nBuild Date: 21/11/2026\nFor POCO F3 (alioth)\nMaintainer: Ali Dev (@alidev)",
+    )
+    n1 = normalize_and_verify_extraction(
+        _valid_model_payload(build_date={"value": "2026-11-21", "evidence_quote": "Build Date: 21/11/2026"}),
+        msg_slash,
+    )
+    assert n1["build_date"] == "2026-11-21"
+
+    msg_mon = _base_msg(
+        "mixromhub",
+        711,
+        "crDroid 10.6 Unofficial | Android 14\nUpdated Nov 21, 2026\nFor POCO F3 (alioth)\nMaintainer: Ali Dev (@alidev)",
+    )
+    # Bare string without quote still grounds against corpus month-name representation
+    n2 = normalize_and_verify_extraction(_valid_model_payload(build_date="2026-11-21"), msg_mon)
+    assert n2["build_date"] == "2026-11-21"
+
+    # Hallucinated date not in post & invalid calendar date are rejected
+    n3 = normalize_and_verify_extraction(
+        _valid_model_payload(build_date={"value": "2025-01-05", "evidence_quote": "2025-01-05"}),
+        msg_mon,
+    )
+    assert n3["build_date"] is None
+    n4 = normalize_and_verify_extraction(_valid_model_payload(build_date="2026-02-31"), msg_mon)
+    assert n4["build_date"] is None
+
+
+def test_single_device_channel_profile_fallback_and_conflicts(tmp_path: Path) -> None:
+    from fmr_tg_scanner.attributed_extractor import ChannelProfileMatcher, DeviceLookupIndex
+
+    cat = {
+        **SAMPLE_CATALOGUE,
+        "Redmi K40_alias_only": [],
+        "tecno-f3": ["TECNO POP1", "F3"],
+        "curtana": ["Redmi Note 9S"],
+        "joyeuse": ["Redmi Note 9 Pro"],
+        "tokay": ["Google Pixel 9"],
+    }
+    lookup = DeviceLookupIndex(cat)
+    matcher = ChannelProfileMatcher(lookup)
+
+    # Ambiguous short 'F3' in "Poco F3" does not hijack 'alioth' via 'Redmi K40'
+    assert matcher.resolve_single_device("Poco F3 / Redmi K40 Updates\nRussian channel") == "alioth"
+    # Multi-device channel and 'Series' channel must refuse fallback
+    assert matcher.resolve_single_device("Redmi Note 9S / Redmi Note 9 Pro Official") is None
+    assert matcher.resolve_single_device("Google Pixel 9 Series | Updates") is None
+
+    # End-to-end with tg_search_meta profile fallback when post omits device name
+    root, store = _make_state_dir(tmp_path)
+    store.execute(
+        "CREATE TABLE IF NOT EXISTS tg_search_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)"
+    )
+    store.execute(
+        "INSERT INTO tg_search_meta (key, value) VALUES (?, ?)",
+        ("profile:pocof3only", json.dumps("Poco F3 / Redmi K40 Updates")),
+    )
+    store.execute(
+        "INSERT INTO tg_search_meta (key, value) VALUES (?, ?)",
+        ("profile:multi_updates", json.dumps("Redmi Note 9S / Redmi Note 9 Pro Updates")),
+    )
+
+    msg_omit = _base_msg(
+        "pocof3only",
+        801,
+        "crDroid 10.6 Unofficial | Android 14\nMaintainer: Ali Dev (@alidev)",
+        link_items=[{"url": "https://sourceforge.net/files/cr.zip", "label": "ROM"}],
+    )
+    msg_conflict = _base_msg(
+        "pocof3only",
+        802,
+        "crDroid 10.6 Unofficial | Android 14\nFor UnknownX99\nMaintainer: Ali Dev (@alidev)",
+        link_items=[{"url": "https://sourceforge.net/files/cr2.zip", "label": "ROM"}],
+    )
+    msg_multi = _base_msg(
+        "multi_updates",
+        803,
+        "crDroid 10.6 Unofficial | Android 14\nMaintainer: Ali Dev (@alidev)",
+        link_items=[{"url": "https://sourceforge.net/files/cr3.zip", "label": "ROM"}],
+    )
+    store.ingest_message(msg_omit, now=10.0)
+    store.ingest_message(msg_conflict, now=11.0)
+    store.ingest_message(msg_multi, now=12.0)
+    store.close()
+
+    async def fallback_requester(payload: dict):
+        u = json.loads(payload["messages"][1]["content"])
+        if "UnknownX99" in u["raw_text"]:
+            return json.dumps(
+                _valid_model_payload(
+                    target_devices={"codenames": ["unknownx99"], "marketing_names": [], "evidence_quote": "For UnknownX99"}
+                )
+            ), {}
+        return json.dumps(
+            _valid_model_payload(target_devices={"codenames": [], "marketing_names": [], "evidence_quote": None})
+        ), {}
+
+    res = clean_v2_once(
+        root,
+        catalogue_names=cat,
+        sync_workers=False,
+        classifier=_DummyClassifier(),
+        llm_client=DeepSeekAttributedClient(api_key="k", requester=fallback_requester),
+        now=20.0,
+    )
+    assert res["counts"]["channel_profile_fallback_used"] == 1
+    assert res["counts"]["outbox_added"] == 1
+    assert res["counts"]["layer3_device_unresolved"] == 2
+    by_pk = {d["post_key"]: d for d in res["llm_sample_decisions"]}
+    assert by_pk["pocof3only|801"]["resolved_devices"] == ["alioth"]
+    assert by_pk["pocof3only|801"]["channel_profile_fallback"] is True
+    assert by_pk["pocof3only|802"]["action"] == "device_unresolved"
+    assert by_pk["multi_updates|803"]["action"] == "device_unresolved"
+
+
+def test_llm_sample_decisions_preserved_when_many_skipped(tmp_path: Path) -> None:
+    root, store = _make_state_dir(tmp_path)
+    forced = {}
+    for i in range(35):
+        m = _base_msg("mixromhub", 900 + i, f"Random noise documentary video trailer #{i} here")
+        store.ingest_message(m, now=10.0 + i * 0.01)
+        forced[f"mixromhub|{900 + i}"] = {
+            "layer": "layer2_e5_onnx",
+            "action": "skip_irrelevant",
+            "send_to_deepseek": False,
+            "reason": "e5_irrelevant_high_confidence",
+            "blindspot_retained": False,
+            "audit_sampled": False,
+            "probs": {"release_related": 0.01, "irrelevant": 0.98, "insufficient_context": 0.01},
+        }
+    m_rel = _base_msg(
+        "mixromhub",
+        999,
+        "crDroid 10.6 Unofficial | Android 14\nFor POCO F3 (alioth)\nMaintainer: Ali Dev (@alidev)",
+        link_items=[{"url": "https://github.com/a/b.zip", "label": "DL"}],
+    )
+    store.ingest_message(m_rel, now=20.0)
+    store.close()
+
+    async def rel_req(_payload: dict):
+        return json.dumps(_valid_model_payload()), {}
+
+    res = clean_v2_once(
+        root,
+        catalogue_names=SAMPLE_CATALOGUE,
+        sync_workers=False,
+        classifier=_DummyClassifier(forced_routes=forced),
+        llm_client=DeepSeekAttributedClient(api_key="k", requester=rel_req),
+        now=30.0,
+    )
+    assert res["counts"]["e5_skipped_irrelevant"] == 35
+    assert res["counts"]["llm_calls_succeeded"] == 1
+    latest = json.loads((root / "v2-clean-latest.json").read_text(encoding="utf-8"))
+    assert len(latest["llm_sample_decisions"]) == 1
+    assert latest["llm_sample_decisions"][0]["post_key"] == "mixromhub|999"

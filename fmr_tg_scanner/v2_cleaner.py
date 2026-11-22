@@ -17,6 +17,7 @@ import traceback
 from typing import Any
 
 from .attributed_extractor import (
+    ChannelProfileMatcher,
     DeepSeekAttributedClient,
     DeviceLookupIndex,
     EXTRACTION_SPEC_VERSION,
@@ -112,6 +113,7 @@ def clean_v2_once(
     dry_run: bool = False,
     classifier: Any | None = None,
     llm_client: DeepSeekAttributedClient | None = None,
+    channel_profiles: dict[str, str] | None = None,
     now: float | None = None,
 ) -> dict[str, Any]:
     """Execute one incremental TG v2 cleaning cycle and return structured audit stats."""
@@ -142,8 +144,13 @@ def clean_v2_once(
 
     client = llm_client or DeepSeekAttributedClient()
     store = EvidenceStore(clean_db)
+    profile_matcher = ChannelProfileMatcher(lookup)
+    raw_profiles = store.load_channel_profiles()
+    if channel_profiles:
+        raw_profiles.update({str(k).strip().lower().lstrip("@"): v for k, v in channel_profiles.items()})
     counts: Counter[str] = Counter()
     sample_decisions: list[dict[str, Any]] = []
+    llm_sample_decisions: list[dict[str, Any]] = []
     token_usage: Counter[str] = Counter()
 
     try:
@@ -169,6 +176,7 @@ def clean_v2_once(
                 "counts": dict(counts),
                 "token_usage": {},
                 "sample_decisions": [],
+                "llm_sample_decisions": [],
                 "completed_at": datetime.now(timezone.utc).isoformat(),
             }
             if not dry_run:
@@ -198,6 +206,27 @@ def clean_v2_once(
                     )
                 continue
 
+            if action in ("hard_filtered", "blindspot_retained"):
+                counts[action] += 1
+                sample_decisions.append(
+                    {
+                        "post_key": post_key,
+                        "action": action,
+                        "reason": route["reason"],
+                        "blindspot_retained": action == "blindspot_retained",
+                    }
+                )
+                if not dry_run:
+                    store.mark_cleaning_result(
+                        post_key,
+                        process_status=action,
+                        process_reason=route["reason"],
+                        process_version=V2_CLEANER_VERSION,
+                        is_blindspot=(action == "blindspot_retained"),
+                        now=now_ts,
+                    )
+                continue
+
             if action == "skip_irrelevant":
                 counts["e5_skipped_irrelevant"] += 1
                 sample_decisions.append(
@@ -223,6 +252,21 @@ def clean_v2_once(
                         post_key,
                         process_status="e5_dropped_insufficient",
                         process_reason=route["reason"],
+                        process_version=V2_CLEANER_VERSION,
+                        now=now_ts,
+                    )
+                continue
+
+            if not route.get("send_to_deepseek"):
+                counts["skipped_non_llm_route"] += 1
+                sample_decisions.append(
+                    {"post_key": post_key, "action": action, "reason": route.get("reason", "send_to_deepseek_false")}
+                )
+                if not dry_run:
+                    store.mark_cleaning_result(
+                        post_key,
+                        process_status=str(action or "skipped_non_llm_route"),
+                        process_reason=str(route.get("reason") or "send_to_deepseek_false"),
                         process_version=V2_CLEANER_VERSION,
                         now=now_ts,
                     )
@@ -357,17 +401,32 @@ def clean_v2_once(
                         process_version=V2_CLEANER_VERSION,
                         now=now_ts,
                     )
-                sample_decisions.append(
-                    {
-                        "post_key": post_key,
-                        "action": "withdraw",
-                        "withdrawn_keys": withdrawn_keys,
-                        "from_cache": from_cache,
-                    }
-                )
+                wd_entry = {
+                    "post_key": post_key,
+                    "channel_username": msg["channel_username"],
+                    "tg_post_url": msg["tg_post_url"],
+                    "action": "withdraw",
+                    "withdrawn_keys": withdrawn_keys,
+                    "subject_summary": normalized["subject_summary"],
+                    "raw_text_snippet": (msg["raw_text"] or "")[:240],
+                    "from_cache": from_cache,
+                }
+                sample_decisions.append(wd_entry)
+                if len(llm_sample_decisions) < 50:
+                    llm_sample_decisions.append(wd_entry)
                 continue
 
-            mat = materialize_publishable_items(msg, normalized, lookup)
+            profile_device = profile_matcher.resolve_single_device(
+                raw_profiles.get(msg["channel_username"])
+            )
+            mat = materialize_publishable_items(
+                msg,
+                normalized,
+                lookup,
+                channel_profile_device=profile_device,
+            )
+            if mat.get("device_resolution", {}).get("channel_profile_fallback"):
+                counts["channel_profile_fallback_used"] += 1
             published_summary = {
                 "status": mat["status"],
                 "reason": mat["reason"],
@@ -450,23 +509,34 @@ def clean_v2_once(
                         now=now_ts,
                     )
 
-            sample_decisions.append(
-                {
-                    "post_key": post_key,
-                    "action": mat["status"],
-                    "reason": mat["reason"],
-                    "subject_summary": normalized["subject_summary"],
-                    "resource_kind": normalized["resource_kind"],
-                    "project_name": normalized["project_name"]["value"],
-                    "release_status": normalized["release_status"]["value"],
-                    "project_version": normalized["project_version"]["value"],
-                    "android_version": normalized["android_version"]["value"],
-                    "publishable_keys": published_summary["publishable_keys"],
-                    "missing_fields": [pe["missing_fields"] for pe in mat["pending_evidence"]],
-                    "from_cache": from_cache,
-                    "audit_sampled": audit_sampled,
-                }
-            )
+            llm_entry = {
+                "post_key": post_key,
+                "channel_username": msg["channel_username"],
+                "tg_post_url": msg["tg_post_url"],
+                "action": mat["status"],
+                "reason": mat["reason"],
+                "subject_summary": normalized["subject_summary"],
+                "resource_kind": normalized["resource_kind"],
+                "project_name": normalized["project_name"]["value"],
+                "release_status": normalized["release_status"]["value"],
+                "project_version": normalized["project_version"]["value"],
+                "android_version": normalized["android_version"]["value"],
+                "build_date": normalized["build_date"],
+                "resolved_devices": (mat.get("device_resolution") or {}).get("resolved_codenames", []),
+                "channel_profile_fallback": bool((mat.get("device_resolution") or {}).get("channel_profile_fallback")),
+                "publishable_keys": published_summary["publishable_keys"],
+                "missing_fields": [pe["missing_fields"] for pe in mat["pending_evidence"]],
+                "raw_text_snippet": (msg["raw_text"] or "")[:240],
+                "from_cache": from_cache,
+                "audit_sampled": audit_sampled,
+            }
+            sample_decisions.append(llm_entry)
+            if (not from_cache) or len(llm_sample_decisions) < 50:
+                if not from_cache:
+                    llm_sample_decisions.insert(0, llm_entry)
+                    llm_sample_decisions = llm_sample_decisions[:50]
+                else:
+                    llm_sample_decisions.append(llm_entry)
 
         outbox_new_ops = counts["outbox_added"] + counts["outbox_updated"] + counts["outbox_withdrawn"]
         report = {
@@ -481,6 +551,7 @@ def clean_v2_once(
             "counts": dict(counts),
             "token_usage": dict(token_usage),
             "sample_decisions": sample_decisions[:30],
+            "llm_sample_decisions": llm_sample_decisions[:50],
             "completed_at": datetime.now(timezone.utc).isoformat(),
         }
         if not dry_run:

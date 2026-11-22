@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 from copy import deepcopy
+from datetime import date as _calendar_date
 import hashlib
 import json
 import os
@@ -105,7 +106,7 @@ Return ONE valid JSON object (no markdown) with ALL keys:
   "kernel_version": {"value": str|null, "evidence_quote": str|null},
   "required_firmware": {"value": str|null, "evidence_quote": str|null},
   "system_base": "AOSP"|"HyperOS"|"MIUI"|"One UI"|"OxygenOS"|"ColorOS"|"OriginOS"|"unknown",
-  "build_date": "YYYY-MM-DD"|null,
+  "build_date": {"value": "YYYY-MM-DD"|null, "evidence_quote": str|null},
   "build_variants": ["vanilla"|"gapps"|"microg"],
   "package_form": "device_specific"|"gsi"|"unknown",
   "target_devices": {"codenames": [str], "marketing_names": [str], "evidence_quote": str|null},
@@ -373,6 +374,127 @@ class DeviceLookupIndex:
         return None
 
 
+_MULTI_DEVICE_PROFILE_RE = re.compile(
+    r"(?i)\b(?:series|all\s+devices|multi[- ]?device|gsi|ports?\s+channel|rom\s+archive)\b"
+)
+_EXPLICIT_CODE_IN_PROFILE_RE = re.compile(r"(?:\(|\[|#)([a-z0-9][a-z0-9_-]{2,31})(?:\)|\]|\b)", re.I)
+
+
+class ChannelProfileMatcher:
+    """Resolve a single unambiguous device codename from a channel's tg_search_meta profile."""
+
+    def __init__(self, lookup: DeviceLookupIndex) -> None:
+        self.lookup = lookup
+        spans: list[tuple[str, re.Pattern[str]]] = []
+        for canonical, aliases in lookup.names.items():
+            candidates = [canonical, *(aliases or [])]
+            for val in candidates:
+                s = " ".join(str(val or "").split()).strip()
+                # Ignore ultra-short ambiguous model tokens like 'F3' inside free text unless matched as (codename).
+                if len(s) < 4:
+                    continue
+                spans.append((canonical, re.compile(rf"(?<![a-z0-9_]){re.escape(s)}(?![a-z0-9_])", re.I)))
+        self._patterns = spans
+        self._cache: dict[str, str | None] = {}
+
+    def resolve_single_device(self, profile_text: str | None) -> str | None:
+        text = str(profile_text or "").strip()
+        if not text:
+            return None
+        if text in self._cache:
+            return self._cache[text]
+        if _MULTI_DEVICE_PROFILE_RE.search(text):
+            self._cache[text] = None
+            return None
+
+        matches: set[str] = set()
+        for m in _EXPLICIT_CODE_IN_PROFILE_RE.finditer(text):
+            code = self.lookup.resolve_codename(m.group(1))
+            if code:
+                matches.add(code)
+
+        spans: list[tuple[int, int, str]] = []
+        for canonical, pat in self._patterns:
+            for m in pat.finditer(text):
+                spans.append((m.start(), m.end(), canonical))
+        ordered = sorted(spans, key=lambda x: (x[0], -x[1]))
+        accepted: list[tuple[int, int, str]] = []
+        for start, end, canonical in ordered:
+            if any(a <= start and b >= end and (a < start or b > end) for a, b, _ in accepted):
+                continue
+            accepted.append((start, end, canonical))
+        for _, _, canonical in accepted:
+            matches.add(canonical)
+
+        resolved = next(iter(matches)) if len(matches) == 1 else None
+        if len(self._cache) >= 2048:
+            self._cache.clear()
+        self._cache[text] = resolved
+        return resolved
+
+
+_MONTH_PATTERNS: dict[int, str] = {
+    1: r"(?:jan(?:uary)?)",
+    2: r"(?:feb(?:ruary)?)",
+    3: r"(?:mar(?:ch)?)",
+    4: r"(?:apr(?:il)?)",
+    5: r"(?:may)",
+    6: r"(?:jun(?:e)?)",
+    7: r"(?:jul(?:y)?)",
+    8: r"(?:aug(?:ust)?)",
+    9: r"(?:sep(?:t(?:ember)?)?)",
+    10: r"(?:oct(?:ober)?)",
+    11: r"(?:nov(?:ember)?)",
+    12: r"(?:dec(?:ember)?)",
+}
+
+
+def _date_matches_text(year: int, month: int, day: int, text: str) -> bool:
+    if not text:
+        return False
+    y4 = f"{year:04d}"
+    y2 = f"{year % 100:02d}"
+    m2 = f"{month:02d}"
+    m_any = f"0?{month}" if month < 10 else str(month)
+    d2 = f"{day:02d}"
+    d_any = f"0?{day}" if day < 10 else str(day)
+    mon = _MONTH_PATTERNS[month]
+    sep = r"[\s./\-]+"
+
+    patterns = (
+        rf"\b{y4}{m2}{d2}\b",
+        rf"\b{y4}[-/.]{m_any}[-/.]{d_any}\b",
+        rf"\b{d_any}[-/.]{m_any}[-/.](?:{y4}|{y2})\b",
+        rf"\b{m_any}[-/.]{d_any}[-/.](?:{y4}|{y2})\b",
+        rf"(?i)\b{d_any}(?:st|nd|rd|th)?{sep}{mon}\.?{sep}(?:{y4}|{y2})\b",
+        rf"(?i)\b{mon}\.?{sep}{d_any}(?:st|nd|rd|th)?,?\s*(?:{y4}|{y2})\b",
+    )
+    return any(re.search(pat, text) for pat in patterns)
+
+
+def _verify_build_date_grounded(
+    iso_date: str,
+    evidence_quote: str | None,
+    corpus: str,
+    corpus_norm: str,
+    corpus_alnum: str,
+) -> str | None:
+    s = str(iso_date or "").strip()
+    if not _ISO_DATE_RE.fullmatch(s):
+        return None
+    try:
+        y, m, d = (int(part) for part in s.split("-"))
+        _calendar_date(y, m, d)
+    except ValueError:
+        return None
+    if evidence_quote and evidence_quote.strip() != s:
+        if not _is_quote_grounded(evidence_quote, corpus_norm, corpus_alnum):
+            return None
+        if _date_matches_text(y, m, d, evidence_quote):
+            return s
+    return s if _date_matches_text(y, m, d, corpus) else None
+
+
 def resolve_target_devices(
     target_codenames: list[str],
     target_marketing: list[str],
@@ -566,12 +688,10 @@ def normalize_and_verify_extraction(
     if system_base not in ALLOWED_SYSTEM_BASES:
         system_base = "unknown"
 
-    build_date_raw = raw_model.get("build_date")
+    bdate_val, bdate_quote = _coerce_node(raw_model.get("build_date"))
     build_date = (
-        str(build_date_raw).strip()
-        if isinstance(build_date_raw, str)
-        and _ISO_DATE_RE.fullmatch(build_date_raw.strip())
-        and _is_value_grounded(build_date_raw.strip(), None, corpus_norm, corpus_alnum)
+        _verify_build_date_grounded(str(bdate_val), bdate_quote, corpus, corpus_norm, corpus_alnum)
+        if isinstance(bdate_val, str)
         else None
     )
 
@@ -716,6 +836,8 @@ def materialize_publishable_items(
     message: dict[str, Any],
     normalized: dict[str, Any],
     lookup: DeviceLookupIndex,
+    *,
+    channel_profile_device: str | None = None,
 ) -> dict[str, Any]:
     """Resolve devices against the 103 snapshot and construct Layer C payloads or pending_evidence."""
     msg = normalize_stored_message(message)
@@ -735,6 +857,25 @@ def materialize_publishable_items(
         lookup,
     )
     resolved_codes = dev_res["resolved_codenames"]
+    channel_fallback_used = False
+    if (
+        not resolved_codes
+        and not dev_res["unresolved_tokens"]
+        and normalized.get("package_form") != "gsi"
+        and channel_profile_device
+    ):
+        blocked_terms = {_norm_ws(x) for x in (*normalized["donor_devices"], *normalized["excluded_devices"]) if _norm_ws(x)}
+        blocked_alnum = {_alnum(x) for x in (*normalized["donor_devices"], *normalized["excluded_devices"]) if _alnum(x)}
+        if (
+            _norm_ws(channel_profile_device) not in blocked_terms
+            and _alnum(channel_profile_device) not in blocked_alnum
+        ):
+            resolved_codes = [channel_profile_device]
+            dev_res["resolved_codenames"] = resolved_codes
+            dev_res["target_in_marketing"] = True
+            dev_res["channel_profile_fallback"] = True
+            channel_fallback_used = True
+
     if not resolved_codes:
         return {
             "status": "device_unresolved",
@@ -857,6 +998,11 @@ def materialize_publishable_items(
         tax["evidence"]["normalization"] = {
             "target_in_codenames": dev_res["target_in_codenames"],
             "target_in_marketing": dev_res["target_in_marketing"],
+            **(
+                {"source": "single_device_channel_profile"}
+                if channel_fallback_used
+                else {}
+            ),
         }
         pkg["taxonomy"] = tax
 

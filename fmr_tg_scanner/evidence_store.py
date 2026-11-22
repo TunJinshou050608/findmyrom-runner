@@ -491,6 +491,7 @@ class EvidenceStore(SQLiteDB):
         process_reason: str,
         process_version: str = EVIDENCE_SCHEMA_VERSION,
         queue_status: str = "done",
+        is_blindspot: bool | None = None,
         now: float | None = None,
     ) -> None:
         """Atomically record a non-retry v2 cleaning decision on raw message and queue."""
@@ -499,18 +500,32 @@ class EvidenceStore(SQLiteDB):
             "SELECT content_revision_hash, shared_body_hash FROM tg_raw_messages WHERE post_key=?",
             (post_key,),
         )
-        statements: list[tuple[str, tuple[Any, ...]]] = [
-            (
-                """
+        if is_blindspot is None:
+            raw_sql = """
                 UPDATE tg_raw_messages
                 SET process_status=?,
                     process_version=?,
                     process_reason=?
                 WHERE post_key=?
-                """,
-                (process_status, process_version, process_reason[:300], post_key),
+            """
+            raw_params: tuple[Any, ...] = (process_status, process_version, process_reason[:300], post_key)
+        else:
+            raw_sql = """
+                UPDATE tg_raw_messages
+                SET process_status=?,
+                    process_version=?,
+                    process_reason=?,
+                    is_blindspot_sample=?
+                WHERE post_key=?
+            """
+            raw_params = (
+                process_status,
+                process_version,
+                process_reason[:300],
+                1 if is_blindspot else 0,
+                post_key,
             )
-        ]
+        statements: list[tuple[str, tuple[Any, ...]]] = [(raw_sql, raw_params)]
         if rows:
             statements.append(
                 (
@@ -651,6 +666,27 @@ class EvidenceStore(SQLiteDB):
                 now_ts,
             ),
         )
+
+    def load_channel_profiles(self) -> dict[str, str]:
+        """Load synced tg_search_meta channel profiles (`profile:<channel>`) if table exists."""
+        has_meta = self.query(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='tg_search_meta'"
+        )
+        if not has_meta:
+            return {}
+        profiles: dict[str, str] = {}
+        for row in self.query("SELECT key, value FROM tg_search_meta WHERE key LIKE 'profile:%'"):
+            channel = str(row["key"])[len("profile:") :].strip().lower().lstrip("@")
+            if not channel:
+                continue
+            raw_val = row["value"]
+            try:
+                parsed = json.loads(raw_val) if isinstance(raw_val, str) else raw_val
+            except ValueError:
+                parsed = raw_val
+            if isinstance(parsed, str) and parsed.strip():
+                profiles[channel] = parsed
+        return profiles
 
     def sync_raw_and_queue_from_snapshot(self, snap_db_path: str | Path) -> dict[str, int]:
         """Safely merge tg_raw_messages & pending tg_cleaning_queue rows from a backup snapshot.
