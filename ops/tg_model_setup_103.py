@@ -29,12 +29,34 @@ def setup_e5_onnx_int8(
     fp32_path = out / "e5_small_fp32.onnx"
     int8_path = out / "e5_small_int8.onnx"
     tok_dir = out / "tokenizer"
+    hf_cache_dir = out / "_source_hf"
 
-    tokenizer = AutoTokenizer.from_pretrained(model_id)
-    tokenizer.save_pretrained(str(tok_dir))
+    def _resolve_model_source() -> str:
+        if (hf_cache_dir / "config.json").is_file():
+            return str(hf_cache_dir)
+        try:
+            AutoTokenizer.from_pretrained(model_id)
+            return model_id
+        except Exception:
+            from modelscope import snapshot_download
+            for ms_id in (model_id, "AI-ModelScope/multilingual-e5-small"):
+                try:
+                    local_dir = snapshot_download(ms_id, cache_dir=str(out / "_ms_cache"))
+                    return local_dir
+                except Exception:
+                    continue
+            raise
+
+    if tok_dir.is_dir() and (tok_dir / "tokenizer_config.json").is_file():
+        tokenizer = AutoTokenizer.from_pretrained(str(tok_dir))
+    else:
+        source_ref = _resolve_model_source()
+        tokenizer = AutoTokenizer.from_pretrained(source_ref)
+        tokenizer.save_pretrained(str(tok_dir))
 
     if not int8_path.is_file():
-        model = AutoModel.from_pretrained(model_id)
+        source_ref = _resolve_model_source()
+        model = AutoModel.from_pretrained(source_ref)
         model.eval()
 
         class MeanPooledE5(torch.nn.Module):

@@ -166,7 +166,7 @@ def loop(root, role, worker=0, duration=6000, period=600):
                     from .search_watch import produce
                     os.environ['FMR_TG_CYCLE']=str(worker)+'-'+str(cycle)
                     result=produce(root/'workers'/str(worker),shard=worker,shards=WORKERS)
-                    has_new=int(result.get('new_qualified_products') or result.get('packages') or 0)>0
+                    has_new=int(result.get('new_qualified_products') or 0)>0
                     record_business_success(root,'fetch',worker=worker,has_new_items=has_new,summary={'status':result.get('status',result.get('activity','ok')),'new_qualified_products':result.get('new_qualified_products',0)})
                 else:
                     result=clean_once(root)
