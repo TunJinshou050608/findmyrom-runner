@@ -17,6 +17,7 @@ from typing import Any
 from .intent_classifier import (
     LABEL_TO_IDX,
     LABELS,
+    build_e5_input,
     extract_structural_features,
 )
 
@@ -86,7 +87,7 @@ def stratified_group_kfold(
     return splits
 
 
-def _build_head_module(input_dim: int, hidden_dim: int, dropout: float = 0.15):
+def _build_head_module(input_dim: int, hidden_dim: int, dropout: float = 0.30):
     import torch
     import torch.nn as nn
 
@@ -104,11 +105,13 @@ def _train_head_torch(
     X_tr,
     y_tr,
     *,
-    hidden_dim: int = 64,
-    weight_power: float = 0.5,
+    hidden_dim: int = 32,
+    dropout: float = 0.30,
+    weight_power: float = 0.45,
     lr: float = 3e-3,
-    weight_decay: float = 1e-2,
-    epochs: int = 120,
+    weight_decay: float = 5e-2,
+    label_smoothing: float = 0.03,
+    epochs: int = 90,
     seed: int = 42,
 ):
     import numpy as np
@@ -120,12 +123,11 @@ def _train_head_torch(
 
     counts = np.bincount(y_tr, minlength=len(LABELS)).astype(np.float32)
     raw_weights = (counts.sum() / (len(LABELS) * np.maximum(counts, 1.0))) ** weight_power
-    # Keep release_related weight >= 1.0 relative emphasis if needed, normalize mean=1
     weights = torch.tensor(raw_weights / raw_weights.mean(), dtype=torch.float32)
 
-    model = _build_head_module(X_tr.shape[1], hidden_dim=hidden_dim)
+    model = _build_head_module(X_tr.shape[1], hidden_dim=hidden_dim, dropout=dropout)
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
-    criterion = nn.CrossEntropyLoss(weight=weights)
+    criterion = nn.CrossEntropyLoss(weight=weights, label_smoothing=label_smoothing)
 
     xt = torch.tensor(X_tr, dtype=torch.float32)
     yt = torch.tensor(y_tr, dtype=torch.long)
@@ -250,15 +252,22 @@ def calibrate_safe_thresholds(
     y_true,
     probs,
     *,
-    min_release_recall: float = 0.985,
+    min_release_recall: float = 0.990,
+    min_t_irrelevant: float = 0.75,
+    min_t_insufficient: float = 0.65,
+    max_t_release_floor: float = 0.25,
 ) -> dict[str, Any]:
-    """Grid-search thresholds strictly on OOF predictions to protect release_related recall."""
+    """Grid-search high-safety thresholds strictly on OOF predictions to protect release_related recall."""
     best: dict[str, Any] | None = None
     best_score = -1.0
 
-    for t_rel in (0.15, 0.20, 0.25, 0.30, 0.35, 0.40, 0.45):
-        for t_irr in (0.50, 0.55, 0.60, 0.65, 0.70, 0.75, 0.80, 0.85, 0.90):
-            for t_ins in (0.50, 0.55, 0.60, 0.65, 0.70, 0.75, 0.80, 0.85, 0.90):
+    t_rel_grid = [v for v in (0.10, 0.15, 0.20, 0.25) if v <= max_t_release_floor]
+    t_irr_grid = [v for v in (0.70, 0.75, 0.80, 0.85, 0.90) if v >= min_t_irrelevant]
+    t_ins_grid = [v for v in (0.60, 0.65, 0.70, 0.75, 0.80, 0.85) if v >= min_t_insufficient]
+
+    for t_rel in t_rel_grid:
+        for t_irr in t_irr_grid:
+            for t_ins in t_ins_grid:
                 metrics = evaluate_gate_thresholds(
                     y_true,
                     probs,
@@ -268,14 +277,28 @@ def calibrate_safe_thresholds(
                 )
                 if metrics["release_related_pass_recall"] < min_release_recall:
                     continue
-                score = metrics["non_release_intercept_rate"] + 0.01 * metrics["release_related_pass_recall"]
+                score = metrics["non_release_intercept_rate"] + 0.05 * metrics["release_related_pass_recall"]
                 if score > best_score:
                     best_score = score
                     best = metrics
 
     if best is None:
-        # Fallback to ultra-safe thresholds if min_release_recall cannot be met at 0.985
-        return calibrate_safe_thresholds(y_true, probs, min_release_recall=0.97)
+        if min_release_recall > 0.975:
+            return calibrate_safe_thresholds(
+                y_true,
+                probs,
+                min_release_recall=0.975,
+                min_t_irrelevant=min_t_irrelevant,
+                min_t_insufficient=min_t_insufficient,
+                max_t_release_floor=max_t_release_floor,
+            )
+        return evaluate_gate_thresholds(
+            y_true,
+            probs,
+            t_irrelevant=max(min_t_irrelevant, 0.85),
+            t_insufficient=max(min_t_insufficient, 0.75),
+            t_release_floor=min(max_t_release_floor, 0.15),
+        )
     return best
 
 
@@ -283,7 +306,7 @@ def _load_jsonl(path: Path) -> list[dict[str, Any]]:
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
 
 
-def _encode_rows_on_103(rows: list[dict[str, Any]], model_dir: Path):
+def _encode_rows_on_103(rows: list[dict[str, Any]], model_dir: Path, *, max_length: int = 384):
     import numpy as np
     import onnxruntime as ort
     from transformers import AutoTokenizer
@@ -298,11 +321,11 @@ def _encode_rows_on_103(rows: list[dict[str, Any]], model_dir: Path):
         providers=["CPUExecutionProvider"],
     )
 
-    texts = [r["classifier_input"] for r in rows]
+    texts = [build_e5_input(r) for r in rows]
     embs = []
     for i in range(0, len(texts), 32):
         batch = texts[i : i + 32]
-        enc = tokenizer(batch, padding=True, truncation=True, max_length=256, return_tensors="np")
+        enc = tokenizer(batch, padding=True, truncation=True, max_length=max_length, return_tensors="np")
         out = session.run(
             None,
             {
@@ -319,7 +342,7 @@ def train_and_evaluate(
     train_jsonl: str | Path,
     golden_val_jsonl: str | Path,
     model_dir: str | Path = "/var/lib/findmyrom/models/tg-intent-v2",
-    min_release_recall: float = 0.985,
+    min_release_recall: float = 0.990,
 ) -> dict[str, Any]:
     import numpy as np
     import onnxruntime as ort
@@ -339,13 +362,16 @@ def train_and_evaluate(
     y_val = np.array([LABEL_TO_IDX[r["label"]] for r in val_rows], dtype=np.int64)
     groups_train = [r["channel_username"] for r in train_rows]
 
+    max_length = 384
+    struct_scale = 0.25
+
     t0 = time.perf_counter()
-    emb_train = _encode_rows_on_103(train_rows, model_root)
-    emb_val = _encode_rows_on_103(val_rows, model_root)
+    emb_train = _encode_rows_on_103(train_rows, model_root, max_length=max_length)
+    emb_val = _encode_rows_on_103(val_rows, model_root, max_length=max_length)
     encode_seconds = round(time.perf_counter() - t0, 2)
 
-    struct_train = np.array([extract_structural_features(r) for r in train_rows], dtype=np.float32)
-    struct_val = np.array([extract_structural_features(r) for r in val_rows], dtype=np.float32)
+    struct_train = np.array([extract_structural_features(r) for r in train_rows], dtype=np.float32) * struct_scale
+    struct_val = np.array([extract_structural_features(r) for r in val_rows], dtype=np.float32) * struct_scale
 
     X_train_e5 = emb_train
     X_val_e5 = emb_val
@@ -355,38 +381,69 @@ def train_and_evaluate(
     splits = stratified_group_kfold(groups_train, y_train, n_splits=5, seed=42)
 
     candidates = [
-        {"name": "e5_only_linear", "use_struct": False, "hidden_dim": 0, "weight_power": 0.5, "lr": 5e-3, "epochs": 140},
-        {"name": "e5_only_mlp64", "use_struct": False, "hidden_dim": 64, "weight_power": 0.5, "lr": 3e-3, "epochs": 140},
-        {"name": "e5_plus_struct_linear", "use_struct": True, "hidden_dim": 0, "weight_power": 0.5, "lr": 5e-3, "epochs": 140},
-        {"name": "e5_plus_struct_mlp64", "use_struct": True, "hidden_dim": 64, "weight_power": 0.5, "lr": 3e-3, "epochs": 140},
-        {"name": "e5_plus_struct_mlp64_w065", "use_struct": True, "hidden_dim": 64, "weight_power": 0.65, "lr": 3e-3, "epochs": 140},
+        {"name": "e5_only_linear", "use_struct": False, "hidden_dim": 0, "dropout": 0.0, "weight_power": 0.45, "lr": 5e-3, "weight_decay": 5e-2, "epochs": 90},
+        {"name": "e5_only_mlp32_reg", "use_struct": False, "hidden_dim": 32, "dropout": 0.30, "weight_power": 0.45, "lr": 3e-3, "weight_decay": 5e-2, "epochs": 90},
+        {"name": "e5_plus_struct_linear", "use_struct": True, "hidden_dim": 0, "dropout": 0.0, "weight_power": 0.45, "lr": 5e-3, "weight_decay": 5e-2, "epochs": 90},
+        {"name": "e5_plus_struct_mlp32_reg", "use_struct": True, "hidden_dim": 32, "dropout": 0.30, "weight_power": 0.45, "lr": 3e-3, "weight_decay": 5e-2, "epochs": 90},
     ]
 
     oof_results = []
     for cfg in candidates:
         X_tr_all = X_train_both if cfg["use_struct"] else X_train_e5
         oof_probs = np.zeros((len(train_rows), len(LABELS)), dtype=np.float32)
+        in_fold_train_accs = []
+        in_fold_train_f1s = []
         for tr_idx, va_idx in splits:
             m = _train_head_torch(
                 X_tr_all[tr_idx],
                 y_train[tr_idx],
                 hidden_dim=cfg["hidden_dim"],
+                dropout=cfg["dropout"],
                 weight_power=cfg["weight_power"],
                 lr=cfg["lr"],
+                weight_decay=cfg["weight_decay"],
                 epochs=cfg["epochs"],
             )
+            tr_probs = _predict_head_torch(m, X_tr_all[tr_idx])
+            tr_m = compute_classification_metrics(y_train[tr_idx], np.argmax(tr_probs, axis=1))
+            in_fold_train_accs.append(tr_m["accuracy"])
+            in_fold_train_f1s.append(tr_m["macro_f1"])
             oof_probs[va_idx] = _predict_head_torch(m, X_tr_all[va_idx])
         cls_metrics = compute_classification_metrics(y_train, np.argmax(oof_probs, axis=1))
-        gate_metrics = calibrate_safe_thresholds(y_train, oof_probs, min_release_recall=min_release_recall)
-        oof_results.append({**cfg, "oof_classification": cls_metrics, "oof_gate": gate_metrics})
+        gate_metrics = calibrate_safe_thresholds(
+            y_train,
+            oof_probs,
+            min_release_recall=min_release_recall,
+            min_t_irrelevant=0.75,
+            min_t_insufficient=0.65,
+            max_t_release_floor=0.25,
+        )
+        mean_tr_acc = float(np.mean(in_fold_train_accs))
+        mean_tr_f1 = float(np.mean(in_fold_train_f1s))
+        oof_results.append(
+            {
+                **cfg,
+                "train_vs_oof_gap": {
+                    "mean_train_acc": round(mean_tr_acc, 4),
+                    "oof_acc": cls_metrics["accuracy"],
+                    "acc_gap": round(mean_tr_acc - cls_metrics["accuracy"], 4),
+                    "mean_train_macro_f1": round(mean_tr_f1, 4),
+                    "oof_macro_f1": cls_metrics["macro_f1"],
+                    "macro_f1_gap": round(mean_tr_f1 - cls_metrics["macro_f1"], 4),
+                },
+                "oof_classification": cls_metrics,
+                "oof_gate": gate_metrics,
+            }
+        )
 
-    # Choose best candidate: prioritize release_related recall >= min_release_recall, then non_release_intercept_rate + macro_f1
+    # Choose best candidate: prioritize release_related recall >= min_release_recall, low overfitting gap, and non_release interception
     def _rank_key(item: dict[str, Any]) -> tuple[float, float, float]:
         gate = item["oof_gate"]
         cls_m = item["oof_classification"]
+        gap_penalty = max(0.0, item["train_vs_oof_gap"]["macro_f1_gap"] - 0.08)
         return (
             1.0 if gate["release_related_pass_recall"] >= min_release_recall else 0.0,
-            gate["non_release_intercept_rate"] + 0.35 * cls_m["macro_f1"],
+            gate["non_release_intercept_rate"] + 0.30 * cls_m["macro_f1"] - 0.5 * gap_penalty,
             cls_m["per_class"]["insufficient_context"]["f1"],
         )
 
@@ -399,8 +456,10 @@ def train_and_evaluate(
         X_full_train,
         y_train,
         hidden_dim=best_cfg["hidden_dim"],
+        dropout=best_cfg["dropout"],
         weight_power=best_cfg["weight_power"],
         lr=best_cfg["lr"],
+        weight_decay=best_cfg["weight_decay"],
         epochs=best_cfg["epochs"],
     )
 
@@ -438,16 +497,17 @@ def train_and_evaluate(
     # Save threshold config
     gate_cfg = best_cfg["oof_gate"]
     threshold_config = {
-        "model_version": "tg-intent-head-v2.0",
+        "model_version": "tg-intent-head-v2.1",
         "selected_candidate": best_cfg["name"],
         "use_structural_features": use_struct,
+        "struct_scale": struct_scale,
         "feature_dim": int(X_full_train.shape[1]),
         "labels": list(LABELS),
         "t_irrelevant": gate_cfg["t_irrelevant"],
         "t_insufficient": gate_cfg["t_insufficient"],
         "t_release_floor": gate_cfg["t_release_floor"],
         "irrelevant_audit_sample_rate": 0.03,
-        "max_length": 256,
+        "max_length": max_length,
     }
     (model_root / "threshold_config.json").write_text(
         json.dumps(threshold_config, indent=2) + "\n", encoding="utf-8"
@@ -528,7 +588,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--train-jsonl", required=True)
     parser.add_argument("--golden-val-jsonl", required=True)
     parser.add_argument("--model-dir", default="/var/lib/findmyrom/models/tg-intent-v2")
-    parser.add_argument("--min-release-recall", type=float, default=0.985)
+    parser.add_argument("--min-release-recall", type=float, default=0.990)
     args = parser.parse_args(argv)
     report = train_and_evaluate(
         train_jsonl=args.train_jsonl,

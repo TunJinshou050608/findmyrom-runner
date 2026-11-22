@@ -50,6 +50,49 @@ _VERSION_DIGIT_RE = re.compile(
 _BARE_URL_RE = re.compile(r"^https?://\S+$", re.I)
 
 
+def build_e5_input(message: dict[str, Any]) -> str:
+    """Build E5 input placing attachments/links/reply before long body text so they never truncate."""
+    raw_text = (message.get("raw_text") if "raw_text" in message else (message.get("text") or "")).strip()
+    attachments = list(message.get("attachment_names") or [])
+    if message.get("file_attachment_name") and message["file_attachment_name"] not in attachments:
+        attachments.append(message["file_attachment_name"])
+    attachments = [str(a).strip() for a in attachments if str(a).strip()]
+
+    link_items = message.get("link_items") or []
+    link_labels = [
+        f"{item.get('label', '').strip()} ({item.get('url', '').strip()})".strip()
+        for item in link_items
+        if isinstance(item, dict) and (item.get("label") or item.get("url"))
+    ]
+    if not link_labels and message.get("links"):
+        link_labels = [str(u).strip() for u in message["links"] if str(u).strip()]
+
+    reply = message.get("reply_context") or {}
+    reply_snippet = ""
+    if reply.get("reply_text") or reply.get("reply_to_post_url") or message.get("reply_text"):
+        r_author = reply.get("reply_author") or message.get("reply_author") or ""
+        r_text = reply.get("reply_text") or message.get("reply_text") or ""
+        reply_snippet = f"{r_author} {r_text}".strip() or str(reply.get("reply_to_post_url") or "")
+
+    header_parts = []
+    if attachments:
+        header_parts.append("[ATTACHMENTS] " + " | ".join(attachments[:6]))
+    if link_labels:
+        header_parts.append("[LINKS] " + " | ".join(link_labels[:8]))
+    if reply_snippet:
+        header_parts.append("[REPLY] " + reply_snippet[:200])
+
+    # Keep head + tail of long body text so title and download footer are both preserved
+    if len(raw_text) > 1200:
+        body = raw_text[:800] + "\n...\n" + raw_text[-350:]
+    else:
+        body = raw_text
+
+    if header_parts:
+        return "passage: " + "\n".join(header_parts) + "\n" + body
+    return "passage: " + body
+
+
 def extract_structural_features(message: dict[str, Any]) -> list[float]:
     """Extract 12 pure structural metadata features (zero Official/Unofficial text regex)."""
     text = (message.get("raw_text") if "raw_text" in message else message.get("text")) or ""
@@ -159,11 +202,12 @@ class IntentClassifier:
 
         self.config = json.loads(cfg_path.read_text(encoding="utf-8"))
         self.use_structural_features = bool(self.config.get("use_structural_features", False))
+        self.struct_scale = float(self.config.get("struct_scale", 0.25))
         self.t_irrelevant = float(self.config["t_irrelevant"])
         self.t_insufficient = float(self.config["t_insufficient"])
         self.t_release_floor = float(self.config["t_release_floor"])
         self.audit_sample_rate = float(self.config.get("irrelevant_audit_sample_rate", 0.03))
-        self.max_length = int(self.config.get("max_length", 256))
+        self.max_length = int(self.config.get("max_length", 384))
 
         opts = ort.SessionOptions()
         opts.intra_op_num_threads = intra_op_threads
@@ -212,19 +256,10 @@ class IntentClassifier:
 
         if not messages:
             return []
-        formatted = [
-            m.get("classifier_input")
-            or format_classifier_input(
-                m.get("raw_text") if "raw_text" in m else (m.get("text") or ""),
-                m.get("attachment_names"),
-                m.get("link_items"),
-                m.get("reply_context"),
-            )
-            for m in messages
-        ]
+        formatted = [build_e5_input(m) for m in messages]
         embs = self.encode_texts(formatted)
         if self.use_structural_features:
-            struct = np.array([extract_structural_features(m) for m in messages], dtype=np.float32)
+            struct = np.array([extract_structural_features(m) for m in messages], dtype=np.float32) * self.struct_scale
             feats = np.hstack([embs, struct]).astype(np.float32)
         else:
             feats = embs
