@@ -93,7 +93,13 @@ jobs:
       env:
         GH_TOKEN: ${{ github.token }}
         GH_REPO: ${{ github.repository }}
-      run: gh workflow run telegram_clean.yml --ref main
+      run: >-
+        gh workflow run telegram_clean.yml --ref main
+        -f self_continue=true
+        -f max_calls="${{ inputs.max_calls || '150' }}"
+        -f duration="${{ inputs.duration || '600' }}"
+        -f queue_limit="${{ inputs.queue_limit || '200' }}"
+        -f backlog_limit="${{ inputs.backlog_limit || '400' }}"
     defaults:
       run:
         working-directory: tg-code-${{ github.run_id }}
