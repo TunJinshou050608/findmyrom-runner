@@ -319,19 +319,18 @@ def publish(out,db,key):
         if not verify_signature(build_custom_resource_payload(row['public_token'],row['zone_type'],row['target_post_url']),row['ed25519_signature'],public):raise RuntimeError('Published signature verification failed')
         if json.loads(row['metadata_json'])['taxonomy']['publication']['eligible'] is not True:raise RuntimeError('Published record failed its taxonomy gate')
     if len(result_rows)!=len(ready):raise RuntimeError('Published row count does not match the audited cohort')
-    # Withdraw only after every new row is committed and verified. A failed or
-    # budget-deferred run must not remove the previous working catalogue first.
-    withdrawals=[];after_id=0
-    owner="json_extract(CASE WHEN json_valid(metadata_json) THEN metadata_json ELSE '{}' END,'$.audit_version')"
-    while True:
-        page=db.query('SELECT * FROM custom_resources WHERE '+owner+'=? AND maintainer_opted_out=0 AND id>? ORDER BY id LIMIT 40',(AUDIT_VERSION,after_id))
-        if not page:break
-        after_id=page[-1]['id']
-        withdrawals.extend(r for r in page if r['public_token'] not in keep)
-    atomic_json(out/'withdrawn_previous_audit_rows.json',{'reason':'failed corrected full audit','rows':withdrawals})
+    # v2 Section 3.6: Full-cohort diff deletion is abolished. Only explicit
+    # WITHDRAW operations carrying (resource_key, revision_id) may remove rows.
+    withdrawals=[]
+    explicit_withdraw_path=out/'explicit_withdrawals.json'
+    if explicit_withdraw_path.exists():
+        for entry in json.loads(explicit_withdraw_path.read_text()).get('withdrawals',[]):
+            if entry.get('resource_key') and entry.get('revision_id') and entry.get('public_token'):
+                withdrawals.append(entry)
+    atomic_json(out/'withdrawn_previous_audit_rows.json',{'reason':'explicit_withdrawn_only','rows':withdrawals})
     for offset in range(0,len(withdrawals),10):
         chunk=withdrawals[offset:offset+10]
-        db.execute_batch([("DELETE FROM custom_resources WHERE public_token=? AND maintainer_opted_out=0 AND json_extract(metadata_json,'$.audit_version')=?",(r['public_token'],AUDIT_VERSION)) for r in chunk])
+        db.execute_batch([("DELETE FROM custom_resources WHERE public_token=? AND maintainer_opted_out=0",(r['public_token'],)) for r in chunk])
     visible_devices=sorted({r['device_codename'] for r in result_rows if not r['maintainer_opted_out']})
     for offset in range(0,len(visible_devices),50):
         chunk=visible_devices[offset:offset+50]

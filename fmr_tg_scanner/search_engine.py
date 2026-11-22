@@ -177,6 +177,10 @@ def run(root,targets,*,max_requests=180,max_seconds=480,http_factory=SearchHTTP,
         def message(code,msg,source,depth=0,routed=False):
             nonlocal new_products,first_product
             if not routed:
+                try:
+                    store.ingest_message(msg,enqueue_for_cleaning=True)
+                except Exception:
+                    pass
                 for other in targets:
                     if other!=code and target_evidence(msg,other,all_names.get(other,[]),all_names):
                         message(other,msg,source,depth,routed=True)

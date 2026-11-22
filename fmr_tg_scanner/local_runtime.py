@@ -11,6 +11,7 @@ import sqlite3
 import time
 import traceback
 
+from .runtime_status import record_business_failure, record_business_success
 from .trial import atomic_json
 
 WORKERS = 4
@@ -95,6 +96,30 @@ def clean_once(root):
                     versions[row['key']]=row['updated']
                 for row in db.execute("SELECT key,value FROM tg_search_meta WHERE key LIKE 'profile:%' OR key='device_aliases_v3'"):
                     store.execute('INSERT INTO tg_search_meta VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value',(row['key'],row['value']))
+                tables={r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+                if 'tg_raw_messages' in tables:
+                    raw_rows=[dict(r) for r in db.execute('SELECT * FROM tg_raw_messages')]
+                    if raw_rows:
+                        rcols=list(raw_rows[0])
+                        r_sql=(
+                            'INSERT INTO tg_raw_messages('+','.join(rcols)+') VALUES ('+','.join('?' for _ in rcols)+') '
+                            'ON CONFLICT(post_key) DO UPDATE SET '+','.join(c+'=excluded.'+c for c in rcols if c!='post_key')+' '
+                            'WHERE tg_raw_messages.content_revision_hash!=excluded.content_revision_hash '
+                            'OR tg_raw_messages.last_observed_at<excluded.last_observed_at'
+                        )
+                        store.execute_batch([(r_sql,tuple(rr[c] for c in rcols)) for rr in raw_rows])
+                if 'tg_cleaning_queue' in tables:
+                    q_rows=[dict(r) for r in db.execute("SELECT * FROM tg_cleaning_queue WHERE status='pending'")]
+                    if q_rows:
+                        qcols=list(q_rows[0])
+                        q_sql=(
+                            'INSERT INTO tg_cleaning_queue('+','.join(qcols)+') VALUES ('+','.join('?' for _ in qcols)+') '
+                            'ON CONFLICT(post_key) DO UPDATE SET '
+                            'content_revision_hash=excluded.content_revision_hash,shared_body_hash=excluded.shared_body_hash,'
+                            "status='pending',attempts=0,next_retry_at=0,last_error=NULL,updated_at=excluded.updated_at "
+                            'WHERE tg_cleaning_queue.content_revision_hash!=excluded.content_revision_hash'
+                        )
+                        store.execute_batch([(q_sql,tuple(qr[c] for c in qcols)) for qr in q_rows])
     finally:store.close()
     fingerprint.update(('b01-grounded-v1:'+os.getenv('FMR_TG_GROUNDED_CLEANER','false')).encode())
     digest=fingerprint.hexdigest();last=clean/'source-fingerprint.json'
@@ -141,15 +166,21 @@ def loop(root, role, worker=0, duration=6000, period=600):
                     from .search_watch import produce
                     os.environ['FMR_TG_CYCLE']=str(worker)+'-'+str(cycle)
                     result=produce(root/'workers'/str(worker),shard=worker,shards=WORKERS)
+                    has_new=int(result.get('new_qualified_products') or result.get('packages') or 0)>0
+                    record_business_success(root,'fetch',worker=worker,has_new_items=has_new,summary={'status':result.get('status',result.get('activity','ok')),'new_qualified_products':result.get('new_qualified_products',0)})
                 else:
                     result=clean_once(root)
-                    if result.get('status')=='audit_ready':dispatch('catalogue_publish.yml',{'scope':'tg'})
+                    has_new=result.get('status')=='audit_ready'
+                    record_business_success(root,'clean',worker=None,has_new_items=has_new,summary={'status':result.get('status')})
+                    if has_new:dispatch('catalogue_publish.yml',{'scope':'tg'})
                 atomic_json(root/(role+'-'+str(worker)+'-latest.json'),{'at':time.time(),'worker':worker,'result':result})
                 print(json.dumps({'event':'local_TG_cycle','role':role,'worker':worker,'cycle':cycle,'status':result.get('status',result.get('activity'))}),flush=True)
             except Exception as exc:
                 traceback.print_exc(limit=6)
-                atomic_json(root/(role+'-'+str(worker)+'-error.json'),{'at':time.time(),'error':type(exc).__name__})
+                record_business_failure(root,role,exc,worker=worker if role=='fetch' else None)
+                atomic_json(root/(role+'-'+str(worker)+'-error.json'),{'at':time.time(),'error':type(exc).__name__,'message':str(exc)[:300]})
                 print(json.dumps({'event':'local_TG_error','role':role,'worker':worker,'error':type(exc).__name__}),flush=True)
+                raise SystemExit(1) from exc
             cycle+=1
             target=min(deadline,started+(30 if not (root/'initialized.json').exists() else period))
             while time.monotonic()<target:
@@ -162,16 +193,22 @@ def publish_once(root):
     root=Path(root)
     with lock(root,'publish'):
         if not (root/'initialized.json').exists():return {'status':'waiting_for_migration'}
-        result=publish_latest(root/'clean')
-        receipt=root/'clean/audits/publication-latest.json'
-        if receipt.exists():result['publication']=json.loads(receipt.read_text())
-        atomic_json(root/'publication-latest.json',{'at':time.time(),**result})
-        return result
+        try:
+            result=publish_latest(root/'clean')
+            receipt=root/'clean/audits/publication-latest.json'
+            if receipt.exists():result['publication']=json.loads(receipt.read_text())
+            has_new=result.get('status')=='verified' or int((result.get('publication') or {}).get('D1_rows_upserted') or 0)>0
+            record_business_success(root,'publish',has_new_items=has_new,summary={'status':result.get('status')})
+            atomic_json(root/'publication-latest.json',{'at':time.time(),**result})
+            return result
+        except Exception as exc:
+            record_business_failure(root,'publish',exc)
+            raise
 
 
 def main():
     parser=argparse.ArgumentParser()
-    parser.add_argument('role',choices=['initialize','fetch','clean','publish'])
+    parser.add_argument('role',choices=['initialize','fetch','clean','publish','migrate-v2'])
     parser.add_argument('--state-dir',required=True)
     parser.add_argument('--source-dir')
     parser.add_argument('--worker',type=int,choices=range(WORKERS),default=0)
@@ -180,6 +217,9 @@ def main():
     os.environ['FMR_TG_LOCAL_RUNTIME']='true'
     root=Path(args.state_dir).resolve()
     if args.role=='initialize':initialize(root,args.source_dir)
+    elif args.role=='migrate-v2':
+        from .evidence_store import migrate_existing_state_to_v2
+        print(json.dumps(migrate_existing_state_to_v2(root)),flush=True)
     elif args.role=='publish':print(json.dumps(publish_once(root)),flush=True)
     else:loop(root,args.role,args.worker,args.duration)
 

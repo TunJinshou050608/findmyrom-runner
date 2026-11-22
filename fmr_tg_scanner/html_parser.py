@@ -51,12 +51,29 @@ def parse_tg_channel_page(html_text: str, channel_username: str) -> dict:
     if not any(n.has('tgme_widget_history') or n.has('tgme_channel_history') for n in dom.root.walk()):
         raise ChannelUnavailableError('Public channel preview unavailable')
     messages={};before=[]
+    page_channel_id=None
     for node in dom.root.walk():
+        if page_channel_id is None and node.attrs.get('data-peer-id'):
+            page_channel_id=node.attrs.get('data-peer-id')
         if node.has('tgme_widget_message'):
             match=re.fullmatch(r'([A-Za-z0-9_]+)/([1-9][0-9]*)',node.attrs.get('data-post',''))
             if not match or match[1].lower()!=channel:continue
             children=list(node.walk());text=next((n.text() for n in children if n.has('tgme_widget_message_text')),'')[:65536]
             forward=next((n for n in children if n.has('tgme_widget_message_forwarded_from_name')),None)
+            forward_name=forward.text().strip() if forward else None
+            reply_node=next((n for n in children if n.has('tgme_widget_message_reply')),None)
+            reply_to_url=reply_node.attrs.get('href') if reply_node else None
+            reply_to_msg_id=None
+            if reply_to_url:
+                rm=re.search(r'/([A-Za-z0-9_]+)/([1-9][0-9]*)$',urlsplit(reply_to_url).path)
+                if rm:reply_to_msg_id=int(rm[2])
+            reply_author=None;reply_text=None
+            if reply_node:
+                r_children=list(reply_node.walk())
+                ra_node=next((n for n in r_children if n.has('tgme_widget_message_author_name')),None)
+                rt_node=next((n for n in r_children if n.has('tgme_widget_message_metatext') or n.has('tgme_widget_message_text')),None)
+                reply_author=ra_node.text().strip() if ra_node else None
+                reply_text=(rt_node.text().strip() if rt_node else reply_node.text().strip())[:1024] or None
             author_node=next((n for n in children if n.has('tgme_widget_message_author')),None)
             author=author_node.text().strip() if author_node else None
             # A display signature or body "By @developer" is not a numeric sender ID.
@@ -68,7 +85,9 @@ def parse_tg_channel_page(html_text: str, channel_username: str) -> dict:
                     if profile.scheme=='https' and profile.hostname=='t.me' and re.fullmatch(r'/[A-Za-z0-9_]{4,32}',profile.path):
                         sender_username='@'+profile.path[1:].lower();break
                 except ValueError:pass
-            title=next((n.text().strip() for n in children if n.has('tgme_widget_message_document_title')),None)
+            titles=[n.text().strip() for n in children if n.has('tgme_widget_message_document_title') and n.text().strip()]
+            title=titles[0] if titles else None
+            grouped_id=node.attrs.get('data-grouped-id') or next((n.attrs.get('data-grouped-id') for n in children if n.attrs.get('data-grouped-id')),None)
             links=[n.attrs['href'] for n in children if n.tag=='a' and 'href' in n.attrs and not n.has('tgme_widget_message_date')]
             link_items=[{'url':n.attrs['href'],'label':n.text().strip()} for n in children if n.tag=='a' and 'href' in n.attrs]
             stamp=None
@@ -77,10 +96,12 @@ def parse_tg_channel_page(html_text: str, channel_username: str) -> dict:
                 if date:stamp=int(datetime.fromisoformat(date.replace('Z','+00:00')).timestamp())
             except (ValueError,OverflowError):pass
             mid=int(match[2])
-            messages[mid]={'channel_username':channel,'msg_id':mid,'tg_post_url':f'https://t.me/{channel}/{mid}',
+            messages[mid]={'channel_id':page_channel_id or f'@{channel}','channel_username':channel,'msg_id':mid,'tg_post_url':f'https://t.me/{channel}/{mid}',
                 'text':text,'links':links,'link_items':link_items,'forwarded_from_url':forward.attrs.get('href') if forward else None,
-                'has_forward_header':forward is not None,'sender_author_signature':author,
+                'forwarded_from_name':forward_name,'has_forward_header':forward is not None,'sender_author_signature':author,
                 'sender_id':None,'sender_username':sender_username,
+                'reply_to_post_url':reply_to_url,'reply_to_msg_id':reply_to_msg_id,'reply_author':reply_author,'reply_text':reply_text,
+                'media_group_id':grouped_id,'attachment_names':titles,
                 'preview_unavailable':not text and any(n.has('text_not_supported_wrap') for n in children),
                 'has_tg_attachment':bool(title),'file_attachment_name':title,'published_timestamp':stamp}
         if node.tag=='a' and node.has('tme_messages_more'):

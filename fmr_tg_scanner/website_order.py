@@ -1,11 +1,15 @@
 """Reuse the rendered website directory order instead of inferring device age."""
 from itertools import zip_longest
+import json
+import os
+from pathlib import Path
 import re
 import time
 from urllib.parse import urlsplit, unquote
 
 from bs4 import BeautifulSoup
 import httpx
+from .device_snapshot import SNAPSHOT_FILENAME, SNAPSHOT_SCHEMA_VERSION
 
 SITE = 'https://findmyrom.com'
 KEY = 'website_device_order_v1'
@@ -37,8 +41,44 @@ def paths(html, prefix):
     return result
 
 
+def _load_v4_snapshot_order(names) -> tuple[list[str], dict] | None:
+    candidates = []
+    for env_key in ('FMR_CATALOGUE_STATE_DIR', 'FMR_STAGING_V4_DIR'):
+        val = os.environ.get(env_key)
+        if val:
+            p = Path(val)
+            candidates.extend([p / SNAPSHOT_FILENAME, p.parent / 'staging-v4' / SNAPSHOT_FILENAME])
+    candidates.extend([
+        Path('/var/lib/findmyrom/catalogue-v3') / SNAPSHOT_FILENAME,
+        Path('/var/lib/findmyrom/staging-v4') / SNAPSHOT_FILENAME,
+    ])
+    for path in candidates:
+        if not path.is_file():
+            continue
+        try:
+            snap = json.loads(path.read_text(encoding='utf-8'))
+            if snap.get('schema_version') != SNAPSHOT_SCHEMA_VERSION:
+                continue
+            ordered = [c for c in (snap.get('ordered_devices') or []) if c in names]
+            if ordered:
+                return ordered, {
+                    'source': 'v4_device_snapshot',
+                    'fetched_at': snap.get('generated_at', time.time()),
+                    'snapshot_path': str(path),
+                    'stale_cache': False,
+                    'refresh_error': None,
+                }
+        except Exception:
+            continue
+    return None
+
+
 def read_order(store, names, *, client=None, now=None):
     now = time.time() if now is None else now
+    if client is None and os.environ.get('FMR_TG_LOCAL_RUNTIME') == 'true':
+        snap_order = _load_v4_snapshot_order(names)
+        if snap_order is not None:
+            return snap_order
     cached = store.meta(KEY)
     backoff = store.meta(BACKOFF_KEY)
     error = None

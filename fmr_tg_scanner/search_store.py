@@ -3,6 +3,15 @@ import hashlib
 import json
 import time
 from .storage import SQLiteDB
+from .evidence_store import (
+    EVIDENCE_SCHEMA_VERSION,
+    EvidenceStore,
+    V2_SCHEMA_SQL,
+    compute_content_revision_hash,
+    compute_shared_body_hash,
+    evaluate_basic_hard_rules,
+    is_blindspot_sample,
+)
 
 SCHEMA='''
 CREATE TABLE IF NOT EXISTS tg_search_tasks(
@@ -19,7 +28,7 @@ CREATE TABLE IF NOT EXISTS tg_search_meta(key TEXT PRIMARY KEY,value TEXT NOT NU
 '''
 
 
-class SearchStore(SQLiteDB):
+class SearchStore(EvidenceStore):
     def __init__(self,path):
         super().__init__(path);self.execute_script(SCHEMA)
         # Private-repo workflow concurrency guarantees one writer. A working
@@ -84,14 +93,80 @@ class SearchStore(SQLiteDB):
             self.set_meta('delivery_contract','telegram_message_v2');self.execute('COMMIT')
         except BaseException:self.execute('ROLLBACK');raise
     def save(self,package,evidence,classification,reason,accepted):
+        now=time.time()
         key=f"{package['device_codename']}|{package['channel_username']}|{package['msg_id']}"
         fingerprint=self.fingerprint(package)
         old=self.query('SELECT payload,accepted,evidence FROM tg_search_records WHERE key=?',(key,))
         payload=json.dumps(package,sort_keys=True,ensure_ascii=False);proof=json.dumps(evidence,sort_keys=True,ensure_ascii=False)
         changed=not old or old[0]['payload']!=payload or old[0]['accepted']!=int(accepted)
-        self.execute('''INSERT INTO tg_search_records VALUES (?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(key) DO UPDATE SET
-         accepted=excluded.accepted,fingerprint=excluded.fingerprint,payload=excluded.payload,evidence=excluded.evidence,
-         classification=excluded.classification,reason=excluded.reason,updated=excluded.updated
-         WHERE tg_search_records.payload!=excluded.payload OR tg_search_records.accepted!=excluded.accepted''',
-         (key,package['device_codename'],package['channel_username'],package['msg_id'],int(accepted),fingerprint,payload,proof,classification,reason,time.time()))
+
+        channel=str(package['channel_username']).strip().lower().lstrip('@')
+        msg_id=int(package['msg_id'])
+        post_key=f"{channel}|{msg_id}"
+        post_url=package.get('tg_post_url') or f"https://t.me/{channel}/{msg_id}"
+        text=evidence.get('observed_text') or ''
+        msg_obj={
+            'channel_username':channel,
+            'msg_id':msg_id,
+            'tg_post_url':post_url,
+            'text':text,
+            'file_attachment_name':package.get('file_attachment_name'),
+            'has_tg_attachment':bool(package.get('has_tg_attachment')),
+            'published_timestamp':package.get('published_timestamp'),
+            'sender_author_signature':package.get('sender_author_signature'),
+            'has_forward_header':package.get('origin_type')=='native_forward',
+            'forwarded_from_url':package.get('original_post_url') if package.get('origin_type')=='native_forward' else None,
+        }
+        rev_hash=compute_content_revision_hash(msg_obj)
+        body_hash=compute_shared_body_hash(msg_obj)
+        existing_raw=self.query('SELECT content_revision_hash,content_revision_no,first_observed_at FROM tg_raw_messages WHERE post_key=?',(post_key,))
+
+        statements=[
+            ('''INSERT INTO tg_search_records VALUES (?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(key) DO UPDATE SET
+             accepted=excluded.accepted,fingerprint=excluded.fingerprint,payload=excluded.payload,evidence=excluded.evidence,
+             classification=excluded.classification,reason=excluded.reason,updated=excluded.updated
+             WHERE tg_search_records.payload!=excluded.payload OR tg_search_records.accepted!=excluded.accepted''',
+             (key,package['device_codename'],package['channel_username'],package['msg_id'],int(accepted),fingerprint,payload,proof,classification,reason,now))
+        ]
+        if not existing_raw or existing_raw[0]['content_revision_hash']!=rev_hash:
+            passed_hard,hard_reason=evaluate_basic_hard_rules(msg_obj)
+            blindspot=0 if passed_hard else int(is_blindspot_sample(post_key))
+            status='pending' if passed_hard else ('blindspot_retained' if blindspot else 'hard_filtered')
+            rev_no=(int(existing_raw[0]['content_revision_no'])+1) if existing_raw else 1
+            first_obs=float(existing_raw[0]['first_observed_at']) if existing_raw else now
+            attachments=json.dumps([package['file_attachment_name']] if package.get('file_attachment_name') else [],ensure_ascii=False)
+            statements.append((
+                '''INSERT INTO tg_raw_messages (
+                    post_key,channel_id,channel_username,msg_id,tg_post_url,published_timestamp,
+                    first_observed_at,last_observed_at,raw_text,attachment_names_json,link_items_json,
+                    reply_context_json,forward_context_json,media_group_context_json,sender_context_json,
+                    content_revision_hash,shared_body_hash,content_revision_no,process_status,
+                    process_version,process_reason,is_blindspot_sample
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                ON CONFLICT(post_key) DO UPDATE SET
+                    last_observed_at=excluded.last_observed_at,raw_text=excluded.raw_text,
+                    attachment_names_json=excluded.attachment_names_json,
+                    content_revision_hash=excluded.content_revision_hash,
+                    shared_body_hash=excluded.shared_body_hash,
+                    content_revision_no=excluded.content_revision_no,
+                    process_status=excluded.process_status,
+                    process_version=excluded.process_version,
+                    process_reason=excluded.process_reason,
+                    is_blindspot_sample=excluded.is_blindspot_sample''',
+                (post_key,f"@{channel}",channel,msg_id,post_url,package.get('published_timestamp'),
+                 first_obs,now,text,attachments,'[]','{}','{}','{}','{}',
+                 rev_hash,body_hash,rev_no,status,EVIDENCE_SCHEMA_VERSION,hard_reason,blindspot)
+            ))
+            if passed_hard:
+                statements.append((
+                    '''INSERT INTO tg_cleaning_queue (
+                        post_key,content_revision_hash,shared_body_hash,status,attempts,next_retry_at,last_error,enqueued_at,updated_at
+                    ) VALUES (?,?,?,'pending',0,0,NULL,?,?)
+                    ON CONFLICT(post_key) DO UPDATE SET
+                        content_revision_hash=excluded.content_revision_hash,
+                        shared_body_hash=excluded.shared_body_hash,
+                        status='pending',attempts=0,next_retry_at=0,last_error=NULL,updated_at=excluded.updated_at''',
+                    (post_key,rev_hash,body_hash,now,now)
+                ))
+        self.execute_batch(statements)
         return changed

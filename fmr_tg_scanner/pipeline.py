@@ -6,6 +6,8 @@ import re
 from pathlib import Path
 
 from .quality_audit import DB_ID, publish, verify_site
+from .explicit_publisher import publish_explicit_outbox
+from .evidence_store import EvidenceStore
 from fmr_ingest_stock.d1_budget import D1BudgetReached
 
 
@@ -13,11 +15,57 @@ def read_json(path):
     return json.loads(path.read_text()) if path.exists() else None
 
 
+def _pending_explicit_outbox_count(root: Path) -> int:
+    db_path = root / 'search-v3/search.sqlite'
+    if not db_path.is_file():
+        return 0
+    store = EvidenceStore(db_path)
+    try:
+        rows = store.query("SELECT COUNT(*) AS n FROM tg_publish_outbox WHERE status='pending'")
+        return int(rows[0]['n']) if rows else 0
+    finally:
+        store.close()
+
+
 def publish_latest(root, db_factory=None, publisher=publish, verifier=verify_site):
     root = Path(root)
+    pending_outbox = _pending_explicit_outbox_count(root)
     latest = read_json(root / 'audits/full-quality-latest.json')
-    if latest is None:
+    if latest is None and pending_outbox == 0:
         return {'status': 'no_audit'}
+
+    explicit_result = None
+    if pending_outbox > 0:
+        if os.environ.get('CF_D1_DATABASE_ID') != DB_ID:
+            raise ValueError('Production D1 identity must match the established database')
+        if db_factory is None:
+            from fmr_ingest_stock.d1_budget import BudgetDB
+            db_factory = lambda: BudgetDB(cf_database_id=DB_ID, enforce_limits=os.getenv('FMR_D1_BUDGET_ENFORCE', 'true') != 'false')
+        db = db_factory()
+        store = EvidenceStore(root / 'search-v3/search.sqlite')
+        try:
+            if hasattr(db, 'acquire') and not db.acquire():
+                return {'status': 'deferred_budget', 'pending_outbox': pending_outbox}
+            if hasattr(db, 'mode'):
+                from fmr_core.schema_migrations import ensure_schema
+                ensure_schema(db)
+            explicit_result = publish_explicit_outbox(
+                store,
+                db,
+                os.environ.get('SIGN_PRIVATE_KEY_HEX', '').strip(),
+            )
+        except D1BudgetReached:
+            return {'status': 'deferred_budget', 'pending_outbox': pending_outbox}
+        finally:
+            store.close()
+            try:
+                if hasattr(db, 'settle'):
+                    db.settle()
+            finally:
+                db.close()
+        if latest is None:
+            return {'status': 'explicit_published', 'explicit': explicit_result}
+
     run_id = str(latest['audit_run_id'])
     if not re.fullmatch(r'[0-9]+', run_id):
         raise ValueError('Invalid saved audit run ID')
@@ -49,8 +97,14 @@ def publish_latest(root, db_factory=None, publisher=publish, verifier=verify_sit
     # A website failure must retry verification without rewriting an imported cohort.
     if not (out / 'website_verification.json').exists():
         verifier(out)
-        return {'status': 'verified', 'audit_run_id': run_id}
-    return {'status': 'unchanged', 'audit_run_id': run_id}
+        res = {'status': 'verified', 'audit_run_id': run_id}
+        if explicit_result is not None:
+            res['explicit'] = explicit_result
+        return res
+    res = {'status': 'unchanged', 'audit_run_id': run_id}
+    if explicit_result is not None:
+        res['explicit'] = explicit_result
+    return res
 
 
 def main():
