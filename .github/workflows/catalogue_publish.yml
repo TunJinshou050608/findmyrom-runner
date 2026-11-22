@@ -1,8 +1,7 @@
 name: Catalogue D1 Publisher
 'on':
-  schedule:
-  # Daily at 22:00 UTC (06:00 CST), 2h before UTC 00:00 D1 quota reset
-  - cron: '0 22 * * *'
+  # Triggered at exact 22:00:00 UTC (06:00:00 CST) via 103 systemd timer (workflow_dispatch)
+  # to avoid GitHub Actions schedule queue delays spilling into the next UTC quota day.
   workflow_dispatch:
     inputs:
       scope:

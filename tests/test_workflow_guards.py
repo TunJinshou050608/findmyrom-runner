@@ -135,7 +135,8 @@ def test_publisher_and_schema_workflows_are_decoupled_and_serialized():
     pub_text = (WORKFLOWS / 'catalogue_publish.yml').read_text(encoding='utf-8')
     pub = load('catalogue_publish.yml')
     assert pub['permissions'] == {'contents': 'read'}
-    assert {s['cron'] for s in pub['on']['schedule']} == {'0 22 * * *'}
+    assert 'schedule' not in pub['on']
+    assert 'workflow_dispatch' in pub['on']
     assert set(pub['jobs']) == {'publish', 'telegram'}
     for forbidden in (
         'catalogue_publish_monitor',
