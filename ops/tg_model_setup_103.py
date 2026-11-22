@@ -34,18 +34,31 @@ def setup_e5_onnx_int8(
     def _resolve_model_source() -> str:
         if (hf_cache_dir / "config.json").is_file():
             return str(hf_cache_dir)
+        ms_cache = out / "_ms_cache"
+        for candidate in ms_cache.rglob("config.json") if ms_cache.is_dir() else ():
+            if (candidate.parent / "tokenizer.json").is_file():
+                return str(candidate.parent)
+        import urllib.request
+        hf_reachable = False
         try:
-            AutoTokenizer.from_pretrained(model_id)
-            return model_id
+            with urllib.request.urlopen("https://huggingface.co", timeout=4):
+                hf_reachable = True
         except Exception:
-            from modelscope import snapshot_download
-            for ms_id in (model_id, "AI-ModelScope/multilingual-e5-small"):
-                try:
-                    local_dir = snapshot_download(ms_id, cache_dir=str(out / "_ms_cache"))
-                    return local_dir
-                except Exception:
-                    continue
-            raise
+            hf_reachable = False
+        if hf_reachable:
+            try:
+                AutoTokenizer.from_pretrained(model_id)
+                return model_id
+            except Exception:
+                pass
+        from modelscope import snapshot_download
+        for ms_id in ("AI-ModelScope/multilingual-e5-small", model_id, "Xorbits/multilingual-e5-small"):
+            try:
+                local_dir = snapshot_download(ms_id, cache_dir=str(ms_cache))
+                return local_dir
+            except Exception:
+                continue
+        raise RuntimeError(f"Failed to download {model_id} from both HuggingFace and ModelScope")
 
     if tok_dir.is_dir() and (tok_dir / "tokenizer_config.json").is_file():
         tokenizer = AutoTokenizer.from_pretrained(str(tok_dir))
