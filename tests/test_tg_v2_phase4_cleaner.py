@@ -453,3 +453,38 @@ def test_worker_snapshot_sync_preserves_clean_status(tmp_path: Path) -> None:
     q = clean_store.query("SELECT status FROM tg_cleaning_queue WHERE post_key='mixromhub|500'")[0]
     assert q["status"] == "done"
     clean_store.close()
+
+
+def test_v2_cleaner_wires_real_intent_classifier_signature(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import inspect
+    import fmr_tg_scanner.v2_cleaner as vc
+    from fmr_tg_scanner.intent_classifier import IntentClassifier
+
+    sig = inspect.signature(IntentClassifier.__init__)
+    assert "registry" in sig.parameters
+
+    captured: dict = {}
+
+    class _FakeInitClassifier:
+        def __init__(self, model_dir, *, registry=None) -> None:
+            captured["model_dir"] = Path(model_dir)
+            captured["registry"] = registry
+
+        def route_message(self, message: dict) -> dict:
+            return {"action": "skip_irrelevant", "reason": "fake", "audit_sampled": False, "probs": {}}
+
+    monkeypatch.setattr(vc, "IntentClassifier", _FakeInitClassifier)
+    root, store = _make_state_dir(tmp_path)
+    store.ingest_message(_base_msg("mixromhub", 600, "random chat message that stays test"), now=10.0)
+    store.close()
+
+    res = clean_v2_once(
+        root,
+        model_dir=tmp_path / "m",
+        catalogue_names=SAMPLE_CATALOGUE,
+        sync_workers=False,
+        now=12.0,
+    )
+    assert res["counts"]["e5_skipped_irrelevant"] == 1
+    assert captured["model_dir"] == tmp_path / "m"
+    assert captured["registry"] is not None

@@ -138,7 +138,7 @@ def clean_v2_once(
     clf = classifier
     if clf is None:
         m_dir = Path(model_dir or os.getenv("FMR_TG_INTENT_MODEL_DIR", str(DEFAULT_MODEL_DIR)))
-        clf = IntentClassifier(model_dir=m_dir, official_registry=registry)
+        clf = IntentClassifier(model_dir=m_dir, registry=registry)
 
     client = llm_client or DeepSeekAttributedClient()
     store = EvidenceStore(clean_db)
