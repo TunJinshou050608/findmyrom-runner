@@ -71,6 +71,17 @@ def build_parser() -> argparse.ArgumentParser:
         default=0,
         help="Gracefully pause before 00:00 UTC rollover when within N seconds of UTC midnight (0 disables).",
     )
+    publish_p.add_argument(
+        "--vendor",
+        default="",
+        help="Optional comma-separated vendor filter (empty publishes all pending vendors).",
+    )
+    publish_p.add_argument(
+        "--max-batches",
+        type=int,
+        default=None,
+        help="Optional maximum batches to commit in this run (unset publishes all pending).",
+    )
 
     status_p = sub.add_parser("status", help="Output JSON status of Outbox, Ledger, and Collectors.")
     _add_common_args(status_p, suppress_defaults=True)
@@ -151,6 +162,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 batch_size=args.batch_size,
                 brand_names=brand_names,
                 stop_before_utc_midnight_seconds=args.stop_before_utc_midnight,
+                vendor_filter=args.vendor or None,
+                max_batches=args.max_batches,
             )
         finally:
             db.close()

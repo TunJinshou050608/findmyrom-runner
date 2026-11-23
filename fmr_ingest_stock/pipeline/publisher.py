@@ -714,6 +714,8 @@ def run_publisher(
     now_fn: Callable[[], int] | None = None,
     brand_names: Mapping[str, str] | None = None,
     stop_before_utc_midnight_seconds: int = 0,
+    vendor_filter: str | None = None,
+    max_batches: int | None = None,
 ) -> dict[str, Any]:
     """Drain `outbox/pending/*.jsonl` into D1 with Hit-Quota-Stop-and-Checkpoint."""
     if batch_size <= 0:
@@ -740,6 +742,8 @@ def run_publisher(
                 ts_clock=ts_clock,
                 brand_names=brand_names or DEFAULT_BRAND_DISPLAY_NAMES,
                 stop_before_utc_midnight_seconds=stop_before_utc_midnight_seconds,
+                vendor_filter=vendor_filter,
+                max_batches=max_batches,
             )
     except LockBusyError:
         return {
@@ -761,6 +765,8 @@ def _execute_publisher_locked(
     ts_clock: Callable[[], int],
     brand_names: Mapping[str, str],
     stop_before_utc_midnight_seconds: int = 0,
+    vendor_filter: str | None = None,
+    max_batches: int | None = None,
 ) -> dict[str, Any]:
     ledger_path = root / "publisher_ledger.sqlite"
     conn = _open_ledger_db(ledger_path)
@@ -836,6 +842,9 @@ def _execute_publisher_locked(
 
         pruned_done = outbox.prune_done(now_ts=float(ts_clock()))
         pending_files = outbox.list_pending()
+        if vendor_filter:
+            allowed_vendors = {v.strip().lower() for v in vendor_filter.split(",") if v.strip()}
+            pending_files = [p for p in pending_files if p.name.split("_", 1)[0].lower() in allowed_vendors]
         if not pending_files:
             return {
                 "status": "ok",
@@ -901,6 +910,21 @@ def _execute_publisher_locked(
         cur_spec_idx = 0
 
         while cur_file_idx < len(pending_files):
+            if max_batches is not None and batches_committed >= max_batches:
+                _finalize_pauses()
+                return {
+                    "status": "paused_max_batches",
+                    "phase": "publish",
+                    "utc_day": day_clock(),
+                    "start_utc_day": start_utc_day,
+                    "bootstrapped_rows": bootstrapped_rows,
+                    "published_specs": published_specs,
+                    "skipped_unchanged": skipped_unchanged,
+                    "batches_committed": batches_committed,
+                    "files_completed": files_completed,
+                    "quarantined_4tuple_collisions": quarantined_4tuple_total,
+                    "pending_files_remaining": len(outbox.list_pending()),
+                }
             batch_dirty_map: dict[str, PublishSpecV1] = {}
             batch_touched_files: list[_PendingFileCursor] = []
             batch_touched_ids: set[int] = set()

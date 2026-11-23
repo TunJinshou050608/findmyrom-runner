@@ -22,6 +22,16 @@ name: Catalogue D1 Publisher
         required: false
         default: false
         description: Disable TG D1 budget enforcement for this manual run
+      stock_vendor:
+        type: string
+        required: false
+        default: ''
+        description: Optional comma-separated stock vendor filter (empty = all)
+      stock_max_batches:
+        type: string
+        required: false
+        default: ''
+        description: Optional max stock batches for canary test (empty = unlimited)
 permissions:
   contents: read
 jobs:
@@ -73,10 +83,18 @@ jobs:
     - name: Publish staged stock firmware batches to D1
       shell: bash
       run: |
+        EXTRA_ARGS=()
+        if [ -n "${{ inputs.stock_vendor }}" ]; then
+          EXTRA_ARGS+=(--vendor "${{ inputs.stock_vendor }}")
+        fi
+        if [ -n "${{ inputs.stock_max_batches }}" ]; then
+          EXTRA_ARGS+=(--max-batches "${{ inputs.stock_max_batches }}")
+        fi
         python -m fmr_ingest_stock.pipeline.cli publish \
           --state-dir "$FMR_STAGING_V4_DIR" \
           --batch-size "${{ inputs.batch_size || '40' }}" \
-          --stop-before-utc-midnight 60
+          --stop-before-utc-midnight 60 \
+          "${EXTRA_ARGS[@]}"
     - name: Clean fallback isolated runtime
       if: always()
       shell: bash
