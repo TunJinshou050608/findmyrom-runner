@@ -396,9 +396,10 @@ def _resolve_heading_identity(
             if pm:
                 desc = pm.group(2).strip()
 
-    device_codename = board_code or norm_id
-    model_code = first_code if board_code else device_codename
-    marketing_name = _clean_marketing_name(desc, device_codename)
+    raw_codename = board_code or norm_id
+    model_code = first_code if board_code else raw_codename
+    marketing_name = _clean_marketing_name(desc, raw_codename)
+    device_codename = raw_codename if raw_codename.startswith("google-") else f"google-{raw_codename}"
     return device_codename, model_code, marketing_name
 
 

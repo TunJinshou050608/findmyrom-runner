@@ -392,23 +392,23 @@ def test_google_adapter_full_parsing_variants_dates_and_atomic_guard(tmp_path: P
             adapter = GoogleAdapter()
             devices = {d.codename: d for d in adapter.discover_devices(http)}
 
-            # Merged across BOTH ota (tokay, bluejay) and images (tokay, maguro), excluding legal/terms/instructions
-            assert set(devices.keys()) == {"bluejay", "maguro", "tokay"}
+            # Merged across BOTH ota (google-tokay, google-bluejay) and images (google-tokay, google-maguro), excluding legal/terms/instructions
+            assert set(devices.keys()) == {"google-bluejay", "google-maguro", "google-tokay"}
 
             # Pixel 9: earliest observed major is 14 -> init_boot
-            assert devices["tokay"].marketing_name == "Google Pixel 9"
-            assert devices["tokay"].boot_partition_type == "init_boot"
+            assert devices["google-tokay"].marketing_name == "Google Pixel 9"
+            assert devices["google-tokay"].boot_partition_type == "init_boot"
 
             # Pixel 6a: earliest observed major is 12 (from 12L) -> boot!
-            assert devices["bluejay"].marketing_name == "Google Pixel 6a"
-            assert devices["bluejay"].boot_partition_type == "boot"
+            assert devices["google-bluejay"].marketing_name == "Google Pixel 6a"
+            assert devices["google-bluejay"].boot_partition_type == "boot"
 
             # Galaxy Nexus maguro: preserves "Google " prefix, strips "(with Google Wallet)", merges yakju/takju
-            assert devices["maguro"].marketing_name == "Google Galaxy Nexus (GSM/HSPA+)"
-            assert devices["maguro"].model_numbers == ("yakju", "takju")
-            assert devices["maguro"].boot_partition_type == "boot"
+            assert devices["google-maguro"].marketing_name == "Google Galaxy Nexus (GSM/HSPA+)"
+            assert devices["google-maguro"].model_numbers == ("yakju", "takju")
+            assert devices["google-maguro"].boot_partition_type == "boot"
 
-            tokay_rels = adapter.fetch_releases(devices["tokay"], http)
+            tokay_rels = adapter.fetch_releases(devices["google-tokay"], http)
             by_key = {(r.version_str, r.package_type, r.region_code): r for r in tokay_rels}
 
             emea = by_key[("AP2A.240805.005.S4", "recovery_zip", "EMEA")]
@@ -434,14 +434,14 @@ def test_google_adapter_full_parsing_variants_dates_and_atomic_guard(tmp_path: P
             assert fac_rel.security_patch == "2024-09-05"
 
             # Pixel 6a 12L release
-            bluejay_rels = {r.version_str: r for r in adapter.fetch_releases(devices["bluejay"], http)}
+            bluejay_rels = {r.version_str: r for r in adapter.fetch_releases(devices["google-bluejay"], http)}
             rel_12l = bluejay_rels["SP2A.220505.002"]
             assert rel_12l.android_version == "12L"
             assert rel_12l.published_date == "2022-05-01"
             assert rel_12l.security_patch == "2022-05-05"
 
             # Nexus maguro yakju & takju distinct 5-tuple identities + fastboot_tgz
-            maguro_rels = adapter.fetch_releases(devices["maguro"], http)
+            maguro_rels = adapter.fetch_releases(devices["google-maguro"], http)
             assert len(maguro_rels) == 2
             assert {r.model_code for r in maguro_rels} == {"yakju", "takju"}
             assert all(r.package_type == "fastboot_tgz" for r in maguro_rels)
@@ -663,7 +663,7 @@ def test_e2e_collector_outbox_publisher_signatures_zero_noop_and_bootstrap(tmp_p
     )
     db.execute(
         "INSERT INTO devices (codename, brand_id, marketing_name, boot_partition_type) "
-        "VALUES ('tokay', 'google', 'Google Pixel 9', 'init_boot')"
+        "VALUES ('google-tokay', 'google', 'Google Pixel 9', 'init_boot')"
     )
     db.execute(
         """
@@ -672,7 +672,7 @@ def test_e2e_collector_outbox_publisher_signatures_zero_noop_and_bootstrap(tmp_p
             android_version, package_type, file_size_str, md5_or_sha256,
             original_official_url, fast_cdn_url, published_date, ed25519_signature, extract_status
         )
-        VALUES (?, 'tokay', 'Global', 'tokay', 'AD1A.240905.004', '15.0.0', 'recovery_zip',
+        VALUES (?, 'google-tokay', 'Global', 'tokay', 'AD1A.240905.004', '15.0.0', 'recovery_zip',
                 '2.00 GB', ?, ?, ?, '2024-09-01', ?, 'done')
         """,
         (preexisting_token, _sha("tokay-ota-15"), preexisting_url, preexisting_url, preexisting_sig),
@@ -720,7 +720,7 @@ def test_e2e_collector_outbox_publisher_signatures_zero_noop_and_bootstrap(tmp_p
             bootstrapped_row = [
                 r
                 for r in fw_rows
-                if r["device_codename"] == "tokay"
+                if r["device_codename"] == "google-tokay"
                 and r["version_str"] == "AD1A.240905.004"
                 and r["package_type"] == "recovery_zip"
             ][0]
@@ -960,3 +960,52 @@ def test_5tuple_collision_quarantines_locally_without_blocking_and_locks_work(
     cli_json = json.loads(capsys.readouterr().out)
     assert cli_json["vendors"]["google"]["quarantined_collisions"] == 1
     assert get_pipeline_status(state_dir=state_dir)["outbox"]["pending_files"] == 1
+
+
+def test_publisher_refuses_duplicate_unprefixed_device_when_prefixed_exists_in_d1(tmp_path: Path):
+    from fmr_core.publish_spec import DeviceSpec, PublishSpecV1, ReleaseSpec
+
+    state_dir = tmp_path / "state"
+    d1_sqlite = tmp_path / "d1.sqlite"
+    db = _init_migrated_d1(d1_sqlite)
+    priv_key, _ = generate_keypair()
+
+    db.execute("INSERT INTO brands (id, name, bl_unlock_status) VALUES ('google', 'Google', 'unlockable')")
+    db.execute(
+        "INSERT INTO devices (codename, brand_id, marketing_name, boot_partition_type) "
+        "VALUES ('google-tangorpro', 'google', 'Google Pixel Tablet', 'init_boot')"
+    )
+
+    dev = DeviceSpec(
+        brand_id="google",
+        codename="tangorpro",
+        marketing_name="Google Pixel Tablet",
+        boot_partition_type="init_boot",
+    )
+    rel = ReleaseSpec(
+        device_codename="tangorpro",
+        model_code="tangorpro",
+        region_code="Global",
+        version_str="AP3A.241005.015",
+        android_version="15.0.0",
+        package_type="factory_zip",
+        original_official_url="https://dl.google.com/dl/android/aosp/tangorpro-ap3a.zip",
+        fast_cdn_url="https://dl.google.com/dl/android/aosp/tangorpro-ap3a.zip",
+        md5_or_sha256=_sha("tangorpro-ap3a"),
+        published_date="2024-10-05",
+        delivery_mode="direct_cdn",
+        verification_status="VERIFIED_IMMUTABLE",
+        file_size_str="2.10 GB",
+    )
+    spec = PublishSpecV1(device=dev, release=rel)
+    OutboxSpool(state_dir).enqueue_specs("google", [spec])
+
+    with pytest.raises(ValueError, match="google-tangorpro"):
+        run_publisher(
+            state_dir=state_dir,
+            db=db,  # type: ignore[arg-type]
+            private_key_hex=priv_key,
+            batch_size=40,
+            utc_day_fn=lambda: "2026-11-23",
+        )
+    db.close()

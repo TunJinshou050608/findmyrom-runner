@@ -367,6 +367,7 @@ def _build_batch_statements_and_ledger_updates(
     now_ts: int,
     brand_names: Mapping[str, str],
     conn: sqlite3.Connection,
+    db: D1Client | None = None,
 ) -> tuple[
     list[tuple[str, Sequence[Any]]],
     list[tuple[Any, ...]],
@@ -462,6 +463,33 @@ def _build_batch_statements_and_ledger_updates(
                     )
                 )
                 brand_updates.append((brand_id, brand_label, now_ts))
+
+    new_device_candidates = [
+        spec.device
+        for spec in publishable_specs
+        if spec.device.codename not in ledger_devices_map
+    ]
+    if db is not None and new_device_candidates:
+        check_codes: list[str] = []
+        for d in new_device_candidates:
+            pref = f"{d.brand_id}-{d.codename}"
+            if not d.codename.startswith(f"{d.brand_id}-"):
+                check_codes.extend((d.codename, pref))
+        dedup_codes = list(dict.fromkeys(check_codes))
+        if dedup_codes:
+            placeholders = ",".join("?" for _ in dedup_codes)
+            found_rows = db.query(
+                f"SELECT codename FROM devices WHERE codename IN ({placeholders})",
+                tuple(dedup_codes),
+            )
+            found_set = {str(r["codename"]) for r in found_rows}
+            for d in new_device_candidates:
+                pref = f"{d.brand_id}-{d.codename}"
+                if d.codename not in found_set and pref in found_set:
+                    raise ValueError(
+                        f"Refusing to create duplicate unprefixed device {d.codename!r}; "
+                        f"canonical {pref!r} already exists in D1"
+                    )
 
     for spec in publishable_specs:
         dev = spec.device
@@ -977,6 +1005,7 @@ def _execute_publisher_locked(
                     now_ts=now_ts,
                     brand_names=brand_names,
                     conn=conn,
+                    db=db,
                 )
                 quarantined_4tuple_total += q4
 
