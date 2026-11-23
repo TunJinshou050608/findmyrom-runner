@@ -750,3 +750,129 @@ def test_sync_workers_merges_profile_meta_into_clean(tmp_path: Path) -> None:
     assert res["counts"]["channel_profile_fallback_used"] == 1
     assert res["counts"]["outbox_added"] == 1
     assert res["llm_sample_decisions"][0]["resolved_devices"] == ["marble"]
+
+
+def test_v1_reconcile_syncs_d1_audits_v1_without_llm_and_routes_uncleaned(tmp_path: Path):
+    from fmr_tg_scanner.attributed_extractor import DeviceLookupIndex
+    from fmr_tg_scanner.official_registry import load_official_registry
+    from fmr_tg_scanner.quality_audit import VERSION as TAXONOMY_VERSION, resource_token
+    from fmr_tg_scanner.v1_reconcile import reconcile_v1_backlog
+
+    root = tmp_path / "tg-state"
+    clean_db = root / "clean" / "search-v3" / "search.sqlite"
+    clean_db.parent.mkdir(parents=True, exist_ok=True)
+    store = EvidenceStore(clean_db)
+    store.execute(
+        """
+        CREATE TABLE IF NOT EXISTS tg_search_records(
+            key TEXT PRIMARY KEY, device TEXT NOT NULL, channel TEXT NOT NULL, msg_id INTEGER NOT NULL,
+            accepted INTEGER NOT NULL, fingerprint TEXT NOT NULL, payload TEXT NOT NULL, evidence TEXT NOT NULL,
+            classification TEXT NOT NULL, reason TEXT NOT NULL, updated REAL NOT NULL
+        )
+        """
+    )
+
+    def _pkg(mid: int, *, eligible: bool = True, version: str = "10.6") -> dict:
+        return {
+            "device_codename": "marble",
+            "channel_username": "pocof5dev",
+            "msg_id": mid,
+            "tg_post_url": f"https://t.me/pocof5dev/{mid}",
+            "original_post_url": f"https://t.me/pocof5dev/{mid}",
+            "origin_type": "author_direct",
+            "project_name": "crDroid",
+            "resource_kind": "rom",
+            "release_type": "unofficial",
+            "android_version": "14",
+            "build_version_tag": version,
+            "maintainer_name": "Ali Dev",
+            "maintainer_contact_tg": "@alidev",
+            "published_timestamp": 1715000000.0 + mid,
+            "package_name": f"crDroid {version}",
+            "gapps_type": "vanilla",
+            "known_bugs_json": "[]",
+            "taxonomy": {
+                "schema_version": TAXONOMY_VERSION,
+                "access": {"is_free": True},
+                "resource_type": "rom",
+                "rom_family": "aosp",
+                "system_base": "aosp",
+                "project": {"id": "crdroid", "name": "crDroid"},
+                "project_recognition": {"matched": True},
+                "devices": {
+                    "device_id": "marble",
+                    "codename": "marble",
+                    "applicable_models": ["marble"],
+                    "excluded_models": [],
+                    "compatibility_conditions": [],
+                },
+                "versions": {
+                    "android": "14",
+                    "project_version": version,
+                    "build_id": None,
+                    "build_date": "2024-05-06",
+                },
+                "build_variants": [],
+                "package_form": "recovery",
+                "release_stage": "stable",
+                "maintenance": {"maintainer_id": "alidev", "branch_id": "unofficial", "release_status": "unofficial"},
+                "publication": {"eligible": eligible, "blockers": [] if eligible else ["missing_release_version"]},
+                "evidence": {"normalization": {"target_in_codenames": True, "target_in_marketing": True}},
+            },
+        }
+
+    # 4 posts in uncleaned_backlog:
+    # 1: already live in D1
+    # 2: v1 accepted=1 & passes v2 audit -> enqueued to outbox without LLM
+    # 3: v1 accepted=1 & fails v2 audit -> rejected without LLM
+    # 4: scraped only (not in tg_search_records) -> stays in uncleaned_backlog for full v2
+    for mid in (1, 2, 3, 4):
+        m = _base_msg("pocof5dev", mid, f"crDroid 10.{mid} Unofficial | Android 14\nPOCO F5 (marble)\nBy @alidev")
+        store.ingest_message(m, enqueue_for_cleaning=False, now=10.0)
+        store.execute("UPDATE tg_raw_messages SET process_status='uncleaned_backlog' WHERE post_key=?", (f"pocof5dev|{mid}",))
+
+    # Inflated baseline-v1-* ledger entry (should be replaced by real D1 sync)
+    for mid in (1, 2, 3):
+        pkg = _pkg(mid, eligible=(mid != 3), version="" if mid == 3 else f"10.{mid}")
+        store.execute(
+            "INSERT INTO tg_search_records VALUES (?, 'marble', 'pocof5dev', ?, 1, ?, ?, '{}', 'rom', 'ok', ?)",
+            (f"marble|pocof5dev|{mid}", mid, f"fp-{mid}", json.dumps(pkg), 10.0 + mid),
+        )
+        store.execute(
+            "INSERT INTO tg_publish_ledger VALUES (?, ?, 'marble', ?, ?, 'h', 'active', 10.0)",
+            (f"marble|https://t.me/pocof5dev/{mid}", resource_token(pkg), f"https://t.me/pocof5dev/{mid}", f"baseline-v1-{mid}"),
+        )
+
+    d1_rows = [
+        {
+            "public_token": resource_token(_pkg(1)),
+            "device_codename": "marble",
+            "target_post_url": "https://t.me/pocof5dev/1",
+            "maintainer_opted_out": 0,
+        }
+    ]
+    res = reconcile_v1_backlog(
+        root,
+        store,
+        names=SAMPLE_CATALOGUE,
+        registry=load_official_registry(),
+        lookup=DeviceLookupIndex(SAMPLE_CATALOGUE),
+        d1_rows=d1_rows,
+        now=100.0,
+    )
+    assert res["status"] == "reconciled"
+    assert res["counts"]["d1_live_synced"] == 1
+    assert res["counts"]["v1_skipped_already_in_d1"] == 1
+    assert res["counts"]["v1_passed_enqueued"] == 1
+    assert res["counts"]["v1_rejected_quality_errors"] == 1
+
+    # Outbox only has mid=2
+    outbox = store.query("SELECT resource_key, op_type, payload_json FROM tg_publish_outbox WHERE status='pending'")
+    assert len(outbox) == 1
+    assert outbox[0]["op_type"] == "ADD"
+    assert json.loads(outbox[0]["payload_json"])["package"]["msg_id"] == 2
+
+    # Only mid=4 remains in uncleaned_backlog
+    rem = store.fetch_backlog_batch(limit=10)
+    assert [r["post_key"] for r in rem] == ["pocof5dev|4"]
+    store.close()

@@ -113,6 +113,7 @@ CREATE TABLE IF NOT EXISTS tg_publish_ledger (
     status TEXT NOT NULL,
     updated_at REAL NOT NULL
 );
+CREATE INDEX IF NOT EXISTS idx_tg_publish_ledger_url ON tg_publish_ledger(target_post_url, status);
 """
 
 
@@ -552,6 +553,37 @@ class EvidenceStore(SQLiteDB):
             )
         self.execute_batch(statements)
 
+    def is_post_url_active_in_ledger(self, tg_post_url: str) -> bool:
+        """Return True when tg_post_url already has an active or opted_out entry in tg_publish_ledger."""
+        url = str(tg_post_url or "").strip()
+        if not url:
+            return False
+        rows = self.query(
+            "SELECT 1 FROM tg_publish_ledger WHERE target_post_url=? AND status IN ('active', 'opted_out') LIMIT 1",
+            (url,),
+        )
+        return bool(rows)
+
+    def skip_active_ledger_backlog(self, *, process_version: str = EVIDENCE_SCHEMA_VERSION) -> int:
+        """Mark uncleaned_backlog posts already active/opted_out in tg_publish_ledger as skipped_already_published."""
+        cur = self.connection.execute(
+            """
+            UPDATE tg_raw_messages
+            SET process_status='skipped_already_published',
+                process_version=?,
+                process_reason='already_active_in_publish_ledger'
+            WHERE process_status='uncleaned_backlog'
+              AND tg_post_url != ''
+              AND EXISTS (
+                  SELECT 1 FROM tg_publish_ledger l
+                  WHERE l.target_post_url = tg_raw_messages.tg_post_url
+                    AND l.status IN ('active', 'opted_out')
+              )
+            """,
+            (process_version,),
+        )
+        return int(cur.rowcount or 0)
+
     def fetch_backlog_batch(self, *, limit: int = 50) -> list[dict[str, Any]]:
         """Fetch historical uncleaned_backlog posts newest-first without flooding real-time queue."""
         if limit <= 0:
@@ -568,6 +600,11 @@ class EvidenceStore(SQLiteDB):
             FROM tg_raw_messages m
             WHERE m.process_status='uncleaned_backlog'
               AND (m.raw_text != '' OR m.attachment_names_json != '[]' OR m.link_items_json != '[]')
+              AND NOT EXISTS (
+                  SELECT 1 FROM tg_publish_ledger l
+                  WHERE l.target_post_url = m.tg_post_url
+                    AND l.status IN ('active', 'opted_out')
+              )
             ORDER BY m.last_observed_at DESC
             LIMIT ?
             """,

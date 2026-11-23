@@ -33,6 +33,7 @@ from .intent_classifier import IntentClassifier
 from .official_registry import OfficialSourcesRegistry, load_official_registry
 from .runtime_status import record_business_failure, record_business_success
 from .targets import read_catalogue
+from .v1_reconcile import reconcile_v1_backlog
 from .trial import atomic_json
 
 V2_CLEANER_VERSION = "tg-v2-cleaner-v1.0"
@@ -156,6 +157,17 @@ def clean_v2_once(
     token_usage: Counter[str] = Counter()
 
     try:
+        v1_reconcile: dict[str, Any] = {"status": "skipped_dry_run"}
+        if not dry_run:
+            v1_reconcile = reconcile_v1_backlog(
+                root,
+                store,
+                names=names,
+                registry=registry,
+                lookup=lookup,
+                process_version=V2_CLEANER_VERSION,
+                now=now_ts,
+            )
         due_rows = store.fetch_due_cleaning_batch(limit=queue_limit, now=now_ts)
         backlog_rows = []
         remaining_slots = max(0, backlog_limit)
@@ -192,6 +204,28 @@ def clean_v2_once(
         for raw_row in batch_rows:
             msg = normalize_stored_message(raw_row)
             post_key = msg["post_key"]
+            is_unedited_or_backlog = (
+                raw_row.get("status") == "uncleaned_backlog"
+                or int(raw_row.get("content_revision_no") or 1) <= 1
+            )
+            if is_unedited_or_backlog and store.is_post_url_active_in_ledger(msg.get("tg_post_url") or ""):
+                counts["skipped_already_published"] += 1
+                sample_decisions.append(
+                    {
+                        "post_key": post_key,
+                        "action": "skipped_already_published",
+                        "reason": "already_active_in_d1",
+                    }
+                )
+                if not dry_run:
+                    store.mark_cleaning_result(
+                        post_key,
+                        process_status="skipped_already_published",
+                        process_reason="already_active_in_d1",
+                        process_version=V2_CLEANER_VERSION,
+                        now=now_ts,
+                    )
+                continue
             route = clf.route_message(msg)
             action = route["action"]
 
@@ -547,6 +581,7 @@ def clean_v2_once(
             "spec_version": EXTRACTION_SPEC_VERSION,
             "dry_run": dry_run,
             "sync": sync_stats,
+            "v1_reconcile": v1_reconcile,
             "catalogue_devices": len(names),
             "catalogue_sources": cat_sources,
             "outbox_new_operations": outbox_new_ops,
