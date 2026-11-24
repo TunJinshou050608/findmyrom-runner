@@ -67,6 +67,7 @@ def validate_manifest(manifest):
     if not files or len(files) > 20:
         raise ValueError('Invalid Sony component count')
     total = 0
+    total_chunks = 0
     names = set()
     for f in files:
         name = f.get('name', '')
@@ -76,17 +77,20 @@ def validate_manifest(manifest):
         chunks = f.get('chunks', [])
         if not chunks or len(chunks) > 256:
             raise ValueError('Invalid Sony chunk count')
+        total_chunks += len(chunks)
+        if total_chunks > 400:
+            raise ValueError('Sony total chunk count exceeds streaming budget')
         start = chunks[0]['number']
         if start not in (0, 1) or [c['number'] for c in chunks] != list(range(start, start + len(chunks))):
             raise ValueError('Sony chunk sequence gap')
         for c in chunks:
-            if type(c['size']) is not int or c['size'] <= 0 or c['size'] > 128 * 1024 * 1024 or download_origin('sony', c['url']) != 'oem':
+            if type(c['size']) is not int or c['size'] <= 0 or c['size'] > 256 * 1024 * 1024 or download_origin('sony', c['url']) != 'oem':
                 raise ValueError('Untrusted Sony chunk')
         if sum(c['size'] for c in chunks) != f['size']:
             raise ValueError('Sony component size mismatch')
         total += f['size']
-    if total > 8 * 1024**3:
-        raise ValueError('Complete Sony bundle exceeds temporary storage budget')
+    if total > 16 * 1024**3:
+        raise ValueError('Complete Sony bundle exceeds streaming archive limit')
     return total
 
 
@@ -158,7 +162,7 @@ def releases(device, http):
                 'region': (cust['name'] or 'Customization')[:40] + ' · CDF ' + cust['id'],
                 'kind': 'sony_bundle',
                 'android_version': 'unknown',
-                'size': f'{total / 1024**3:.2f} GiB · complete firmware ZIP',
+                'size': f'{total / 1024**3:.2f} GiB · complete firmware TAR',
                 'bundle': manifest,
                 'download_url': 'https://findmyrom.com/sony/bundles/' + key,
                 'origin_kind': 'sony_assembled_bundle',

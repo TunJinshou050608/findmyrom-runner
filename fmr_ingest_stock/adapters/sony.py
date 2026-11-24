@@ -114,10 +114,10 @@ def _normalize_sony_version_str(raw_version: str) -> str:
 
 
 def _safe_bundle_filename(model_name: str, version: str, cdf_id: str) -> str:
-    candidate = re.sub(r"[^A-Za-z0-9._-]+", "_", f"Sony_{model_name}_{version}_CDF{cdf_id}.zip")
+    candidate = re.sub(r"[^A-Za-z0-9._-]+", "_", f"Sony_{model_name}_{version}_CDF{cdf_id}.tar")
     if _RE_SAFE_FILENAME.fullmatch(candidate):
         return candidate
-    return re.sub(r"[^A-Za-z0-9._-]+", "_", f"Sony_{model_name}_CDF{cdf_id}.zip")[:180]
+    return re.sub(r"[^A-Za-z0-9._-]+", "_", f"Sony_{model_name}_CDF{cdf_id}.tar")[:180]
 
 
 def load_sony_customizations(

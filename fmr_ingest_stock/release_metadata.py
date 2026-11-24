@@ -156,5 +156,5 @@ def package_label(vendor, kind):
         'recovery_ozip': 'OTA OZIP',
         'samsung_encrypted': 'Samsung firmware (encrypted archive)',
         'samsung_zip': 'Samsung firmware',
-        'sony_bundle': 'Sony complete firmware ZIP',
+        'sony_bundle': 'Sony complete firmware (.tar)',
     }.get(kind, kind)

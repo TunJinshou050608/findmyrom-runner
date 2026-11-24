@@ -143,7 +143,7 @@ def test_realme_ui_and_sony_source_projection():
     )
     assert m['sources']['catalogue'] == 'https://app.swup.update.sony.net/service'
     assert package_label('xiaomi', 'recovery_zip') == 'Recovery / OTA ZIP'
-    assert package_label('sony', 'sony_bundle') == 'Sony complete firmware ZIP'
+    assert package_label('sony', 'sony_bundle') == 'Sony complete firmware (.tar)'
 
 
 def test_samsung_repeated_ap_dates_do_not_discard_other_official_builds():
