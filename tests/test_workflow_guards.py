@@ -91,10 +91,9 @@ def test_ci_has_no_production_repair_or_deployment_side_effects():
 
 def test_operational_service_cadences_and_locks_are_preserved():
     w = load('services.yml')
-    assert {s['cron'] for s in w['on']['schedule']} == {'*/15 * * * *', '43 */6 * * *'}
-    assert set(w['jobs']) == {'sony_bundle', 'public_index', 'check'}
-    assert w['jobs']['sony_bundle']['runs-on'] == 'ubuntu-latest'
-    assert w['jobs']['sony_bundle']['concurrency']['group'] == 'sony-complete-bundle-cache'
+    assert {s['cron'] for s in w['on']['schedule']} == {'43 */6 * * *'}
+    assert set(w['jobs']) == {'public_index', 'check'}
+    assert 'sony_bundle' not in str(w['jobs'])
 
 
 def test_stock_collector_workflows_have_zero_d1_secrets_and_zero_self_handoffs():
