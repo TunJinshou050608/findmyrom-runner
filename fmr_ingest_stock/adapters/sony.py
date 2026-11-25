@@ -5,9 +5,8 @@ official `ProductObjectId`, `HWVariantId`, `ModelObjectId`, and EOS metadata,
 paired with `config/sony_customizations.yaml` for commercial `CDFId` and Gen2
 `SonyProductCode` (`SPC`) seeds.
 
-Official releases are assembled on demand by `fmr_ingest_stock.sony_bundle` from
-Sony's signed ESS file chunks (`package_type="sony_bundle"`,
-`delivery_mode="r2_bundle"`).
+Official releases are streamed on demand by the web Worker from Sony's signed
+ESS file chunks (`package_type="sony_bundle"`, `delivery_mode="r2_bundle"`).
 """
 
 from __future__ import annotations

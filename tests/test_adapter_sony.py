@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
@@ -17,10 +18,24 @@ from fmr_ingest_stock.adapters import get_adapter
 from fmr_ingest_stock.adapters.base import OfficialMetadataHTTP
 from fmr_ingest_stock.adapters.sony import SonyAdapter, load_sony_customizations
 from fmr_ingest_stock.pipeline import OutboxSpool, run_collector, run_publisher
-from fmr_ingest_stock.sony_bundle import load_bundle_record
 from fmr_ingest_stock.sony_source import manifest_digest
 
 SCHEMA_SQL_PATH = Path(__file__).resolve().parents[1] / "fmr_core" / "schema.sql"
+
+
+def _load_bundle_record(db, key):
+    """Test-local copy of the retired sony_bundle.load_bundle_record helper."""
+    rows = db.query(
+        "SELECT public_token, resolver_json FROM firmware_delivery_specs "
+        "WHERE content_hash=? AND delivery_mode='r2_bundle' LIMIT 1",
+        (key,),
+    )
+    if not rows:
+        return None
+    return {
+        'public_token': rows[0]['public_token'],
+        'manifest': json.loads(rows[0]['resolver_json']),
+    }
 
 
 def test_sony_customizations_seed_has_only_phones_and_tablets() -> None:
@@ -256,7 +271,7 @@ def test_sony_adapter_gen1_gen2_v4_pipeline_and_r2_lookup(tmp_path: Path) -> Non
     assert pub_res["published_specs"] == 2
     assert db.query("SELECT COUNT(*) AS n FROM firmware_delivery_specs")[0]["n"] == 2
 
-    loaded_record = load_bundle_record(db, ge74_key)
+    loaded_record = _load_bundle_record(db, ge74_key)
     assert loaded_record is not None
     assert loaded_record["manifest"] == ge74.release.resolver_meta
     assert loaded_record["public_token"].startswith("fw_")
