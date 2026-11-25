@@ -4,7 +4,7 @@ import argparse
 import json
 import os
 import sys
-from fmr_ingest_stock.d1_budget import BudgetDB as D1Client,D1BudgetReached
+from fmr_core.d1_client import D1Client, D1QuotaExceededError
 from fmr_ingest_stock.common import private_key
 from . import VaultClient, extract_partitions_via_range, run_extraction_batch
 from .scheduler import validate_options
@@ -36,8 +36,6 @@ def main(argv=None):
         credentials()
         db = D1Client()
         if db.mode!='sqlite':
-            if not db.acquire():
-                print('Shared D1 allocation exhausted; extraction queue retained.');return 0
             from fmr_core.schema_migrations import ensure_schema
             ensure_schema(db)
         vault = VaultClient()
@@ -48,15 +46,14 @@ def main(argv=None):
         )
         print(json.dumps(result, sort_keys=True))
         return 1 if result["circuit_broken"] else 0
-    except D1BudgetReached:
-        print('Shared D1 allocation reached; completed rows and pending queue retained.');return 0
+    except D1QuotaExceededError:
+        print('Provider D1 quota reached; completed rows and pending queue retained.');return 0
     except Exception as exc:
         print(f"Extraction failed ({type(exc).__name__})", file=sys.stderr)
         return 1
     finally:
         if db:
-            try:db.settle()
-            finally:db.close()
+            db.close()
         if vault:
             vault.close()
 

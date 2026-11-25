@@ -13,7 +13,7 @@ import tempfile
 from urllib.parse import quote, urlsplit
 
 from fmr_ingest_stock.release_metadata import package_label
-from fmr_ingest_stock.d1_budget import BudgetDB as D1Client
+from fmr_core.d1_client import D1Client
 
 MAX_BYTES = 512_000
 IMAGE_HEADER = (
@@ -193,15 +193,7 @@ def main(argv=None):
     args = parser.parse_args(argv)
     db = None
     try:
-        # A local SQLite projection is safe during the production quota pause.
-        if not os.environ.get('LOCAL_SQLITE_PATH'):
-            from fmr_ingest_stock.d1_budget import NOT_BEFORE
-            import time
-            if time.time() < NOT_BEFORE:
-                raise RuntimeError('Production reads paused until UTC November 1')
         db = D1Client()
-        if db.mode!='sqlite' and not db.acquire():
-            print('Shared D1 allocation unavailable; public projection unchanged.');return 1
         print(json.dumps(generate_jumper_markdown_tree(db, args.output_dir, args.base_site_url), sort_keys=True))
         return 0
     except Exception as exc:
@@ -209,8 +201,7 @@ def main(argv=None):
         return 1
     finally:
         if db:
-            try:db.settle()
-            finally:db.close()
+            db.close()
 
 
 if __name__ == '__main__':

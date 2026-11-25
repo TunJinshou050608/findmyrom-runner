@@ -37,9 +37,9 @@ def _fetch_d1_live_rows() -> list[dict[str, Any]] | None:
         return None
     if db_id != DB_ID:
         raise ValueError("Production D1 identity must match the established database")
-    from fmr_ingest_stock.d1_budget import BudgetDB
+    from fmr_core.d1_client import D1Client
 
-    db = BudgetDB(cf_database_id=DB_ID, enforce_limits=False)
+    db = D1Client(cf_database_id=DB_ID)
     return list(
         db.query(
             "SELECT public_token, device_codename, target_post_url, maintainer_opted_out FROM custom_resources"

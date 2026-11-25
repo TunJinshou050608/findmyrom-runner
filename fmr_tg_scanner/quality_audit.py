@@ -401,16 +401,14 @@ def main():
     out=root/'audits'/('full-quality-'+os.environ.get('GITHUB_RUN_ID','local')) if args.publish_only else audit(root)
     if args.publish:
         if os.environ.get('CF_D1_DATABASE_ID')!=DB_ID:raise ValueError('Production D1 identity must match the established database')
-        from fmr_ingest_stock.d1_budget import BudgetDB
+        from fmr_core.d1_client import D1Client
         from fmr_core.schema_migrations import ensure_schema
-        db=BudgetDB(cf_database_id=DB_ID)
+        db=D1Client(cf_database_id=DB_ID)
         try:
-            if not db.acquire():return 0
             ensure_schema(db)
             publish(out,db,os.environ.get('SIGN_PRIVATE_KEY_HEX','').strip())
         finally:
-            try:db.settle()
-            finally:db.close()
+            db.close()
 
 
 if __name__=='__main__':main()

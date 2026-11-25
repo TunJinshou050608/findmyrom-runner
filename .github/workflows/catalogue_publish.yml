@@ -17,11 +17,6 @@ name: Catalogue D1 Publisher
         required: false
         default: '40'
         description: Maximum stock records published per batch
-      tg_unlimited:
-        type: boolean
-        required: false
-        default: false
-        description: Disable TG D1 budget enforcement for this manual run
       stock_vendor:
         type: string
         required: false
@@ -105,13 +100,12 @@ jobs:
     runs-on:
     - self-hosted
     - findmyrom-metadata
-    timeout-minutes: 30
+    timeout-minutes: 180
     environment: production
     env:
       FMR_TG_STATE_DIR: ${{ vars.FMR_TG_STATE_DIR || format('{0}/tg-v4', vars.FMR_CATALOGUE_STATE_DIR || '/var/lib/findmyrom/catalogue-v3') }}
       FMR_CATALOGUE_STATE_DIR: ${{ vars.FMR_CATALOGUE_STATE_DIR || '/var/lib/findmyrom/catalogue-v3' }}
       FMR_TG_LOCAL_RUNTIME: 'true'
-      FMR_D1_BUDGET_ENFORCE: ${{ (inputs.tg_unlimited == true || inputs.tg_unlimited == 'true') && 'false' || 'true' }}
     concurrency:
       group: tg-local-d1-publication
       cancel-in-progress: false

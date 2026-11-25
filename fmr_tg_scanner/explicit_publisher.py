@@ -133,7 +133,7 @@ def publish_explicit_outbox(
     db: Any,
     private_key_hex: str,
     *,
-    max_operations: int = 100,
+    max_operations: int | None = None,
     run_id: str | None = None,
     now: float | None = None,
 ) -> dict[str, Any]:
@@ -141,16 +141,26 @@ def publish_explicit_outbox(
     now_ts = time.time() if now is None else float(now)
     batch_run_id = str(run_id or int(now_ts * 1000))
 
-    pending = store.query(
-        """
-        SELECT id, resource_key, revision_id, op_type, public_token, device_codename, payload_json
-        FROM tg_publish_outbox
-        WHERE status='pending'
-        ORDER BY id ASC
-        LIMIT ?
-        """,
-        (max_operations,),
-    )
+    if max_operations is not None and max_operations > 0:
+        pending = store.query(
+            """
+            SELECT id, resource_key, revision_id, op_type, public_token, device_codename, payload_json
+            FROM tg_publish_outbox
+            WHERE status='pending'
+            ORDER BY id ASC
+            LIMIT ?
+            """,
+            (max_operations,),
+        )
+    else:
+        pending = store.query(
+            """
+            SELECT id, resource_key, revision_id, op_type, public_token, device_codename, payload_json
+            FROM tg_publish_outbox
+            WHERE status='pending'
+            ORDER BY id ASC
+            """
+        )
     if not pending:
         return {
             "status": "no_pending_operations",

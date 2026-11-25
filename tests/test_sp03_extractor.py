@@ -571,10 +571,10 @@ def test_samsung_stored_ap_tar_extraction_and_rejection(setup,encoding):
 def test_scheduler_pending_query_uses_partial_index_without_temp_btree(tmp_path):
     import sqlite3
     from fmr_core.schema_migrations import ensure_schema
-    from fmr_ingest_stock.d1_budget import BudgetDB
+    from fmr_core.d1_client import D1Client
 
     db_path = tmp_path / "migrated.sqlite"
-    db = BudgetDB(local_sqlite_path=str(db_path))
+    db = D1Client(local_sqlite_path=str(db_path))
     try:
         db.execute_script((Path(__file__).resolve().parents[1] / "fmr_core" / "schema.sql").read_text())
         db.execute("INSERT INTO brands(id,name,bl_unlock_status) VALUES ('xiaomi','Xiaomi','easy')")

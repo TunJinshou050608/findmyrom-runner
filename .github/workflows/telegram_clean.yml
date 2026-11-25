@@ -76,6 +76,7 @@ jobs:
           python -m pip install -r requirements.txt
         fi
     - name: Audit local snapshots; request unified publisher only when a batch changes
+      id: clean
       env:
         GH_WORKFLOW_TOKEN: ${{ github.token }}
         CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
@@ -84,6 +85,7 @@ jobs:
       run: python -u -m fmr_tg_scanner.local_runtime clean --state-dir "$FMR_TG_STATE_DIR" --duration "${{ inputs.duration || '600' }}"
     - name: Upload cleaning model usage report
       if: always()
+      continue-on-error: true
       uses: actions/upload-artifact@v4
       with:
         name: tg-clean-report-${{ github.run_id }}
@@ -92,17 +94,52 @@ jobs:
           ${{ env.FMR_TG_STATE_DIR }}/clean/audits/full-quality-*/report.json
         if-no-files-found: warn
     - name: Continue the independent cleaner
-      if: inputs.self_continue == 'true'
+      if: ${{ always() && !cancelled() && steps.clean.outcome == 'success' && (inputs.self_continue == 'true' || github.event_name == 'schedule') }}
       env:
         GH_TOKEN: ${{ github.token }}
         GH_REPO: ${{ github.repository }}
-      run: >-
-        gh workflow run telegram_clean.yml --ref main
-        -f self_continue=true
-        -f max_calls="${{ inputs.max_calls || '150' }}"
-        -f duration="${{ inputs.duration || '600' }}"
-        -f queue_limit="${{ inputs.queue_limit || '200' }}"
-        -f backlog_limit="${{ inputs.backlog_limit || '400' }}"
+        SELF_CONTINUE_INPUT: ${{ inputs.self_continue }}
+        TRIGGER_EVENT: ${{ github.event_name }}
+        NEXT_MAX_CALLS: ${{ inputs.max_calls || '150' }}
+        NEXT_DURATION: ${{ inputs.duration || '600' }}
+        NEXT_QUEUE_LIMIT: ${{ inputs.queue_limit || '200' }}
+        NEXT_BACKLOG_LIMIT: ${{ inputs.backlog_limit || '400' }}
+      run: |
+        set -euo pipefail
+        if [ "$TRIGGER_EVENT" = "schedule" ] && [ "$SELF_CONTINUE_INPUT" != "true" ]; then
+          PENDING="$(python - <<'PY'
+        import os, sqlite3
+        from pathlib import Path
+        db_path = Path(os.environ["FMR_TG_STATE_DIR"]) / "clean" / "search-v3" / "search.sqlite"
+        if not db_path.is_file():
+            print(0)
+        else:
+            with sqlite3.connect(db_path, timeout=10) as conn:
+                row = conn.execute("SELECT COUNT(*) FROM tg_cleaning_queue WHERE status = 'pending'").fetchone()
+                print(int(row[0]) if row else 0)
+        PY
+        )"
+          if [ "${PENDING:-0}" -le 0 ]; then
+            echo "Schedule run finished with 0 pending cleaning items; stopping chain."
+            exit 0
+          fi
+          echo "Schedule run still has ${PENDING} pending cleaning items; resuming continuous chain."
+        fi
+        for attempt in 1 2 3; do
+          if gh workflow run telegram_clean.yml --ref main \
+            -f self_continue=true \
+            -f max_calls="$NEXT_MAX_CALLS" \
+            -f duration="$NEXT_DURATION" \
+            -f queue_limit="$NEXT_QUEUE_LIMIT" \
+            -f backlog_limit="$NEXT_BACKLOG_LIMIT"; then
+            exit 0
+          fi
+          if [ "$attempt" -lt 3 ]; then
+            sleep $((attempt * 10))
+          fi
+        done
+        echo "Failed to dispatch continuation after 3 attempts" >&2
+        exit 1
     defaults:
       run:
         working-directory: tg-code-${{ github.run_id }}
