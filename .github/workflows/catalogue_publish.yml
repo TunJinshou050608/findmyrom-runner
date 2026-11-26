@@ -1,7 +1,7 @@
 name: Catalogue D1 Publisher
 'on':
-  # Triggered at exact 22:00:00 UTC (06:00:00 CST) via 103 systemd timer (workflow_dispatch)
-  # to avoid GitHub Actions schedule queue delays spilling into the next UTC quota day.
+  schedule:
+  - cron: '17 22 * * *'
   workflow_dispatch:
     inputs:
       scope:

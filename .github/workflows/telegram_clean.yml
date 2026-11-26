@@ -106,8 +106,7 @@ jobs:
         NEXT_BACKLOG_LIMIT: ${{ inputs.backlog_limit || '400' }}
       run: |
         set -euo pipefail
-        if [ "$TRIGGER_EVENT" = "schedule" ] && [ "$SELF_CONTINUE_INPUT" != "true" ]; then
-          PENDING="$(python - <<'PY'
+        PENDING="$(python - <<'PY'
         import os, sqlite3
         from pathlib import Path
         db_path = Path(os.environ["FMR_TG_STATE_DIR"]) / "clean" / "search-v3" / "search.sqlite"
@@ -119,12 +118,11 @@ jobs:
                 print(int(row[0]) if row else 0)
         PY
         )"
-          if [ "${PENDING:-0}" -le 0 ]; then
-            echo "Schedule run finished with 0 pending cleaning items; stopping chain."
-            exit 0
-          fi
-          echo "Schedule run still has ${PENDING} pending cleaning items; resuming continuous chain."
+        if [ "${PENDING:-0}" -le 0 ]; then
+          echo "Cleaning queue has 0 pending items; stopping chain."
+          exit 0
         fi
+        echo "Cleaning queue still has ${PENDING} pending items; dispatching continuation."
         for attempt in 1 2 3; do
           if gh workflow run telegram_clean.yml --ref main \
             -f self_continue=true \
